@@ -58,8 +58,8 @@
 
 - Algorithms Comparison :cactus:
 
-  | VNS  | SA   | GSGA | BACO | CBACO-D | CBACO-I | CBMA |
-  | ---- | ---- | ---- | ---- | ------- | ------- | ---- |
+  | ILS  | VNS  | SA   | GSGA | BACO | CBACO-D | CBACO-I | CBMA |
+  | ---- | ---- | ---- | ---- | ---- | ------- | ------- | ---- |
   
   > Codes:
   >
@@ -67,6 +67,7 @@
   > - [GSGA](https://github.com/NeiH4207/EVRP) 
   > - [BACO & CBACO-D & CBACO-I](https://github.com/Flyki/CEVRP)
   > - SA: no paper, no code
+  > - ILS: no paper, no code
 
 * Adaptive selection scheme :vs: typical tournament selection
 
