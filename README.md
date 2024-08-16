@@ -1,3 +1,17 @@
+## Paper
+
+For details, please refer to the following paper:
+```
+@inproceedings{qin2024confidence,
+  title={A Confidence-based Bilevel Memetic Algorithm with Adaptive Selection Scheme for Capacitated Electric Vehicle Routing Problem},
+  author={Qin, Yinghao and Chen, Jun},
+  booktitle={2024 IEEE Congress on Evolutionary Computation (CEC)},
+  pages={1--10},
+  year={2024},
+  organization={IEEE}
+}
+```
+
 ## Usage :dog:
 
 1. First step - compile
