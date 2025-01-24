@@ -331,7 +331,7 @@ void MA::run_heuristic() {
     } else {
         // part of elites x elites
         int num_promising_seqs = promising_seqs.size();
-        int loop_num = int(num_promising_seqs / 2.0) < (popSize/2) ? int(num_promising_seqs / 2.0) : int(popSize/4);
+        int loop_num = int(num_promising_seqs / 2.0) <= (popSize/2) ? int(num_promising_seqs / 2.0) : int(popSize/4);
         for (int i = 0; i < loop_num; ++i) {
             vector<vector<int>> parents = selRandom(promising_seqs, 2, randomEngine);
             cxPartiallyMatched(parents[0], parents[1], randomEngine);

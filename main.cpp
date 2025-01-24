@@ -12,7 +12,7 @@
 
 using namespace std;
 
-#define MAX_TRIALS 20
+#define MAX_TRIALS 10
 
 const string DATA_PATH = "../data/";
 
@@ -59,9 +59,10 @@ int main(int argc, char *argv[]) {
         };
 
         // Launch threads
-        for (run = 1; run <= MAX_TRIALS; ++run) {
+        for (run = 2; run <= MAX_TRIALS; ++run) {
             threads.emplace_back(thread_function, run);
         }
+        thread_function(1);
 
         // Wait for threads to finish
         for (auto& thread : threads) {

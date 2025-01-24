@@ -50,14 +50,14 @@ bool StatsInterface::create_directories_if_not_exists(const string &directoryPat
     if (!fs::exists(directoryPath)) {
         try {
             fs::create_directories(directoryPath);
-            std::cout << "Directory created successfully: " << directoryPath << std::endl;
+//            std::cout << "Directory created successfully: " << directoryPath << std::endl;
             return true;
         } catch (const std::exception& e) {
-            std::cerr << "Error creating directory: " << e.what() << std::endl;
+//            std::cerr << "Error creating directory: " << e.what() << std::endl;
             return false;
         }
     } else {
-        std::cout << "Directory already exists: " << directoryPath << std::endl;
+//        std::cout << "Directory already exists: " << directoryPath << std::endl;
         return true;
     }
 }
