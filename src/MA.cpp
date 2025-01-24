@@ -45,30 +45,24 @@ void MA::run() {
         end = std::chrono::high_resolution_clock::now();
         duration = end - start;
 
-        open_log_for_evolution();
         initialize_heuristic();
         while (!termination_criteria_1()) {
             //Execute your heuristic
             run_heuristic();
             duration = std::chrono::high_resolution_clock::now() - start;
-            flush_row_into_evol_log();
         }
-        close_log_for_evolution();
         save_log_for_solution();
     } else {
         start = std::chrono::high_resolution_clock::now();
         end = std::chrono::high_resolution_clock::now();
         duration = end - start;
 
-        open_log_for_evolution();
         initialize_heuristic();
         while (!termination_criteria_2(duration)) {
             //Execute your heuristic
             run_heuristic();
             duration = std::chrono::high_resolution_clock::now() - start;
-            flush_row_into_evol_log();
         }
-        close_log_for_evolution();
         save_log_for_solution();
     }
 }
@@ -188,8 +182,6 @@ void MA::initialize_heuristic() {
 void MA::run_heuristic() {
     gen++;
 
-    S_stats = calculate_population_metrics(get_fitness_vector_from_group(population));
-
     vector<shared_ptr<Individual>> S1 = population;
     double v1 = 0;
     double v2;
@@ -238,8 +230,6 @@ void MA::run_heuristic() {
     if (gen > delta) S1.push_back(talentedInd); //  *** switch off ***
 
 
-    S1_stats = calculate_population_metrics(get_fitness_vector_from_group(S1));
-
     // Current S1 has been selected and local search.
     // Pick a portion of the upper sub-solutions to go for recharging process, by the difference between before and after charging of the best solution in S1
     vector<shared_ptr<Individual>> S2 = S1;
@@ -279,8 +269,6 @@ void MA::run_heuristic() {
     if (r == 0 || r > v3) {
         r = v3;
     }
-
-    S3_stats = calculate_population_metrics(get_fitness_vector_from_group(S3));
 
 
     // statistics
