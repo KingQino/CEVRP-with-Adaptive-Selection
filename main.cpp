@@ -12,7 +12,7 @@
 
 using namespace std;
 
-#define MAX_TRIALS 10
+#define MAX_TRIALS 20
 
 const string DATA_PATH = "../data/";
 

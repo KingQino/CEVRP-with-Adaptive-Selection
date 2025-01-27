@@ -138,7 +138,7 @@ For details, please refer to the following paper:
    #SBATCH --time=48:0:0                   # Request 48 hours of compute time
    #SBATCH --nodes=1                       # Request 1 node
    #SBATCH --tasks-per-node=1              # One task per node
-   #SBATCH --cpus-per-task=10              # Each task uses 10 CPUs (threads)
+   #SBATCH --cpus-per-task=20              # Each task uses 10 CPUs (threads)
    #SBATCH --mem-per-cpu=1G                # Memory per CPU
    #SBATCH --account=su008-exx866
    #SBATCH --array=0-16
