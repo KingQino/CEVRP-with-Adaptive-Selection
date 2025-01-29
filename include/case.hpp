@@ -74,6 +74,8 @@ public:
     double evals;
     double maxEvals;
     int maxExecTime; // unit seconds
+    double convergenceEpsilon{};
+    int maxNoImprovementCount{};
 };
 
 

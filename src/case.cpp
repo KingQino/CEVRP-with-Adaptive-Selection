@@ -157,13 +157,17 @@ void Case::read_problem(const string& filepath) {
 
     this->evals = 0.0;
     this->maxEvals = actualProblemSize * MAX_EVALUATION_FACTOR;
-    if (customerNumber <= 100) {
-        maxExecTime = int (1 * (actualProblemSize / 100.0) * 60 * 60);
-    } else if (customerNumber <= 915) {
-        maxExecTime = int (2 * (actualProblemSize / 100.0) * 60 * 60);
-    } else {
-        maxExecTime = int (3 * (actualProblemSize / 100.0) * 60 * 60);
-    }
+//    if (customerNumber <= 100) {
+//        maxExecTime = int (1 * (actualProblemSize / 100.0) * 60 * 60);
+//    } else if (customerNumber <= 915) {
+//        maxExecTime = int (2 * (actualProblemSize / 100.0) * 60 * 60);
+//    } else {
+//        maxExecTime = int (3 * (actualProblemSize / 100.0) * 60 * 60);
+//    }
+
+    this->maxExecTime = 9.5 * 24 * 60 * 60;
+    this->convergenceEpsilon = 0.1;
+    this->maxNoImprovementCount = 5'000;
 
 }
 

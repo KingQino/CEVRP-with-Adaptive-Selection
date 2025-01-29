@@ -29,6 +29,7 @@ public:
     void run_heuristic();
     bool termination_criteria_1() const;
     bool termination_criteria_2(const std::chrono::duration<double>& runningTime) const;
+    bool termination_criteria_3(double currentBestObj) const;
     void pop_init_with_clustering(); // hien clustering
     void pop_init_with_order_split(); // random order first, split second
     void pop_init_with_direct_encoding(); // direct encoding approach

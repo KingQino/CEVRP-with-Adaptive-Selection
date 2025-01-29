@@ -58,7 +58,7 @@ void MA::run() {
         duration = end - start;
 
         initialize_heuristic();
-        while (!termination_criteria_2(duration)) {
+        while (!termination_criteria_2(duration) && !termination_criteria_3(globalBest->get_fit())) {
             //Execute your heuristic
             run_heuristic();
             duration = std::chrono::high_resolution_clock::now() - start;
@@ -88,6 +88,28 @@ bool MA::termination_criteria_2(const std::chrono::duration<double>& runningTime
 
     return flag;
 }
+
+bool MA::termination_criteria_3(double currentBestObj) const {
+    static int no_change_count = 0; // consecutive no-change count
+    static double prev_best_obj = std::numeric_limits<double>::max(); // previous best objective, initialized to infinity
+
+    // calculate the change in objective value
+    double obj_change = std::abs(currentBestObj - prev_best_obj);
+
+    // If change is small, increment count; otherwise, reset
+    if (obj_change < instance->convergenceEpsilon) {
+        no_change_count++;
+    } else {
+        no_change_count = 0;
+    }
+
+    // update previous objective value
+    prev_best_obj = currentBestObj;
+
+    // check if max no-change count is reached
+    return no_change_count >= instance->maxNoImprovementCount;
+}
+
 
 void MA::pop_init_with_clustering() {
     for (int i = 0; i < popSize; ++i) {
