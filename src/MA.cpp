@@ -206,7 +206,10 @@ void MA::run_heuristic() {
 
         double new_fit = talentedInd->get_fit();
         v1 = old_fit - new_fit;
-        v2 = v1 * 1.2;
+        v2 = *std::max_element(P.begin(), P.end());
+        if (v2 < v1) {
+            v2 = v1 * gammaL;
+        }
 
         S1.clear();
         for (auto& ind:population) {
@@ -222,11 +225,18 @@ void MA::run_heuristic() {
 
 
     // make local search on S1
+    v2 = 0;
     for(auto& ind : S1) {
+        double old_fit = ind->get_fit();
         two_opt_for_individual(*ind, *instance); // 2-opt
         two_opt_star_for_individual(*ind, *instance);
         node_shift_for_individual(*ind, *instance);
+        if (v2 < old_fit - ind->get_fit())
+            v2 = old_fit - ind->get_fit();
     }
+    v2 = (v1 > v2) ? v1 : v2;
+    P.push_back(v2);
+    if (P.size() > delta)  P.pop_front();
     if (gen > delta) S1.push_back(talentedInd); //  *** switch off ***
 
     S1_stats = calculate_population_metrics(get_fitness_vector_from_group(S1));
