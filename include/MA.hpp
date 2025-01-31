@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <iterator>
 #include <deque>
+#include <queue>
 
 #include "case.hpp"
 #include "stats.hpp"
@@ -43,10 +44,13 @@ public:
     uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::unique_ptr<Individual> globalBest;
+    double globalUpperBest;
     std::unique_ptr<Individual> iterBest;
     PopulationMetrics S1_stats;
     PopulationMetrics S3_stats;
     PopulationMetrics S_stats; // statistics
+    queue<double> global_upper_best_in_past_two_gens;
+    double recharging_threshold_ratio_last_gen;
 
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time

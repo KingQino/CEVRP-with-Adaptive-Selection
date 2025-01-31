@@ -183,6 +183,8 @@ void MA::initialize_heuristic() {
     std::vector<int> emptyVector1D;
     iterBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
     globalBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
+
+    globalUpperBest = INFEASIBLE;
 }
 
 void MA::run_heuristic() {
@@ -231,42 +233,48 @@ void MA::run_heuristic() {
 
     // Current S1 has been selected and local search.
     // Pick a portion of the upper sub-solutions to go for recharging process, by the difference between before and after charging of the best solution in S1
-    vector<shared_ptr<Individual>> S2 = S1;
-    double v3;
     shared_ptr<Individual> outstandingUpper = select_best_individual(S1);
-    if (gen > 0) { // Switch = off False
-        // 开关 此处只是设计了一个总是为真的虚拟条件，需要具体实现
-        double old_fit = outstandingUpper->get_fit(); // fitness without recharging f
-        double new_fit = fix_one_solution(*outstandingUpper, *instance); // // fitness with recharging F
-        v3 = new_fit - old_fit;
-        r = v3 * 0.8;
+    if (globalUpperBest > outstandingUpper->get_fit()) {
+        globalUpperBest = outstandingUpper->get_fit();
+    }
+    global_upper_best_in_past_two_gens.push(globalUpperBest);
+    if (global_upper_best_in_past_two_gens.size() > 2) {
+        global_upper_best_in_past_two_gens.pop();
+    }
 
-        S2.clear();
-        for (auto& ind:S1) {
-            if (ind->get_fit() + r <= new_fit)
-                S2.push_back(ind);
+    // Current S1 has been selected and local search. Now, we need to select the best solution in S1 to go for recharging process.
+    vector<shared_ptr<Individual>> S2 = S1;
+    double upper_cost = outstandingUpper->get_fit();
+    fix_one_solution(*outstandingUpper, *instance);
+    double lower_cost = outstandingUpper->get_fit();
+    // update S2
+    S2.clear();
+    if (gen < 5) {
+        for(auto& ind : S1) {
+            if (ind->get_fit() <= globalUpperBest) S2.push_back(ind);
         }
-
-        auto it = std::find(S2.begin(), S2.end(), outstandingUpper);
-        // If genius_upper is found, remove it from S2
-        if (it != S2.end()) {
-            S2.erase(it);
+        recharging_threshold_ratio_last_gen = 1.0;
+    } else {
+        double tmp = (global_upper_best_in_past_two_gens.front() - global_upper_best_in_past_two_gens.back())
+                / (100 * global_upper_best_in_past_two_gens.front());
+        double recharging_threshold_ratio = recharging_threshold_ratio_last_gen + tmp;
+        for(auto& ind : S1) {
+            if (ind->get_fit() <= globalUpperBest * recharging_threshold_ratio) S2.push_back(ind);
         }
+        recharging_threshold_ratio_last_gen = recharging_threshold_ratio;
+    }
+    auto it = std::find(S2.begin(), S2.end(), outstandingUpper);
+    // If genius_upper is found, remove it from S2
+    if (it != S2.end()) {
+        S2.erase(it);
     }
 
     // Current S2 has been selected and ready for recharging, make recharging on S2
     vector<shared_ptr<Individual>> S3;
     S3.push_back(outstandingUpper); //  *** switch off ***
     for (auto& ind:S2) {
-        double old_fit = ind->get_fit();
         fix_one_solution(*ind, *instance);
-        double new_fit = ind->get_fit();
         S3.push_back(ind);
-        if (v3 > new_fit - old_fit)
-            v3 = new_fit - old_fit;
-    }
-    if (r == 0 || r > v3) {
-        r = v3;
     }
 
     S3_stats = calculate_population_metrics(get_fitness_vector_from_group(S3));
