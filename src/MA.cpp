@@ -25,7 +25,8 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     this->tournamentSize = tournamentSize;
 
     this->routeCapacity = this->instance->vehicleNumber * 3;
-    this->nodeCapacity = this->instance->customerNumber + 1;
+    // One upper-level route can contain depot + all customers + depot.
+    this->nodeCapacity = this->instance->customerNumber + 2;
     this->gen = 0;
     this->gammaL = 1.2;
     this->gammaR = 0.8;
@@ -383,4 +384,3 @@ void MA::run_heuristic() {
                                                      );
     }
 }
-
