@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n30-k3 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 511.253921 
+OPTIMAL_VALUE: 509.47
 VEHICLES: 4 
 DIMENSION: 30 
 STATIONS: 6 

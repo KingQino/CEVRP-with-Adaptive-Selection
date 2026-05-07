@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n749-k98	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0 
+OPTIMAL_VALUE: 83497.5
 VEHICLES: 98
 DIMENSION: 749 
 STATIONS: 30 

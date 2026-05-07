@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n573-k30	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0
+OPTIMAL_VALUE: 52969.5
 VEHICLES: 30
 DIMENSION: 573 
 STATIONS: 6 

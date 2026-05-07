@@ -14,6 +14,7 @@
 #include <string>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <cmath>
 #include <cfloat>
@@ -71,6 +72,7 @@ public:
     int** bestStation; // "bestStation" is designed for two customers, bringing the minimum extra cost.
     unordered_map<int, vector<int>> customerClustersMap; // For Hien's clustering usage only. For each customer, a list of customer nodes from near to far, e.g., {1: [5,3,2,6], 2: [], ...}
     unordered_map<int, pair<int, double>> customerNearestStationMap; // for each customer, find the nearest station and store the corresponding distance
+    unordered_set<int> stationSet;
     double evals;
     double maxEvals;
     int maxExecTime; // unit seconds
@@ -78,4 +80,3 @@ public:
 
 
 #endif //CEVRP_YINGHAO_CASE_HPP
-

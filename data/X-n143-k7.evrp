@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n143-k7	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0 
+OPTIMAL_VALUE: 16314.9
 VEHICLES: 7 
 DIMENSION: 143 
 STATIONS: 4 

@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n1001-k43	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0 
+OPTIMAL_VALUE: 81757.4
 VEHICLES: 43
 DIMENSION: 1001 
 STATIONS: 9 

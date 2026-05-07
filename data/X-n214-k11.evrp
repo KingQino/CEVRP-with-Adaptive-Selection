@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n214-k11	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0
+OPTIMAL_VALUE: 11581.5
 VEHICLES: 11
 DIMENSION: 214 
 STATIONS: 9 

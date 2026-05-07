@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n351-k40	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0 
+OPTIMAL_VALUE: 27714.7
 VEHICLES: 40 
 DIMENSION: 351 
 STATIONS: 35 

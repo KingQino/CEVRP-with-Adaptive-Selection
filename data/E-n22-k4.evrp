@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n22-k4 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 384.678035 
+OPTIMAL_VALUE: 384.955
 VEHICLES: 4 
 DIMENSION: 22 
 STATIONS: 8 

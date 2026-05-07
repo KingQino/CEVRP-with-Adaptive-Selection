@@ -773,7 +773,7 @@ pair<double, vector<int>> simple_repair_target_one_station(const int* route, int
         if(availableRange >= distances[next]) {
 
             // 判断是否从current可以到达next
-            if (availableRange - distances[next] >= instance.customerNearestStationMap[route[next]].second || next == length - 1 ) {
+            if (next == length - 1 || availableRange - distances[next] >= instance.customerNearestStationMap.at(route[next]).second) {
                 // 判断是否next可以到达最近的充电站，假设EV到达next 或者 下一个节点为仓库
                 fullRoute.push_back(route[next]);
                 accumulatedTotalDistance += distances[next];
@@ -843,7 +843,7 @@ pair<double, vector<int>> station_reallocate_one(vector<int>& repairedForwardRou
         }
     }
 
-    vector<vector<double>> distanceMatrix(instance.customerNumber + 1, vector<double>(instance.customerNumber + 1, 0.0));
+    vector<vector<double>> distanceMatrix(instance.actualProblemSize, vector<double>(instance.actualProblemSize, 0.0));
     for (int i = 0; i < dumbForwardRoute.size() - 1; ++i) {
         double distance = instance.get_distance(dumbForwardRoute[i], dumbForwardRoute[i+1]);
         distanceMatrix[dumbForwardRoute[i]][dumbForwardRoute[i+1]] = distance;

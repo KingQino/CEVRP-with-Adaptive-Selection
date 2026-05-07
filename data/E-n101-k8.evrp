@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n101-k8 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 899.885589 
+OPTIMAL_VALUE: 836.847
 VEHICLES: 8 
 DIMENSION: 101 
 STATIONS: 9 

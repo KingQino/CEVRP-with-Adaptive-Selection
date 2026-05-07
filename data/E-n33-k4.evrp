@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n33-k4 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 869.892175 
+OPTIMAL_VALUE: 840.146
 VEHICLES: 4 
 DIMENSION: 33 
 STATIONS: 6 

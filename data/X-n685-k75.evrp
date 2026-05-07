@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of X-n685-k75	 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 0 
+OPTIMAL_VALUE: 72991.1
 VEHICLES: 75 
 DIMENSION: 685 
 STATIONS: 25 

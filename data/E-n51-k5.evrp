@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n51-k5 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 570.170703 
+OPTIMAL_VALUE: 532.225
 VEHICLES: 5 
 DIMENSION: 51 
 STATIONS: 9 

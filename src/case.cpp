@@ -3,6 +3,7 @@
 //
 
 #include "../include/case.hpp"
+#include <stdexcept>
 
 const int Case::MAX_EVALUATION_FACTOR = 25000;
 
@@ -21,134 +22,212 @@ Case::~Case() {
         delete[] this->distances[i];
     }
     delete[] this->distances;
-    for (int i = 0; i < depotNumber + customerNumber; i++) {
+    for (int i = 0; i < actualProblemSize; i++) {
         delete[] this->bestStation[i];
     }
     delete[] this->bestStation;
 }
 
 void Case::read_problem(const string& filepath) {
-    stringstream ss;
+    enum class Section {
+        Header,
+        NodeCoords,
+        Demands,
+        Stations,
+        Depots
+    };
+
+    auto trim = [](const string& value) {
+        const auto begin = value.find_first_not_of(" \t\r\n");
+        if (begin == string::npos) {
+            return string();
+        }
+        const auto end = value.find_last_not_of(" \t\r\n");
+        return value.substr(begin, end - begin + 1);
+    };
+
+    auto parse_int_after_colon = [&](const string& text, int& target) {
+        const auto pos = text.find(':');
+        if (pos == string::npos) {
+            return false;
+        }
+        istringstream iss(trim(text.substr(pos + 1)));
+        iss >> target;
+        return !iss.fail();
+    };
+
+    auto parse_double_after_colon = [&](const string& text, double& target) {
+        const auto pos = text.find(':');
+        if (pos == string::npos) {
+            return false;
+        }
+        istringstream iss(trim(text.substr(pos + 1)));
+        iss >> target;
+        return !iss.fail();
+    };
+
+    this->positions.clear();
+    this->demand.clear();
+    this->customers.clear();
+    this->stations.clear();
+    this->stationSet.clear();
+    this->customerClustersMap.clear();
+    this->customerNearestStationMap.clear();
     this->depotNumber = 1;
     this->depot = 0;
+
     ifstream infile(filepath.c_str());
-    char line[250];
-    while (infile.getline(line, 249)) {
-        string templine(line);
-        if (templine.find("DIMENSION:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->customerNumber;
-            ss.clear();
-            this->customerNumber--;
+    if (!infile.is_open()) {
+        throw runtime_error("Failed to open instance file: " + filepath);
+    }
+
+    Section section = Section::Header;
+    vector<tuple<int, double, double>> nodeCoords;
+    unordered_map<int, int> demandByNode;
+    vector<int> stationNodes;
+    vector<int> depotNodes;
+    int maxNodeId = -1;
+
+    string line;
+    while (getline(infile, line)) {
+        const string trimmed = trim(line);
+        if (trimmed.empty()) {
+            continue;
         }
-        else if (templine.find("STATIONS:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->stationNumber;
-            ss.clear();
+        if (trimmed == "EOF") {
+            break;
         }
-        else if (templine.find("VEHICLES:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->vehicleNumber;
-            ss.clear();
+        if (trimmed == "NODE_COORD_SECTION") {
+            section = Section::NodeCoords;
+            continue;
         }
-        else if (templine.find("CAPACITY:") != string::npos && templine.find("ENERGY") == string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->maxC;
-            ss.clear();
+        if (trimmed == "DEMAND_SECTION") {
+            section = Section::Demands;
+            continue;
         }
-        else if (templine.find("ENERGY_CAPACITY:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->maxQ;
-            ss.clear();
+        if (trimmed == "STATIONS_COORD_SECTION") {
+            section = Section::Stations;
+            continue;
         }
-        else if (templine.find("ENERGY_CONSUMPTION:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->conR;
-            ss.clear();
+        if (trimmed == "DEPOT_SECTION") {
+            section = Section::Depots;
+            continue;
         }
-        else if (templine.find("OPTIMAL_VALUE:") != string::npos) {
-            string substr = templine.substr(templine.find(':') + 1);
-            ss << substr;
-            ss >> this->optimum;
-            ss.clear();
-        }
-        else if (templine.find("NODE_COORD_SECTION") != string::npos) {
-            this->actualProblemSize = depotNumber + customerNumber + stationNumber;
-            for (int i = 0; i < actualProblemSize; i++) {
-                positions.push_back(make_pair(0, 0));
-            }
-            for (int i = 0; i < actualProblemSize; i++) {
-                infile.getline(line, 249);
-                templine = line;
-                ss << templine;
-                int ind;
-                double x, y;
-                ss >> ind >> x >> y;
-                ss.clear();
-                positions[ind - 1].first = x;
-                positions[ind - 1].second = y;
-            }
-        }
-        else if (templine.find("DEMAND_SECTION") != string::npos) {
-            int totalNumber = depotNumber + customerNumber;
-            for (int i = 0; i < totalNumber; i++) {
-                demand.push_back(0);
-            }
-            for (int i = 0; i < totalNumber; i++) {
-                infile.getline(line, 249);
-                templine = line;
-                ss << templine;
-                int ind;
-                int c;
-                ss >> ind >> c;
-                ss.clear();
-                demand[ind - 1] = c;
-                if (c == 0) {
-                    depot = ind - 1;
+
+        switch (section) {
+            case Section::Header:
+                if (trimmed.find("VEHICLES:") != string::npos) {
+                    parse_int_after_colon(trimmed, this->vehicleNumber);
+                } else if (trimmed.find("CAPACITY:") != string::npos && trimmed.find("ENERGY") == string::npos) {
+                    parse_int_after_colon(trimmed, this->maxC);
+                } else if (trimmed.find("ENERGY_CAPACITY:") != string::npos) {
+                    parse_double_after_colon(trimmed, this->maxQ);
+                } else if (trimmed.find("ENERGY_CONSUMPTION:") != string::npos) {
+                    parse_double_after_colon(trimmed, this->conR);
+                } else if (trimmed.find("OPTIMAL_VALUE:") != string::npos) {
+                    parse_double_after_colon(trimmed, this->optimum);
                 }
+                break;
+            case Section::NodeCoords: {
+                istringstream iss(trimmed);
+                int nodeId = -1;
+                double x = 0.0;
+                double y = 0.0;
+                if (iss >> nodeId >> x >> y) {
+                    nodeCoords.emplace_back(nodeId - 1, x, y);
+                    maxNodeId = std::max(maxNodeId, nodeId - 1);
+                }
+                break;
+            }
+            case Section::Demands: {
+                istringstream iss(trimmed);
+                int nodeId = -1;
+                int nodeDemand = 0;
+                if (iss >> nodeId >> nodeDemand) {
+                    demandByNode[nodeId - 1] = nodeDemand;
+                    maxNodeId = std::max(maxNodeId, nodeId - 1);
+                }
+                break;
+            }
+            case Section::Stations: {
+                istringstream iss(trimmed);
+                int nodeId = -1;
+                if (iss >> nodeId && nodeId > 0) {
+                    stationNodes.push_back(nodeId - 1);
+                    maxNodeId = std::max(maxNodeId, nodeId - 1);
+                }
+                break;
+            }
+            case Section::Depots: {
+                istringstream iss(trimmed);
+                int nodeId = -1;
+                if (iss >> nodeId && nodeId > 0) {
+                    depotNodes.push_back(nodeId - 1);
+                    maxNodeId = std::max(maxNodeId, nodeId - 1);
+                }
+                break;
             }
         }
     }
     infile.close();
 
-    // processing variables
-    for (int i = 1; i < depotNumber + customerNumber; ++i) {
-        customers.push_back(i);
+    if (nodeCoords.empty()) {
+        throw runtime_error("Instance file has no node coordinates: " + filepath);
+    }
+    if (depotNodes.size() != 1) {
+        throw runtime_error("Only single-depot instances are supported: " + filepath);
     }
 
-    for (int i = depotNumber + customerNumber; i < actualProblemSize; ++i) {
-        stations.push_back(i);
+    sort(stationNodes.begin(), stationNodes.end());
+    stationNodes.erase(unique(stationNodes.begin(), stationNodes.end()), stationNodes.end());
+
+    this->actualProblemSize = maxNodeId + 1;
+    this->positions.assign(actualProblemSize, make_pair(0.0, 0.0));
+    this->demand.assign(actualProblemSize, 0);
+    this->depot = depotNodes.front();
+    this->depotNumber = 1;
+    this->stations = stationNodes;
+    this->stationSet.insert(stations.begin(), stations.end());
+    this->stationNumber = static_cast<int>(stations.size());
+
+    for (const auto& [nodeId, x, y] : nodeCoords) {
+        this->positions[nodeId] = make_pair(x, y);
     }
+
+    this->customers.clear();
+    this->totalDem = 0;
+    for (const auto& [nodeId, nodeDemand] : demandByNode) {
+        this->demand[nodeId] = nodeDemand;
+        if (nodeId != depot) {
+            this->customers.push_back(nodeId);
+            this->totalDem += nodeDemand;
+        }
+    }
+    sort(this->customers.begin(), this->customers.end());
+    this->customerNumber = static_cast<int>(customers.size());
 
     this->maxDis = maxQ / conR;
 
-    this->totalDem = 0;
-    for (auto& e : demand) {
-        this->totalDem += e;
-    }
-
     this->distances = generate_2D_matrix_double(actualProblemSize, actualProblemSize);
-    int i, j;
-    for (i = 0; i < actualProblemSize; i++) {
-        for (j = 0; j < actualProblemSize; j++) {
+    for (int i = 0; i < actualProblemSize; i++) {
+        for (int j = 0; j < actualProblemSize; j++) {
             distances[i][j] = euclidean_distance(i, j);
         }
     }
 
-    this->bestStation = new int* [depotNumber + customerNumber];
-    for (int i = 0; i < depotNumber + customerNumber; i++) {
-        this->bestStation[i] = new int[depotNumber + customerNumber];
-        memset(this->bestStation[i], 0, sizeof(int)* (depotNumber + customerNumber));
+    this->bestStation = new int* [actualProblemSize];
+    for (int i = 0; i < actualProblemSize; i++) {
+        this->bestStation[i] = new int[actualProblemSize];
+        memset(this->bestStation[i], 0, sizeof(int) * actualProblemSize);
     }
-    for (int i = 0; i < depotNumber + customerNumber - 1; i++) {
-        for (int j = i + 1; j < depotNumber + customerNumber; j++) {
-            this->bestStation[i][j] = this->bestStation[j][i] = find_best_station(i, j);
+
+    vector<int> routeNodes = customers;
+    routeNodes.insert(routeNodes.begin(), depot);
+    for (int a = 0; a < static_cast<int>(routeNodes.size()) - 1; ++a) {
+        for (int b = a + 1; b < static_cast<int>(routeNodes.size()); ++b) {
+            const int from = routeNodes[a];
+            const int to = routeNodes[b];
+            this->bestStation[from][to] = this->bestStation[to][from] = find_best_station(from, to);
         }
     }
 
@@ -164,7 +243,6 @@ void Case::read_problem(const string& filepath) {
     } else {
         maxExecTime = int (3 * (actualProblemSize / 100.0) * 60 * 60);
     }
-
 }
 
 
@@ -195,17 +273,17 @@ void Case::init_customer_clusters_map() {
 }
 
 void Case::init_customer_nearest_station_map() {
-    for (int i = 1; i <= customerNumber; ++i) {
+    for (int customer : customers) {
         int nearestStation = -1;
         double minDis = DBL_MAX;
-        for (int j = customerNumber + 1; j < actualProblemSize; ++j) {
-            double dis = distances[i][j];
+        for (int station : stations) {
+            double dis = distances[customer][station];
             if (minDis > dis) {
-                nearestStation = j;
+                nearestStation = station;
                 minDis = dis;
             }
         }
-        customerNearestStationMap[i] = make_pair(nearestStation, minDis);
+        customerNearestStationMap[customer] = make_pair(nearestStation, minDis);
     }
 }
 
@@ -280,11 +358,11 @@ int Case::find_best_station(int from, int to) const {
     int theStation = -1;
     double bigDis = DBL_MAX;
 
-    for (int i = customerNumber + 1 ; i < actualProblemSize; ++i) {
-        double dis = distances[from][i] + distances[to][i];
+    for (int station : stations) {
+        double dis = distances[from][station] + distances[to][station];
 
-        if (bigDis > dis && from != i && to != i) {
-            theStation = i;
+        if (bigDis > dis && from != station && to != station) {
+            theStation = station;
             bigDis = dis;
         }
     }
@@ -296,14 +374,14 @@ int Case::find_best_station_feasible(int from, int to, double max_dis) const {
     int theStation = -1;
     double bigDis = DBL_MAX;
 
-    for (int i = customerNumber + 1; i < actualProblemSize; ++i) {
-        if (distances[from][i] < max_dis &&
-            bigDis > distances[from][i]  + distances[to][i]  &&
-            from != i && to != i &&
-            distances[i][to] < maxDis) {
+    for (int station : stations) {
+        if (distances[from][station] < max_dis &&
+            bigDis > distances[from][station] + distances[to][station] &&
+            from != station && to != station &&
+            distances[station][to] < maxDis) {
 
-            theStation = i;
-            bigDis = distances[from][i] + distances[to][i];
+            theStation = station;
+            bigDis = distances[from][station] + distances[to][station];
         }
     }
 
@@ -314,11 +392,11 @@ int Case::find_nearest_station_to_y_feasible(int x, int y, double max_dis) {
     int targetedStation = -1;
     double minDis = DBL_MAX;
 
-    for (int s = customerNumber + 1; s < actualProblemSize; ++s) {
-        double x2station = get_distance(x, s);
-        double station2y = get_distance(s, y);
+    for (int station : stations) {
+        double x2station = get_distance(x, station);
+        double station2y = get_distance(station, y);
         if (x2station <= max_dis && station2y < minDis) {
-            targetedStation = s;
+            targetedStation = station;
             minDis = station2y;
         }
     }
@@ -327,11 +405,5 @@ int Case::find_nearest_station_to_y_feasible(int x, int y, double max_dis) {
 }
 
 bool Case::is_charging_station(int node) const {
-
-    bool flag;
-    if (node == depot || ( node >= depotNumber + customerNumber && node < actualProblemSize))
-        flag = true;
-    else
-        flag = false;
-    return flag;
+    return node == depot || stationSet.count(node) > 0;
 }

@@ -1,7 +1,7 @@
 Name: Mavrovouniotis Menelaou Instances Test: 1 
 COMMENT: Modificatification of E-n76-k7 instance. Modified by Mavrovouniotis Menelaou.
 TYPE: EVRP 
-OPTIMAL_VALUE: 723.367517 
+OPTIMAL_VALUE: 697.438
 VEHICLES: 7 
 DIMENSION: 76 
 STATIONS: 9 
