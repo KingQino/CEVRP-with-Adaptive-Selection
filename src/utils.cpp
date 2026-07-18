@@ -531,6 +531,33 @@ double fix_one_solution(Individual &individual, Case& instance) {
     return updated_fit;
 }
 
+double refine_one_solution_by_all_enumeration(Individual& individual, Case& instance) {
+    double updated_fit = 0.0;
+    vector<vector<int>> repaired_routes;
+    bool isFeasible = true;
+
+    for (int i = 0; i < individual.route_num; ++i) {
+        vector<int> route(individual.routes[i], individual.routes[i] + individual.node_num[i]);
+        auto refined = insert_station_by_all_enumeration(route, instance);
+
+        if (refined.first < 0) {
+            updated_fit += INFEASIBLE;
+            isFeasible = false;
+            continue;
+        }
+
+        updated_fit += refined.first;
+        repaired_routes.push_back(std::move(refined.second));
+    }
+
+    individual.set_fit(updated_fit);
+    if (isFeasible) {
+        individual.set_tour(repaired_routes);
+    }
+
+    return updated_fit;
+}
+
 pair<double, vector<int>> insert_station_by_simple_enumeration_array(int *route, int length, Case& instance) {
     vector<int> full_route;
     vector<double> accumulateDistance(length, 0);
@@ -978,6 +1005,85 @@ pair<double, vector<int>> station_reallocate_one(vector<int>& repairedForwardRou
 /****************************************************************/
 /*                            Refine                            */
 /****************************************************************/
+
+pair<double, vector<int>> insert_station_by_all_enumeration(vector<int>& route, Case& instance) {
+    vector<double> accumulateDistance(route.size(), 0);
+    for (int i = 1; i < static_cast<int>(route.size()); i++) {
+        accumulateDistance[i] = accumulateDistance[i - 1] + instance.get_distance(route[i], route[i - 1]);
+    }
+    if (accumulateDistance.back() <= instance.maxDis) {
+        return make_pair(accumulateDistance.back(), route);
+    }
+
+    const int originalLength = static_cast<int>(route.size());
+    const int lowerBound = static_cast<int>(floor(accumulateDistance.back() / instance.maxDis));
+    const int upperBound = static_cast<int>(ceil(accumulateDistance.back() / instance.maxDis));
+
+    vector<int> chosenPos(route.size(), 0);
+    vector<int> chosenSta(route.size(), 0);
+    vector<int> bestRoute;
+    double bestFit = DBL_MAX;
+
+    auto tryStationCount = [&](int stationCount) {
+        vector<int> iterRoute;
+        double iterFit = DBL_MAX;
+        tryACertainN(0,
+                     stationCount,
+                     chosenSta.data(),
+                     chosenPos.data(),
+                     iterRoute,
+                     iterFit,
+                     stationCount,
+                     route,
+                     accumulateDistance,
+                     instance);
+
+        if (iterFit < bestFit) {
+            bestFit = iterFit;
+            bestRoute = std::move(iterRoute);
+        }
+
+        return iterFit != DBL_MAX;
+    };
+
+    for (int stationCount = lowerBound; stationCount <= upperBound; ++stationCount) {
+        tryStationCount(stationCount);
+    }
+    if (bestFit != DBL_MAX) {
+        return make_pair(bestFit, bestRoute);
+    }
+
+    vector<int> removeEnumRoute;
+    removeEnumRoute.reserve(route.size() + instance.stationNumber);
+    auto removeEnumRes = insert_station_by_remove_array(route.data(), originalLength, instance);
+    if (removeEnumRes.first >= 0) {
+        removeEnumRoute = std::move(removeEnumRes.second);
+        const int feasibleUpperBound = static_cast<int>(removeEnumRoute.size()) - originalLength;
+        for (int stationCount = upperBound + 1; stationCount <= feasibleUpperBound; ++stationCount) {
+            tryStationCount(stationCount);
+        }
+        if (bestFit != DBL_MAX) {
+            return make_pair(bestFit, bestRoute);
+        }
+    }
+
+    vector<int> routeCopy(route);
+    auto exactRes = insert_station_by_enumeration(routeCopy, instance);
+    if (exactRes.second >= 0) {
+        return make_pair(exactRes.second, exactRes.first);
+    }
+
+    auto simpleEnumRes = insert_station_by_simple_enumeration_array(route.data(), originalLength, instance);
+    if (simpleEnumRes.first >= 0) {
+        return simpleEnumRes;
+    }
+
+    if (removeEnumRes.first >= 0) {
+        return removeEnumRes;
+    }
+
+    return make_pair(-1.0, vector<int>());
+}
 
 pair<vector<int>, double> insert_station_by_enumeration(vector<int>& route, Case& instance) {
     vector<double> accumulateDistance(route.size(), 0);

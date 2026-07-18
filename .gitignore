@@ -1,6 +1,8 @@
 /.idea/
 /cmake-build-debug/
 /cmake-build-debug-llvm/
+/build/
+/build-asan/
 .DS_Store
 ./venv/
 /tools/

@@ -47,6 +47,7 @@ void node_shift_for_individual(Individual& individual, Case& instance);
 
 // recharging optimization
 double fix_one_solution(Individual& individual, Case& instance);
+double refine_one_solution_by_all_enumeration(Individual& individual, Case& instance);
 pair<double, vector<int>> insert_station_by_simple_enumeration_array(int* route, int length, Case& instance);
 pair<double, vector<int>> insert_station_by_remove_array(int* route, int length, Case& instance);
 void tryACertainNArray(int mlen, int nlen, int* chosenPos, int* bestChosenPos, double& finalfit, int curub, int* route, int length, vector<double>& accumulateDis, Case& instance);
@@ -54,6 +55,7 @@ pair<double, vector<int>> simple_repair_target_one_station(const int* route, int
 pair<double, vector<int>> station_reallocate_one(vector<int>& repairedForwardRoute, double fit, Case& instance); // O(n) - designed for simple repaired route with one station - potentially improve it
 
 // Refine
+pair<double, vector<int>> insert_station_by_all_enumeration(vector<int>& route, Case& instance);
 pair<vector<int>, double> insert_station_by_enumeration(vector<int>& route, Case& instance);
 void tryACertainN(int mlen, int nlen, int* chosenSta, int* chosenPos, vector<int>& finalRoute, double& finalfit, int curub, vector<int>& route, vector<double>& accumulateDis, Case& instance);
 

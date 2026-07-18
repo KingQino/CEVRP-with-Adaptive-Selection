@@ -164,6 +164,8 @@ void MA::close_log_for_evolution() {
 }
 
 void MA::save_log_for_solution() {
+    refine_one_solution_by_all_enumeration(*globalBest, *instance);
+
     string directoryPath = "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
     create_directories_if_not_exists(directoryPath);
     string filename = "solution." + instance->instanceName + ".txt";
