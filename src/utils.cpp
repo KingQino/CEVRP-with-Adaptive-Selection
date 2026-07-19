@@ -263,8 +263,10 @@ bool two_opt_for_individual(Individual& individual, Case& instance) {
         double change = two_opt_for_single_route(route, instance);
         totalChange += change;
     }
-    individual.set_fit(individual.get_fit() + totalChange);
-    individual.set_routes(routes);
+    if (totalChange != 0.0) {
+        individual.set_routes(routes);
+        individual.set_upper_cost(individual.get_upper_cost() + totalChange);
+    }
 
     return totalChange != 0;
 }
@@ -304,7 +306,7 @@ bool two_opt_star_for_individual(Individual& individual, Case& instance) {
                             instance.get_distance(individual.routes[r2][n2], individual.routes[r1][n1 + 1]);
                     double change = xx1 - xx2;
                     if (change > 0.00000001) {
-                        individual.fit -= change;
+                        individual.set_upper_cost(individual.get_upper_cost() - change);
                         memcpy(tempr, individual.routes[r1], sizeof(int) * individual.node_cap);
                         int counter1 = n1 + 1;
                         for (int i = n2 + 1; i < individual.node_num[r2]; i++) {
@@ -362,7 +364,7 @@ bool two_opt_star_for_individual(Individual& individual, Case& instance) {
                                  + instance.get_distance(individual.routes[r1][n1 + 1], individual.routes[r2][n2 + 1]);
                     double change = xx1 - xx2;
                     if (change > 0.00000001) {
-                        individual.fit -= change;
+                        individual.set_upper_cost(individual.get_upper_cost() - change);
                         memcpy(tempr, individual.routes[r1], sizeof(int) * individual.node_cap);
                         int counter1 = n1 + 1;
                         for (int i = n2; i >= 0; i--) {
@@ -429,8 +431,13 @@ bool two_opt_star_for_individual(Individual& individual, Case& instance) {
 }
 
 void node_shift_for_individual(Individual& individual, Case& instance) {
+    double upperCost = individual.get_upper_cost();
+    bool updated = false;
     for (int i = 0; i < individual.route_num; i++) {
-        node_shift(individual.routes[i], individual.node_num[i], individual.fit, instance);
+        updated = node_shift(individual.routes[i], individual.node_num[i], upperCost, instance) || updated;
+    }
+    if (updated) {
+        individual.set_upper_cost(upperCost);
     }
 }
 
@@ -500,7 +507,8 @@ void moveItoJ(int* route, int a, int b) {
 /****************************************************************/
 
 double fix_one_solution(Individual &individual, Case& instance) {
-    double updated_fit = 0;
+    individual.invalidate_lower_cost();
+    double lowerCost = 0.0;
     vector<vector<int>> repaired_routes;
     bool isFeasible = true;
     for (int i = 0; i < individual.route_num; i++) {
@@ -511,28 +519,29 @@ double fix_one_solution(Individual &individual, Case& instance) {
             pair<double, vector<int>> res_yy = insert_station_by_remove_array(individual.routes[i], individual.node_num[i], instance);
             double yy = res_yy.first;
             if (yy == -1) {
-                updated_fit += INFEASIBLE;
+                lowerCost += INFEASIBLE;
                 isFeasible = false;
             }
             else {
-                updated_fit += yy;
+                lowerCost += yy;
                 repaired_routes.push_back(res_yy.second);
             }
         }
         else {
-            updated_fit += xx;
+            lowerCost += xx;
             repaired_routes.push_back(res_xx.second);
         }
     }
-    individual.set_fit(updated_fit);
+    individual.set_lower_cost(lowerCost);
     if (isFeasible) {
         individual.set_tour(repaired_routes);
     }
-    return updated_fit;
+    return lowerCost;
 }
 
 double refine_one_solution_by_all_enumeration(Individual& individual, Case& instance) {
-    double updated_fit = 0.0;
+    individual.invalidate_lower_cost();
+    double lowerCost = 0.0;
     vector<vector<int>> repaired_routes;
     bool isFeasible = true;
 
@@ -541,21 +550,21 @@ double refine_one_solution_by_all_enumeration(Individual& individual, Case& inst
         auto refined = insert_station_by_all_enumeration(route, instance);
 
         if (refined.first < 0) {
-            updated_fit += INFEASIBLE;
+            lowerCost += INFEASIBLE;
             isFeasible = false;
             continue;
         }
 
-        updated_fit += refined.first;
+        lowerCost += refined.first;
         repaired_routes.push_back(std::move(refined.second));
     }
 
-    individual.set_fit(updated_fit);
+    individual.set_lower_cost(lowerCost);
     if (isFeasible) {
         individual.set_tour(repaired_routes);
     }
 
-    return updated_fit;
+    return lowerCost;
 }
 
 pair<double, vector<int>> insert_station_by_simple_enumeration_array(int *route, int length, Case& instance) {
@@ -1206,9 +1215,8 @@ vector<shared_ptr<Individual>> selTournament(const vector<shared_ptr<Individual>
     for (int i = 0; i < k; ++i) {
         vector<shared_ptr<Individual>> aspirants = selRandom(individuals, tournamentSize, rng);
 
-        // Assuming you have a fitness attribute in your Individual class
         auto comparator = [](const shared_ptr<Individual>& ind1, const shared_ptr<Individual>& ind2) {
-            return ind1->fit < ind2->fit;
+            return ind1->get_upper_cost() < ind2->get_upper_cost();
         };
 
         auto minElement = min_element(aspirants.begin(), aspirants.end(), comparator);
@@ -1291,14 +1299,13 @@ void mutShuffleIndexes(vector<int>& chromosome, double indpb, std::default_rando
 /*                             Tools                            */
 /****************************************************************/
 
-shared_ptr<Individual> select_best_individual(const vector<shared_ptr<Individual>>& population) {
+shared_ptr<Individual> select_best_individual_by_upper_cost(const vector<shared_ptr<Individual>>& population) {
     if (population.empty()) {
-        return nullptr;  // Handle the case where the population is empty
+        return nullptr;
     }
 
-    // Assuming you have a fitness attribute in your Individual class
     auto comparator = [](const shared_ptr<Individual>& ind1, const shared_ptr<Individual>& ind2) {
-        return ind1->get_fit() < ind2->get_fit();
+        return ind1->get_upper_cost() < ind2->get_upper_cost();
     };
 
     auto bestIndividual = std::min_element(population.begin(), population.end(), comparator);
@@ -1306,14 +1313,27 @@ shared_ptr<Individual> select_best_individual(const vector<shared_ptr<Individual
     return *bestIndividual;
 }
 
-shared_ptr<Individual> select_worst_individual(const vector<shared_ptr<Individual>>& population) {
+shared_ptr<Individual> select_best_individual_by_lower_cost(const vector<shared_ptr<Individual>>& population) {
     if (population.empty()) {
-        return nullptr;  // Handle the case where the population is empty
+        return nullptr;
     }
 
-    // Assuming you have a fitness attribute in your Individual class
     auto comparator = [](const shared_ptr<Individual>& ind1, const shared_ptr<Individual>& ind2) {
-        return ind1->get_fit() < ind2->get_fit();
+        return ind1->get_lower_cost() < ind2->get_lower_cost();
+    };
+
+    auto bestIndividual = std::min_element(population.begin(), population.end(), comparator);
+
+    return *bestIndividual;
+}
+
+shared_ptr<Individual> select_worst_individual_by_upper_cost(const vector<shared_ptr<Individual>>& population) {
+    if (population.empty()) {
+        return nullptr;
+    }
+
+    auto comparator = [](const shared_ptr<Individual>& ind1, const shared_ptr<Individual>& ind2) {
+        return ind1->get_upper_cost() < ind2->get_upper_cost();
     };
 
     auto worstIndividual = std::max_element(population.begin(), population.end(), comparator);

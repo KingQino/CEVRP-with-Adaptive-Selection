@@ -10,7 +10,8 @@ Individual::Individual(const Individual& ind) {
     this->route_cap = ind.route_cap;
     this->node_cap = ind.node_cap;
     this->route_num = ind.route_num;
-    this->fit = ind.fit;
+    this->upper_cost = ind.upper_cost;
+    this->lower_cost = ind.lower_cost;
     this->routes = new int *[ind.route_cap];
     for (int i = 0; i < ind.route_cap; ++i) {
         this->routes[i] = new int[ind.node_cap];
@@ -38,15 +39,16 @@ Individual::Individual(int route_cap, int node_cap) {
     memset(this->node_num, 0, sizeof(int) * route_cap);
     this->demand_sum = new int [route_cap];
     memset(this->demand_sum, 0, sizeof(int) * route_cap);
-    this->fit = 0;
+    this->upper_cost = 0.0;
+    this->lower_cost = std::numeric_limits<double>::infinity();
     this->tour = new int[TOUR_SIZE];
     memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
 }
 
-Individual::Individual(int route_cap, int node_cap, const vector<vector<int>>& _routes, double fit, const vector<int>& demand_sum)
+Individual::Individual(int route_cap, int node_cap, const vector<vector<int>>& _routes, double upper_cost, const vector<int>& demand_sum)
 :Individual(route_cap, node_cap) {
-    this->fit = fit;
+    this->upper_cost = upper_cost;
     this->route_num = _routes.size();
     for (int i = 0; i < this->route_num; ++i) {
         this->node_num[i] = _routes[i].size();
@@ -73,7 +75,8 @@ Individual::~Individual() {
 void Individual::reset() {
     memset(this->node_num, 0, sizeof(int) * this->route_cap);
     memset(this->demand_sum, 0, sizeof(int) * this->route_cap);
-    this->fit = 0;
+    this->upper_cost = 0.0;
+    this->lower_cost = std::numeric_limits<double>::infinity();
     this->route_num = 0;
     memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
@@ -104,21 +107,36 @@ vector<int> Individual::get_chromosome() const {
 }
 
 
-double Individual::get_fit() const {
-    return fit;
+double Individual::get_upper_cost() const {
+    return upper_cost;
 }
 
-void Individual::set_fit(double _fit) {
-    this->fit = _fit;
+double Individual::get_lower_cost() const {
+    return lower_cost;
 }
 
+void Individual::set_upper_cost(double cost) {
+    this->upper_cost = cost;
+    invalidate_lower_cost();
+}
 
-void Individual::set_routes(const vector<vector<int>>& _routes) const {
+void Individual::set_lower_cost(double cost) {
+    this->lower_cost = cost;
+}
+
+void Individual::invalidate_lower_cost() {
+    this->lower_cost = std::numeric_limits<double>::infinity();
+    memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
+    this->steps = 0;
+}
+
+void Individual::set_routes(const vector<vector<int>>& _routes) {
     for (int i = 0; i < _routes.size(); ++i) {
         for (int j = 0; j < _routes[i].size(); ++j) {
             this->routes[i][j] = _routes[i][j];
         }
     }
+    invalidate_lower_cost();
 }
 
 
@@ -142,7 +160,8 @@ std::ostream& operator<<(std::ostream& os, const Individual& individual) {
     os << "Route Capacity: " << individual.route_cap << "\n";
     os << "Node Capacity: " << individual.node_cap << "\n";
     os << "Number of Routes: " << individual.route_num << "\n";
-    os << "Fitness: " << individual.fit << "\n";
+    os << "Upper cost: " << individual.upper_cost << "\n";
+    os << "Lower cost: " << individual.lower_cost << "\n";
 
     os << "Number of Nodes per route: ";
     for (int i = 0; i < individual.route_cap; ++i) {
@@ -172,5 +191,4 @@ std::ostream& operator<<(std::ostream& os, const Individual& individual) {
 
     return os;
 }
-
 

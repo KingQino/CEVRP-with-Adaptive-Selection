@@ -19,7 +19,8 @@ using namespace std;
 
 class MA : public StatsInterface{
 public:
-    static vector<double> get_fitness_vector_from_group(const vector<shared_ptr<Individual>>& group) ;
+    static vector<double> get_upper_cost_vector_from_group(const vector<shared_ptr<Individual>>& group);
+    static vector<double> get_lower_cost_vector_from_group(const vector<shared_ptr<Individual>>& group);
 
     MA(Case* instance, int seed, int isMaxEvals = 1, int popSize = 100, double eliteRatio = 0.01, double immigrantRatio = 0.05,
        double crossoverProb = 1.0, double mutationProb = 0.5, double mutationIndProb = 0.2, int tournamentSize = 2);

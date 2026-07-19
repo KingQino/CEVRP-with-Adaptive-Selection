@@ -68,8 +68,9 @@ void mutShuffleIndexes(vector<int>& chromosome, double indpb, std::default_rando
 
 
 // tools
-std::shared_ptr<Individual> select_best_individual(const vector<std::shared_ptr<Individual>>& population);
-std::shared_ptr<Individual> select_worst_individual(const vector<std::shared_ptr<Individual>>& population);
+std::shared_ptr<Individual> select_best_individual_by_upper_cost(const vector<std::shared_ptr<Individual>>& population);
+std::shared_ptr<Individual> select_best_individual_by_lower_cost(const vector<std::shared_ptr<Individual>>& population);
+std::shared_ptr<Individual> select_worst_individual_by_upper_cost(const vector<std::shared_ptr<Individual>>& population);
 
 
 #endif //SAMPLE_UTILS_HPP

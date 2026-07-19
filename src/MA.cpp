@@ -4,7 +4,74 @@
 
 #include "../include/MA.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <cfloat>
+
+namespace {
+using AdjacencySignature = std::vector<std::uint64_t>;
+
+struct ParentCandidate {
+    std::vector<int> chromosome;
+    double upperCost;
+    AdjacencySignature signature;
+};
+
+std::uint64_t encode_undirected_edge(int u, int v) {
+    if (u > v) {
+        std::swap(u, v);
+    }
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(u)) << 32)
+         | static_cast<std::uint32_t>(v);
+}
+
+AdjacencySignature build_adjacency_signature(const std::vector<int>& chromosome) {
+    AdjacencySignature signature;
+    if (chromosome.size() < 2) {
+        return signature;
+    }
+
+    signature.reserve(chromosome.size() - 1);
+    for (size_t i = 1; i < chromosome.size(); ++i) {
+        signature.push_back(encode_undirected_edge(chromosome[i - 1], chromosome[i]));
+    }
+    std::sort(signature.begin(), signature.end());
+    return signature;
+}
+
+double adjacency_similarity(const AdjacencySignature& lhs, const AdjacencySignature& rhs, size_t chromosomeSize) {
+    if (chromosomeSize <= 1) {
+        return 1.0;
+    }
+
+    size_t commonAdjacencies = 0;
+    size_t i = 0;
+    size_t j = 0;
+    while (i < lhs.size() && j < rhs.size()) {
+        if (lhs[i] == rhs[j]) {
+            ++commonAdjacencies;
+            ++i;
+            ++j;
+        } else if (lhs[i] < rhs[j]) {
+            ++i;
+        } else {
+            ++j;
+        }
+    }
+
+    return static_cast<double>(commonAdjacencies) / static_cast<double>(chromosomeSize - 1);
+}
+
+double adjacency_distance(const ParentCandidate& lhs, const ParentCandidate& rhs) {
+    return 1.0 - adjacency_similarity(lhs.signature, rhs.signature, lhs.chromosome.size());
+}
+
+std::vector<int> make_random_immigrant(const std::vector<int>& customers, std::default_random_engine& rng) {
+    std::vector<int> immigrant(customers);
+    std::shuffle(immigrant.begin(), immigrant.end(), rng);
+    return immigrant;
+}
+}
 
 MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio, double immigrantRatio, double crossoverProb,
        double mutationProb, double mutationIndProb, int tournamentSize) {
@@ -127,13 +194,22 @@ void MA::pop_init_with_direct_encoding() {
     }
 }
 
-vector<double> MA::get_fitness_vector_from_group(const vector<shared_ptr<Individual>>& group) {
+vector<double> MA::get_upper_cost_vector_from_group(const vector<shared_ptr<Individual>>& group) {
     std::vector<double> ans;
-    ans.reserve(group.size());  // Reserve space to avoid unnecessary reallocation
+    ans.reserve(group.size());
 
-    // Use transform along with a lambda to extract fitness values
     std::transform(group.begin(), group.end(), std::back_inserter(ans),
-                   [](const auto& ind) { return ind->get_fit(); });
+                   [](const auto& ind) { return ind->get_upper_cost(); });
+
+    return ans;
+}
+
+vector<double> MA::get_lower_cost_vector_from_group(const vector<shared_ptr<Individual>>& group) {
+    std::vector<double> ans;
+    ans.reserve(group.size());
+
+    std::transform(group.begin(), group.end(), std::back_inserter(ans),
+                   [](const auto& ind) { return ind->get_lower_cost(); });
 
     return ans;
 }
@@ -145,9 +221,9 @@ void MA::open_log_for_evolution() {
     string filename = "evols." + instance->instanceName + ".csv";
     logEvolution.open(directoryPath + "/" + filename);
     logEvolution << "generation,pop_size,"
-                    "offspring_size,S_min_fit,S_avg_fit,S_max_fit,S_std_fit,"
-                    "upper_pop_size,S1_min_fit,S1_avg_fit,S1_max_fit,S1_std_fit,"
-                    "lower_pop_size,S3_min_fit,S3_avg_fit,S3_max_fit,S3_std_fit,S3_infeasible_size,"
+                    "offspring_size,S_min_upper_cost,S_avg_upper_cost,S_max_upper_cost,S_std_upper_cost,"
+                    "upper_pop_size,S1_min_upper_cost,S1_avg_upper_cost,S1_max_upper_cost,S1_std_upper_cost,"
+                    "lower_pop_size,S3_min_lower_cost,S3_avg_lower_cost,S3_max_lower_cost,S3_std_lower_cost,S3_infeasible_size,"
                     "evaluations,progress,duration\n";
 }
 
@@ -175,7 +251,7 @@ void MA::save_log_for_solution() {
     string filename = "solution." + instance->instanceName + ".txt";
 
     logSolution.open(directoryPath + "/" + filename);
-    logSolution << fixed << setprecision(5) << globalBest->get_fit() << endl;
+    logSolution << fixed << setprecision(5) << globalBest->get_lower_cost() << endl;
     pair<int*, int> tourInfo = globalBest->get_tour();
     for (int i = 0; i < tourInfo.second; ++i) {
         logSolution << tourInfo.first[i] << ",";
@@ -191,7 +267,7 @@ void MA::initialize_heuristic() {
     iterBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
     globalBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
     if (!population.empty()) {
-        globalBestUpper = select_best_individual(population)->get_fit();
+        globalBestUpper = select_best_individual_by_upper_cost(population)->get_upper_cost();
     } else {
         globalBestUpper = DBL_MAX;
     }
@@ -200,22 +276,22 @@ void MA::initialize_heuristic() {
 void MA::run_heuristic() {
     gen++;
 
-    S_stats = calculate_population_metrics(get_fitness_vector_from_group(population));
+    S_stats = calculate_population_metrics(get_upper_cost_vector_from_group(population));
 
     vector<shared_ptr<Individual>> S1 = population;
     double v1 = 0;
     double v2;
-    shared_ptr<Individual> talentedInd = select_best_individual(population);
+    shared_ptr<Individual> talentedInd = select_best_individual_by_upper_cost(population);
     if (gen > delta) { //  switch off - False
         // when the generations are greater than the threshold, part of the upper-level sub-solutions S1 will be selected for local search
-        double old_fit = talentedInd->get_fit();
+        double oldUpperCost = talentedInd->get_upper_cost();
 
         two_opt_for_individual(*talentedInd, *instance);
         two_opt_star_for_individual(*talentedInd, *instance);
         node_shift_for_individual(*talentedInd, *instance);
 
-        double new_fit = talentedInd->get_fit();
-        v1 = old_fit - new_fit;
+        double newUpperCost = talentedInd->get_upper_cost();
+        v1 = oldUpperCost - newUpperCost;
         v2 = *std::max_element(P.begin(), P.end());
         if (v2 < v1) {
             v2 = v1 * gammaL;
@@ -223,7 +299,7 @@ void MA::run_heuristic() {
 
         S1.clear();
         for (auto& ind:population) {
-            if (ind->get_fit() - v2 <= new_fit) S1.push_back(ind);
+            if (ind->get_upper_cost() - v2 <= newUpperCost) S1.push_back(ind);
         }
 
         auto it = std::find(S1.begin(), S1.end(), talentedInd);
@@ -237,12 +313,12 @@ void MA::run_heuristic() {
     // make local search on S1
     v2 = 0;
     for(auto& ind : S1) {
-        double old_fit = ind->get_fit();
+        double oldUpperCost = ind->get_upper_cost();
         two_opt_for_individual(*ind, *instance); // 2-opt
         two_opt_star_for_individual(*ind, *instance);
         node_shift_for_individual(*ind, *instance);
-        if (v2 < old_fit - ind->get_fit())
-            v2 = old_fit - ind->get_fit();
+        if (v2 < oldUpperCost - ind->get_upper_cost())
+            v2 = oldUpperCost - ind->get_upper_cost();
     }
     v2 = (v1 > v2) ? v1 : v2;
     P.push_back(v2);
@@ -250,31 +326,27 @@ void MA::run_heuristic() {
     if (gen > delta) S1.push_back(talentedInd); //  *** switch off ***
 
 
-    S1_stats = calculate_population_metrics(get_fitness_vector_from_group(S1));
+    S1_stats = calculate_population_metrics(get_upper_cost_vector_from_group(S1));
 
-    // Build an upper-level parent pool that is completely independent from the
-    // lower-level trigger. This keeps reproduction pressure stable in the
-    // ablation and lets gamma only control follower invocations.
-    vector<shared_ptr<Individual>> parentPool = S1;
-    sort(parentPool.begin(), parentPool.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
-        return lhs->get_fit() < rhs->get_fit();
+    // Snapshot the upper-level parent pool before follower evaluation.
+    // Reproduction should only see upper-level quality.
+    vector<shared_ptr<Individual>> rankedUpperSolutions = S1;
+    sort(rankedUpperSolutions.begin(), rankedUpperSolutions.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
+        return lhs->get_upper_cost() < rhs->get_upper_cost();
     });
-    const size_t targetParentPoolSize = std::max<size_t>(1, (static_cast<size_t>(popSize) + 9) / 10);
-    if (parentPool.size() > targetParentPoolSize) {
-        parentPool.resize(targetParentPoolSize);
+    const size_t targetParentPoolSize = std::max<size_t>(2, (static_cast<size_t>(popSize) + 9) / 10);
+    if (rankedUpperSolutions.size() > targetParentPoolSize) {
+        rankedUpperSolutions.resize(targetParentPoolSize);
     }
 
-    vector<vector<int>> promising_seqs;
-    promising_seqs.reserve(parentPool.size());
-    for (auto& sol : parentPool) {
-        promising_seqs.push_back(sol->get_chromosome());
-    }
-
-    vector<vector<int>> average_seqs;
-    for (auto& sol : population) {
-        auto parentIt = std::find(parentPool.begin(), parentPool.end(), sol);
-        if (parentIt != parentPool.end()) continue;
-        average_seqs.push_back(sol->get_chromosome());
+    vector<ParentCandidate> parentPool;
+    parentPool.reserve(rankedUpperSolutions.size());
+    for (const auto& sol : rankedUpperSolutions) {
+        ParentCandidate candidate;
+        candidate.chromosome = sol->get_chromosome();
+        candidate.upperCost = sol->get_upper_cost();
+        candidate.signature = build_adjacency_signature(candidate.chromosome);
+        parentPool.push_back(std::move(candidate));
     }
 
     // Current S1 has been selected and local search.
@@ -282,15 +354,15 @@ void MA::run_heuristic() {
     // whose upper cost is within gammaTrigger * globalBestUpper.
     vector<shared_ptr<Individual>> S2 = S1;
     double v3;
-    shared_ptr<Individual> outstandingUpper = select_best_individual(S1);
-    if (outstandingUpper->get_fit() < globalBestUpper) {
-        globalBestUpper = outstandingUpper->get_fit();
+    shared_ptr<Individual> outstandingUpper = select_best_individual_by_upper_cost(S1);
+    if (outstandingUpper->get_upper_cost() < globalBestUpper) {
+        globalBestUpper = outstandingUpper->get_upper_cost();
     }
 
     S2.clear();
     const double triggerUpperBound = globalBestUpper * gammaTrigger;
     for (auto& ind : S1) {
-        if (ind->get_fit() <= triggerUpperBound) {
+        if (ind->get_upper_cost() <= triggerUpperBound) {
             S2.push_back(ind);
         }
     }
@@ -304,72 +376,113 @@ void MA::run_heuristic() {
     // Current S2 has been selected and ready for recharging, make recharging on S2
     vector<shared_ptr<Individual>> S3;
     S3.push_back(outstandingUpper); //  *** switch off ***
-    const double old_outstanding_fit = outstandingUpper->get_fit();
-    const double new_outstanding_fit = fix_one_solution(*outstandingUpper, *instance);
-    v3 = new_outstanding_fit - old_outstanding_fit;
+    const double oldOutstandingUpperCost = outstandingUpper->get_upper_cost();
+    const double newOutstandingLowerCost = fix_one_solution(*outstandingUpper, *instance);
+    v3 = newOutstandingLowerCost - oldOutstandingUpperCost;
     for (auto& ind:S2) {
-        double old_fit = ind->get_fit();
+        double oldUpperCost = ind->get_upper_cost();
         fix_one_solution(*ind, *instance);
-        double new_fit = ind->get_fit();
+        double newLowerCost = ind->get_lower_cost();
         S3.push_back(ind);
-        if (v3 > new_fit - old_fit)
-            v3 = new_fit - old_fit;
+        if (v3 > newLowerCost - oldUpperCost)
+            v3 = newLowerCost - oldUpperCost;
     }
     if (r == 0 || r > v3) {
         r = v3;
     }
 
-    S3_stats = calculate_population_metrics(get_fitness_vector_from_group(S3));
+    S3_stats = calculate_population_metrics(get_lower_cost_vector_from_group(S3));
 
 
     // statistics
-    iterBest = make_unique<Individual>(*select_best_individual(S3));
-    if (globalBest->get_fit() > iterBest->get_fit()) {
+    iterBest = make_unique<Individual>(*select_best_individual_by_lower_cost(S3));
+    if (globalBest->get_lower_cost() > iterBest->get_lower_cost()) {
         globalBest = make_unique<Individual>(*iterBest);
     }
 
 
     vector<vector<int>> chromosomes;
-    if (promising_seqs.size() == 1) {
-        vector<int> father = promising_seqs[0];
-        // 90% - elite x non-elites
-        for (int i = 0; i < int (0.45 * popSize); ++i) {
-            vector<int> _father(father);
-            vector<int> mother = selRandom(average_seqs, 1, randomEngine)[0];
-            cxPartiallyMatched(_father, mother, randomEngine);
-            chromosomes.push_back(_father);
-            chromosomes.push_back(mother);
+    chromosomes.reserve(popSize - 1);
+
+    const int offspringTarget = popSize - 1;
+    const bool hasVerifiedBest = globalBest->get_lower_cost() < INFEASIBLE;
+    const int verifiedImmigrantTarget = hasVerifiedBest ? static_cast<int>(std::lround(offspringTarget * 0.05)) : 0;
+    const int pureImmigrantTarget = static_cast<int>(std::lround(offspringTarget * 0.10));
+    const int upperUpperTarget = std::max(0, offspringTarget - verifiedImmigrantTarget - pureImmigrantTarget);
+
+    auto append_child = [&](vector<int>& child, int phaseTarget) {
+        if (static_cast<int>(chromosomes.size()) < phaseTarget) {
+            chromosomes.push_back(child);
         }
-        // 9%  - elite x immigrants
-        for (int i = 0; i < int(0.05 * popSize); ++i) {
-            vector<int> _father(father);
-            vector<int> mother(instance->customers);
-            shuffle(mother.begin(), mother.end(), randomEngine);
-            cxPartiallyMatched(_father, mother, randomEngine);
-            chromosomes.push_back(_father);
-            chromosomes.push_back(mother);
+    };
+
+    auto select_upper_parent_index = [&]() {
+        const int actualTournamentSize = std::max(1, std::min(tournamentSize, static_cast<int>(parentPool.size())));
+        std::uniform_int_distribution<size_t> distribution(0, parentPool.size() - 1);
+        size_t bestIndex = distribution(randomEngine);
+        for (int i = 1; i < actualTournamentSize; ++i) {
+            const size_t challengerIndex = distribution(randomEngine);
+            if (parentPool[challengerIndex].upperCost < parentPool[bestIndex].upperCost) {
+                bestIndex = challengerIndex;
+            }
         }
-//        chromosomes.pop_back();
-        // free 1 space  - best ind
-    } else {
-        // part of elites x elites
-        int num_promising_seqs = promising_seqs.size();
-        int loop_num = int(num_promising_seqs / 2.0) <= (popSize/2) ? int(num_promising_seqs / 2.0) : int(popSize/4);
-        for (int i = 0; i < loop_num; ++i) {
-            vector<vector<int>> parents = selRandom(promising_seqs, 2, randomEngine);
-            cxPartiallyMatched(parents[0], parents[1], randomEngine);
-            chromosomes.push_back(parents[0]);
-            chromosomes.push_back(parents[1]);
+        return bestIndex;
+    };
+
+    auto select_diverse_upper_parent_index = [&](size_t anchorIndex) {
+        if (parentPool.size() <= 1) {
+            return anchorIndex;
         }
-        // portion of elites x non-elites
-        int num_promising_x_average = popSize - chromosomes.size();
-        for (int i = 0; i < int(num_promising_x_average / 2.0); ++i) {
-            vector<int> parent1 = selRandom(promising_seqs, 1, randomEngine)[0];
-            vector<int> parent2 = selRandom(average_seqs, 1, randomEngine)[0];
-            cxPartiallyMatched(parent1, parent2, randomEngine);
-            chromosomes.push_back(parent1);
-            chromosomes.push_back(parent2);
+
+        vector<size_t> candidateIndices;
+        candidateIndices.reserve(parentPool.size() - 1);
+        for (size_t i = 0; i < parentPool.size(); ++i) {
+            if (i != anchorIndex) {
+                candidateIndices.push_back(i);
+            }
         }
+        std::shuffle(candidateIndices.begin(), candidateIndices.end(), randomEngine);
+        const size_t sampleSize = std::min<size_t>(8, candidateIndices.size());
+        candidateIndices.resize(sampleSize);
+
+        size_t bestIndex = candidateIndices.front();
+        double bestDistance = -1.0;
+        for (size_t candidateIndex : candidateIndices) {
+            const double distance = adjacency_distance(parentPool[anchorIndex], parentPool[candidateIndex]);
+            if (distance > bestDistance + 1e-12 ||
+                (std::fabs(distance - bestDistance) <= 1e-12 &&
+                 parentPool[candidateIndex].upperCost < parentPool[bestIndex].upperCost)) {
+                bestDistance = distance;
+                bestIndex = candidateIndex;
+            }
+        }
+        return bestIndex;
+    };
+
+    while (static_cast<int>(chromosomes.size()) < upperUpperTarget) {
+        const size_t parent1Index = select_upper_parent_index();
+        const size_t parent2Index = select_diverse_upper_parent_index(parent1Index);
+        vector<int> child1 = parentPool[parent1Index].chromosome;
+        vector<int> child2 = parentPool[parent2Index].chromosome;
+        cxPartiallyMatched(child1, child2, randomEngine);
+        append_child(child1, upperUpperTarget);
+        append_child(child2, upperUpperTarget);
+    }
+
+    const int verifiedPhaseTarget = upperUpperTarget + verifiedImmigrantTarget;
+    if (hasVerifiedBest) {
+        const vector<int> verifiedChromosome = globalBest->get_chromosome();
+        while (static_cast<int>(chromosomes.size()) < verifiedPhaseTarget) {
+            vector<int> child1 = verifiedChromosome;
+            vector<int> child2 = make_random_immigrant(instance->customers, randomEngine);
+            cxPartiallyMatched(child1, child2, randomEngine);
+            append_child(child1, verifiedPhaseTarget);
+            append_child(child2, verifiedPhaseTarget);
+        }
+    }
+
+    while (static_cast<int>(chromosomes.size()) < offspringTarget) {
+        chromosomes.push_back(make_random_immigrant(instance->customers, randomEngine));
     }
 
     for (auto& chromosome: chromosomes) {

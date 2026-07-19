@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 #include <cstring>
+#include <limits>
 
 
 using namespace std;
@@ -22,21 +23,25 @@ public:
     int route_num; // the actual number of routes for the solution
     int* node_num; // the node number of each route
     int* demand_sum; // the demand sum of all customers of each route
-    double fit;
+    double upper_cost; // routing cost before charging decisions
+    double lower_cost; // complete cost after charging decisions
     int* tour; // The specified format of the solution, e.g., 0 - 5 - 6 - 8 - 0 - 1 - 2 - 3 - 4 - 0 - 7 - 0
     int steps;
 
     Individual(const Individual  &ind);
     Individual(int route_cap, int node_cap);
-    Individual(int route_cap, int node_cap, const vector<vector<int>>& routes, double fit, const vector<int>& demand_sum);
+    Individual(int route_cap, int node_cap, const vector<vector<int>>& routes, double upper_cost, const vector<int>& demand_sum);
     ~Individual();
 
     void reset();
     [[nodiscard]] vector<vector<int>> get_routes() const;
     [[nodiscard]] vector<int> get_chromosome() const;
-    [[nodiscard]] double get_fit() const;
-    void set_fit(double _fit);
-    void set_routes(const vector<vector<int>>& _routes) const;
+    [[nodiscard]] double get_upper_cost() const;
+    [[nodiscard]] double get_lower_cost() const;
+    void set_upper_cost(double cost);
+    void set_lower_cost(double cost);
+    void invalidate_lower_cost();
+    void set_routes(const vector<vector<int>>& _routes);
     pair<int*, int> get_tour();
     void set_tour(const vector<vector<int>>& repaired_routes);
 

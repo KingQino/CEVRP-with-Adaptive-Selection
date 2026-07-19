@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
 
             ma->run();
 
-            perfOfTrials[run - 1] = ma->globalBest->get_fit();
+            perfOfTrials[run - 1] = ma->globalBest->get_lower_cost();
 
             delete ma;
             delete instance;
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
 
             ma->run();
 
-            perfOfTrials[run - 1] = ma->globalBest->get_fit();
+            perfOfTrials[run - 1] = ma->globalBest->get_lower_cost();
 
             delete ma;
             delete instance;
