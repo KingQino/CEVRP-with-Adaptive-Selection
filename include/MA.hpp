@@ -63,8 +63,10 @@ public:
     int gen; // iteration num
     double gammaL; // confidence ratio of local search: 调大可以增加local search的解的个数
     double gammaR; // confidence ratio of recharging: 调小可以增加recharging的解的个数
+    double gammaTrigger; // fixed lower-level trigger threshold for ablation
     int delta;  // confidence interval
     deque<double> P; // list for confidence intervals of local search
     double r; // confidence interval is used to judge whether an upper-level sub-solution should make the charging process
+    double globalBestUpper; // best upper-level objective value seen so far
 };
 #endif //CEVRP_YINGHAO_MA_HPP

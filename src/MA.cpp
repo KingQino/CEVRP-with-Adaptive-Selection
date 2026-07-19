@@ -4,6 +4,8 @@
 
 #include "../include/MA.hpp"
 
+#include <cfloat>
+
 MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio, double immigrantRatio, double crossoverProb,
        double mutationProb, double mutationIndProb, int tournamentSize) {
     // init parameters
@@ -30,8 +32,10 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     this->gen = 0;
     this->gammaL = 1.2;
     this->gammaR = 0.8;
+    this->gammaTrigger = 1.02;
     this->delta = 30;
     this->r = 0.0;
+    this->globalBestUpper = DBL_MAX;
 }
 
 MA::~MA() {
@@ -186,6 +190,11 @@ void MA::initialize_heuristic() {
     std::vector<int> emptyVector1D;
     iterBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
     globalBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
+    if (!population.empty()) {
+        globalBestUpper = select_best_individual(population)->get_fit();
+    } else {
+        globalBestUpper = DBL_MAX;
+    }
 }
 
 void MA::run_heuristic() {
@@ -243,34 +252,61 @@ void MA::run_heuristic() {
 
     S1_stats = calculate_population_metrics(get_fitness_vector_from_group(S1));
 
+    // Build an upper-level parent pool that is completely independent from the
+    // lower-level trigger. This keeps reproduction pressure stable in the
+    // ablation and lets gamma only control follower invocations.
+    vector<shared_ptr<Individual>> parentPool = S1;
+    sort(parentPool.begin(), parentPool.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
+        return lhs->get_fit() < rhs->get_fit();
+    });
+    const size_t targetParentPoolSize = std::max<size_t>(1, (static_cast<size_t>(popSize) + 9) / 10);
+    if (parentPool.size() > targetParentPoolSize) {
+        parentPool.resize(targetParentPoolSize);
+    }
+
+    vector<vector<int>> promising_seqs;
+    promising_seqs.reserve(parentPool.size());
+    for (auto& sol : parentPool) {
+        promising_seqs.push_back(sol->get_chromosome());
+    }
+
+    vector<vector<int>> average_seqs;
+    for (auto& sol : population) {
+        auto parentIt = std::find(parentPool.begin(), parentPool.end(), sol);
+        if (parentIt != parentPool.end()) continue;
+        average_seqs.push_back(sol->get_chromosome());
+    }
+
     // Current S1 has been selected and local search.
-    // Pick a portion of the upper sub-solutions to go for recharging process, by the difference between before and after charging of the best solution in S1
+    // For the ablation, trigger lower-level charging only for upper-level solutions
+    // whose upper cost is within gammaTrigger * globalBestUpper.
     vector<shared_ptr<Individual>> S2 = S1;
     double v3;
     shared_ptr<Individual> outstandingUpper = select_best_individual(S1);
-    if (gen > 0) { // Switch = off False
-        // 开关 此处只是设计了一个总是为真的虚拟条件，需要具体实现
-        double old_fit = outstandingUpper->get_fit(); // fitness without recharging f
-        double new_fit = fix_one_solution(*outstandingUpper, *instance); // // fitness with recharging F
-        v3 = new_fit - old_fit;
-        if (r > v3) r = v3 * gammaR;
+    if (outstandingUpper->get_fit() < globalBestUpper) {
+        globalBestUpper = outstandingUpper->get_fit();
+    }
 
-        S2.clear();
-        for (auto& ind:S1) {
-            if (ind->get_fit() + r <= new_fit)
-                S2.push_back(ind);
+    S2.clear();
+    const double triggerUpperBound = globalBestUpper * gammaTrigger;
+    for (auto& ind : S1) {
+        if (ind->get_fit() <= triggerUpperBound) {
+            S2.push_back(ind);
         }
+    }
 
-        auto it = std::find(S2.begin(), S2.end(), outstandingUpper);
-        // If genius_upper is found, remove it from S2
-        if (it != S2.end()) {
-            S2.erase(it);
-        }
+    auto it = std::find(S2.begin(), S2.end(), outstandingUpper);
+    // outstandingUpper is repaired separately below and should not be duplicated in S2
+    if (it != S2.end()) {
+        S2.erase(it);
     }
 
     // Current S2 has been selected and ready for recharging, make recharging on S2
     vector<shared_ptr<Individual>> S3;
     S3.push_back(outstandingUpper); //  *** switch off ***
+    const double old_outstanding_fit = outstandingUpper->get_fit();
+    const double new_outstanding_fit = fix_one_solution(*outstandingUpper, *instance);
+    v3 = new_outstanding_fit - old_outstanding_fit;
     for (auto& ind:S2) {
         double old_fit = ind->get_fit();
         fix_one_solution(*ind, *instance);
@@ -290,22 +326,6 @@ void MA::run_heuristic() {
     iterBest = make_unique<Individual>(*select_best_individual(S3));
     if (globalBest->get_fit() > iterBest->get_fit()) {
         globalBest = make_unique<Individual>(*iterBest);
-    }
-
-
-    // Selection
-    vector<vector<int>> promising_seqs;
-    promising_seqs.reserve(S3.size());
-    for(auto& sol : S3) {
-        promising_seqs.push_back(sol->get_chromosome()); // encoding
-    }
-
-    vector<vector<int>> average_seqs;
-    for(auto& sol : population) {
-        // judge whether sol in S3 or not
-        auto it = std::find(S3.begin(), S3.end(), sol);
-        if (it != S3.end()) continue;
-        average_seqs.push_back(sol->get_chromosome()); // encoding
     }
 
 
