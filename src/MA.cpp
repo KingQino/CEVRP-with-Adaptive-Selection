@@ -27,45 +27,60 @@ std::uint64_t encode_undirected_edge(int u, int v) {
          | static_cast<std::uint32_t>(v);
 }
 
-AdjacencySignature build_adjacency_signature(const std::vector<int>& chromosome) {
+AdjacencySignature build_route_adjacency_signature(const Individual& individual) {
     AdjacencySignature signature;
-    if (chromosome.size() < 2) {
-        return signature;
+
+    size_t edgeCount = 0;
+    for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
+        if (individual.node_num[routeIndex] > 1) {
+            edgeCount += static_cast<size_t>(individual.node_num[routeIndex] - 1);
+        }
+    }
+    signature.reserve(edgeCount);
+
+    for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
+        for (int nodeIndex = 1; nodeIndex < individual.node_num[routeIndex]; ++nodeIndex) {
+            signature.push_back(encode_undirected_edge(
+                individual.routes[routeIndex][nodeIndex - 1],
+                individual.routes[routeIndex][nodeIndex]));
+        }
     }
 
-    signature.reserve(chromosome.size() - 1);
-    for (size_t i = 1; i < chromosome.size(); ++i) {
-        signature.push_back(encode_undirected_edge(chromosome[i - 1], chromosome[i]));
-    }
     std::sort(signature.begin(), signature.end());
     return signature;
 }
 
-double adjacency_similarity(const AdjacencySignature& lhs, const AdjacencySignature& rhs, size_t chromosomeSize) {
-    if (chromosomeSize <= 1) {
+double multiset_jaccard_similarity(const AdjacencySignature& lhs, const AdjacencySignature& rhs) {
+    if (lhs.empty() && rhs.empty()) {
         return 1.0;
     }
 
     size_t commonAdjacencies = 0;
+    size_t unionAdjacencies = 0;
     size_t i = 0;
     size_t j = 0;
     while (i < lhs.size() && j < rhs.size()) {
         if (lhs[i] == rhs[j]) {
             ++commonAdjacencies;
+            ++unionAdjacencies;
             ++i;
             ++j;
         } else if (lhs[i] < rhs[j]) {
+            ++unionAdjacencies;
             ++i;
         } else {
+            ++unionAdjacencies;
             ++j;
         }
     }
+    unionAdjacencies += lhs.size() - i;
+    unionAdjacencies += rhs.size() - j;
 
-    return static_cast<double>(commonAdjacencies) / static_cast<double>(chromosomeSize - 1);
+    return static_cast<double>(commonAdjacencies) / static_cast<double>(unionAdjacencies);
 }
 
 double adjacency_distance(const ParentCandidate& lhs, const ParentCandidate& rhs) {
-    return 1.0 - adjacency_similarity(lhs.signature, rhs.signature, lhs.chromosome.size());
+    return 1.0 - multiset_jaccard_similarity(lhs.signature, rhs.signature);
 }
 
 std::vector<ParentCandidate> build_quality_diversity_parent_pool(
@@ -86,7 +101,7 @@ std::vector<ParentCandidate> build_quality_diversity_parent_pool(
         ParentCandidate candidate;
         candidate.chromosome = solution->get_chromosome();
         candidate.upperCost = solution->get_upper_cost();
-        candidate.signature = build_adjacency_signature(candidate.chromosome);
+        candidate.signature = build_route_adjacency_signature(*solution);
 
         if (seenSignatures.insert(candidate.signature).second) {
             candidates.push_back(std::move(candidate));
