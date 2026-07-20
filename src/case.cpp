@@ -5,6 +5,8 @@
 #include "../include/case.hpp"
 #include <stdexcept>
 
+using namespace std;
+
 const int Case::MAX_EVALUATION_FACTOR = 25000;
 
 Case::Case(const string& filepath, int id) {
@@ -322,7 +324,7 @@ double Case::get_evals() const {
 double Case::fitness_evaluation(const vector<vector<int>>& routes) {
     double tour_length = 0.0;
     for (auto& route : routes) {
-        for (int j = 0; j < route.size() - 1; ++j) {
+        for (size_t j = 0; j < route.size() - 1; ++j) {
             tour_length += distances[route[j]][route[j + 1]];
         }
     }
@@ -334,7 +336,7 @@ double Case::fitness_evaluation(const vector<vector<int>>& routes) {
 
 double Case::fitness_evaluation(const vector<int>& route) const {
     double tour_length = 0.0;
-    for (int j = 0; j < route.size() - 1; ++j) {
+    for (size_t j = 0; j < route.size() - 1; ++j) {
         tour_length += distances[route[j]][route[j + 1]];
     }
 

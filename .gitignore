@@ -2,7 +2,7 @@
 /cmake-build-debug/
 /cmake-build-debug-llvm/
 /build/
-/build-asan/
+/build-*/
 .DS_Store
 ./venv/
 /tools/
@@ -13,6 +13,7 @@
 ./plots/
 ./stats/
 /stats/
+/tests/
 
 
 

@@ -4,6 +4,8 @@
 
 #include "../include/individual.hpp"
 
+using namespace std;
+
 const int Individual::TOUR_SIZE = 1500;
 
 Individual::Individual(const Individual& ind) {
@@ -56,7 +58,7 @@ Individual::Individual(int route_cap, int node_cap, const vector<vector<int>>& _
             this->routes[i][j] = _routes[i][j];
         }
     }
-    for (int i = 0; i < demand_sum.size(); ++i) {
+    for (size_t i = 0; i < demand_sum.size(); ++i) {
         this->demand_sum[i] = demand_sum[i];
     }
 }
@@ -131,8 +133,8 @@ void Individual::invalidate_lower_cost() {
 }
 
 void Individual::set_routes(const vector<vector<int>>& _routes) {
-    for (int i = 0; i < _routes.size(); ++i) {
-        for (int j = 0; j < _routes[i].size(); ++j) {
+    for (size_t i = 0; i < _routes.size(); ++i) {
+        for (size_t j = 0; j < _routes[i].size(); ++j) {
             this->routes[i][j] = _routes[i][j];
         }
     }
@@ -147,7 +149,7 @@ pair<int*, int> Individual::get_tour() {
 void Individual::set_tour(const vector<vector<int>>& repaired_routes) {
     int index = 0;
     for (const auto& route : repaired_routes) {
-        for (int i = 0; i < route.size() - 1; ++i) {
+        for (size_t i = 0; i < route.size() - 1; ++i) {
             this->tour[index++] = route[i];
         }
     }
@@ -191,4 +193,3 @@ std::ostream& operator<<(std::ostream& os, const Individual& individual) {
 
     return os;
 }
-

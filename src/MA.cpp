@@ -4,176 +4,30 @@
 
 #include "../include/MA.hpp"
 
-#include <cmath>
-#include <cstdint>
+#include "../include/algorithm_constants.hpp"
+#include "../include/follower.hpp"
+#include "../include/initializer.hpp"
+#include "../include/leader.hpp"
+#include "../include/reproduction.hpp"
+
 #include <cfloat>
-#include <limits>
-#include <set>
 
-namespace {
-using AdjacencySignature = std::vector<std::uint64_t>;
-
-struct ParentCandidate {
-    std::vector<int> chromosome;
-    double upperCost;
-    AdjacencySignature signature;
-};
-
-std::uint64_t encode_undirected_edge(int u, int v) {
-    if (u > v) {
-        std::swap(u, v);
-    }
-    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(u)) << 32)
-         | static_cast<std::uint32_t>(v);
-}
-
-AdjacencySignature build_route_adjacency_signature(const Individual& individual) {
-    AdjacencySignature signature;
-
-    size_t edgeCount = 0;
-    for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
-        if (individual.node_num[routeIndex] > 1) {
-            edgeCount += static_cast<size_t>(individual.node_num[routeIndex] - 1);
-        }
-    }
-    signature.reserve(edgeCount);
-
-    for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
-        for (int nodeIndex = 1; nodeIndex < individual.node_num[routeIndex]; ++nodeIndex) {
-            signature.push_back(encode_undirected_edge(
-                individual.routes[routeIndex][nodeIndex - 1],
-                individual.routes[routeIndex][nodeIndex]));
-        }
-    }
-
-    std::sort(signature.begin(), signature.end());
-    return signature;
-}
-
-double multiset_jaccard_similarity(const AdjacencySignature& lhs, const AdjacencySignature& rhs) {
-    if (lhs.empty() && rhs.empty()) {
-        return 1.0;
-    }
-
-    size_t commonAdjacencies = 0;
-    size_t unionAdjacencies = 0;
-    size_t i = 0;
-    size_t j = 0;
-    while (i < lhs.size() && j < rhs.size()) {
-        if (lhs[i] == rhs[j]) {
-            ++commonAdjacencies;
-            ++unionAdjacencies;
-            ++i;
-            ++j;
-        } else if (lhs[i] < rhs[j]) {
-            ++unionAdjacencies;
-            ++i;
-        } else {
-            ++unionAdjacencies;
-            ++j;
-        }
-    }
-    unionAdjacencies += lhs.size() - i;
-    unionAdjacencies += rhs.size() - j;
-
-    return static_cast<double>(commonAdjacencies) / static_cast<double>(unionAdjacencies);
-}
-
-double adjacency_distance(const ParentCandidate& lhs, const ParentCandidate& rhs) {
-    return 1.0 - multiset_jaccard_similarity(lhs.signature, rhs.signature);
-}
-
-std::vector<ParentCandidate> build_quality_diversity_parent_pool(
-    const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
-    size_t desiredParentPoolSize) {
-    if (rankedUpperSolutions.empty() || desiredParentPoolSize == 0) {
-        return {};
-    }
-
-    const size_t candidateLimit = std::min(rankedUpperSolutions.size(), desiredParentPoolSize * 3);
-    std::set<AdjacencySignature> seenSignatures;
-    std::vector<ParentCandidate> candidates;
-    candidates.reserve(candidateLimit);
-
-    // rankedUpperSolutions is sorted by upper cost, so the first solution kept
-    // for an adjacency signature is also its best representative.
-    for (const auto& solution : rankedUpperSolutions) {
-        ParentCandidate candidate;
-        candidate.chromosome = solution->get_chromosome();
-        candidate.upperCost = solution->get_upper_cost();
-        candidate.signature = build_route_adjacency_signature(*solution);
-
-        if (seenSignatures.insert(candidate.signature).second) {
-            candidates.push_back(std::move(candidate));
-            if (candidates.size() == candidateLimit) {
-                break;
-            }
-        }
-    }
-
-    const size_t parentPoolSize = std::min(desiredParentPoolSize, candidates.size());
-    const size_t qualitySlots = (parentPoolSize + 1) / 2;
-    std::vector<bool> selected(candidates.size(), false);
-    std::vector<ParentCandidate> parentPool;
-    parentPool.reserve(parentPoolSize);
-
-    for (size_t i = 0; i < qualitySlots; ++i) {
-        parentPool.push_back(candidates[i]);
-        selected[i] = true;
-    }
-
-    // Fill the other half by greedy max-min diversity. Each new parent is as
-    // far as possible from its nearest already-selected parent.
-    while (parentPool.size() < parentPoolSize) {
-        size_t bestIndex = candidates.size();
-        double bestMinDistance = -1.0;
-
-        for (size_t i = 0; i < candidates.size(); ++i) {
-            if (selected[i]) {
-                continue;
-            }
-
-            double minDistance = std::numeric_limits<double>::infinity();
-            for (const auto& selectedParent : parentPool) {
-                minDistance = std::min(minDistance, adjacency_distance(candidates[i], selectedParent));
-            }
-
-            const bool hasBetterDiversity = minDistance > bestMinDistance + 1e-12;
-            const bool sameDiversity = std::fabs(minDistance - bestMinDistance) <= 1e-12;
-            const bool hasBetterQuality = bestIndex == candidates.size()
-                                       || candidates[i].upperCost < candidates[bestIndex].upperCost - 1e-12;
-            const bool sameQuality = bestIndex != candidates.size()
-                                  && std::fabs(candidates[i].upperCost - candidates[bestIndex].upperCost) <= 1e-12;
-            const bool hasLexicographicallySmallerChromosome = bestIndex != candidates.size()
-                                                            && candidates[i].chromosome < candidates[bestIndex].chromosome;
-
-            if (hasBetterDiversity
-                || (sameDiversity && hasBetterQuality)
-                || (sameDiversity && sameQuality && hasLexicographicallySmallerChromosome)) {
-                bestIndex = i;
-                bestMinDistance = minDistance;
-            }
-        }
-
-        if (bestIndex == candidates.size()) {
-            break;
-        }
-        parentPool.push_back(candidates[bestIndex]);
-        selected[bestIndex] = true;
-    }
-
-    return parentPool;
-}
-
-std::vector<int> make_random_immigrant(const std::vector<int>& customers, std::default_random_engine& rng) {
-    std::vector<int> immigrant(customers);
-    std::shuffle(immigrant.begin(), immigrant.end(), rng);
-    return immigrant;
-}
-}
+using std::endl;
+using std::fixed;
+using std::make_shared;
+using std::make_unique;
+using std::pair;
+using std::setprecision;
+using std::shared_ptr;
+using std::size_t;
+using std::sort;
+using std::string;
+using std::to_string;
+using std::uniform_real_distribution;
+using std::vector;
 
 MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio, double immigrantRatio, double crossoverProb,
-       double mutationProb, double mutationIndProb, int tournamentSize) {
+       double /*mutationProb*/, double mutationIndProb, int tournamentSize) {
     // init parameters
     this->instance = instance;
     this->randomEngine = std::default_random_engine(seed);
@@ -195,18 +49,18 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     this->routeCapacity = this->instance->vehicleNumber * 3;
     // One upper-level route can contain depot + all customers + depot.
     this->nodeCapacity = this->instance->customerNumber + 2;
-    this->gen = 0;
-    this->gammaL = 1.2;
-    this->gammaR = 0.8;
-    this->gammaTrigger = 1.02;
-    this->delta = 30;
-    this->r = 0.0;
-    this->globalBestUpper = DBL_MAX;
+    this->generation = 0;
+    this->localSearchConfidenceMultiplier = 1.2;
+    this->chargingConfidenceMultiplier = 0.8;
+    this->lowerLevelTriggerRatio = 1.02;
+    this->confidenceWindowSize = 30;
+    this->bestObservedChargingPenalty = 0.0;
+    this->globalBestUpperCost = DBL_MAX;
 }
 
 MA::~MA() {
-    iterBest.reset();
-    globalBest.reset();
+    generationBestComplete.reset();
+    verifiedBest.reset();
     population.clear();
 }
 
@@ -217,10 +71,9 @@ void MA::run() {
         duration = end - start;
 
         open_log_for_evolution();
-        initialize_heuristic();
-        while (!termination_criteria_1()) {
-            //Execute your heuristic
-            run_heuristic();
+        initialize_search();
+        while (!reached_evaluation_limit()) {
+            run_generation();
             duration = std::chrono::high_resolution_clock::now() - start;
             flush_row_into_evol_log();
         }
@@ -232,10 +85,9 @@ void MA::run() {
         duration = end - start;
 
         open_log_for_evolution();
-        initialize_heuristic();
-        while (!termination_criteria_2(duration)) {
-            //Execute your heuristic
-            run_heuristic();
+        initialize_search();
+        while (!reached_time_limit(duration)) {
+            run_generation();
             duration = std::chrono::high_resolution_clock::now() - start;
             flush_row_into_evol_log();
         }
@@ -245,7 +97,7 @@ void MA::run() {
 }
 
 // stop criterion: max evals
-bool MA::termination_criteria_1() const {
+bool MA::reached_evaluation_limit() const {
     bool flag;
     if (instance->get_evals() >= instance->maxEvals)
         flag = true;
@@ -256,7 +108,7 @@ bool MA::termination_criteria_1() const {
 }
 
 // stop criterion: max execute time
-bool MA::termination_criteria_2(const std::chrono::duration<double>& runningTime) const {
+bool MA::reached_time_limit(const std::chrono::duration<double>& runningTime) const {
     bool flag;
     if (runningTime.count() >= instance->maxExecTime)
         flag = true;
@@ -266,34 +118,34 @@ bool MA::termination_criteria_2(const std::chrono::duration<double>& runningTime
     return flag;
 }
 
-void MA::pop_init_with_clustering() {
+void MA::initialize_population_with_clustering() {
     for (int i = 0; i < popSize; ++i) {
-        vector<vector<int>> routes = routes_constructor_with_hien_method(*instance, randomEngine);
+        vector<vector<int>> routes = Initializer::build_with_clustering(*instance, randomEngine);
         population.push_back(std::make_shared<Individual>(routeCapacity, nodeCapacity, routes,
                                                           instance->fitness_evaluation(routes),
                                                           instance->compute_demand_sum(routes)));
     }
 }
 
-void MA::pop_init_with_order_split() {
+void MA::initialize_population_with_random_split() {
     for (int i = 0; i < popSize; ++i) {
-        vector<vector<int>> routes = routes_constructor_with_split(*instance, randomEngine);
+        vector<vector<int>> routes = Initializer::build_with_random_split(*instance, randomEngine);
         population.push_back(std::make_shared<Individual>(routeCapacity, nodeCapacity, routes,
                                                           instance->fitness_evaluation(routes),
                                                           instance->compute_demand_sum(routes)));
     }
 }
 
-void MA::pop_init_with_direct_encoding() {
+void MA::initialize_population_with_direct_encoding() {
     for (int i = 0; i < popSize; ++i) {
-        vector<vector<int>> routes = routes_construct_with_direct_encoding(*instance, randomEngine);
+        vector<vector<int>> routes = Initializer::build_with_direct_encoding(*instance, randomEngine);
         population.push_back(std::make_shared<Individual>(routeCapacity, nodeCapacity, routes,
                                                           instance->fitness_evaluation(routes),
                                                           instance->compute_demand_sum(routes)));
     }
 }
 
-vector<double> MA::get_upper_cost_vector_from_group(const vector<shared_ptr<Individual>>& group) {
+vector<double> MA::collect_upper_costs(const vector<shared_ptr<Individual>>& group) {
     std::vector<double> ans;
     ans.reserve(group.size());
 
@@ -303,7 +155,7 @@ vector<double> MA::get_upper_cost_vector_from_group(const vector<shared_ptr<Indi
     return ans;
 }
 
-vector<double> MA::get_lower_cost_vector_from_group(const vector<shared_ptr<Individual>>& group) {
+vector<double> MA::collect_lower_costs(const vector<shared_ptr<Individual>>& group) {
     std::vector<double> ans;
     ans.reserve(group.size());
 
@@ -329,10 +181,10 @@ void MA::open_log_for_evolution() {
 void MA::flush_row_into_evol_log() {
     double evals_used = instance->get_evals();
     double progress = evals_used/instance->maxEvals;
-    ossRowEvol << gen << "," << population.size() << ","
-               << S_stats.size << "," << S_stats.min << "," << S_stats.avg << "," << S_stats.max << "," << S_stats.std << ","
-               << S1_stats.size << "," << S1_stats.min << "," << S1_stats.avg << "," << S1_stats.max << "," << S1_stats.std << ","
-               << S3_stats.size << "," << S3_stats.min << "," << S3_stats.avg << "," << S3_stats.max << "," << S3_stats.std << "," << S3_stats.dumbSize << ","
+    ossRowEvol << generation << "," << population.size() << ","
+               << populationMetrics.size << "," << populationMetrics.min << "," << populationMetrics.average << "," << populationMetrics.max << "," << populationMetrics.standardDeviation << ","
+               << upperCandidateMetrics.size << "," << upperCandidateMetrics.min << "," << upperCandidateMetrics.average << "," << upperCandidateMetrics.max << "," << upperCandidateMetrics.standardDeviation << ","
+               << followerEvaluatedMetrics.size << "," << followerEvaluatedMetrics.min << "," << followerEvaluatedMetrics.average << "," << followerEvaluatedMetrics.max << "," << followerEvaluatedMetrics.standardDeviation << "," << followerEvaluatedMetrics.infeasibleSize << ","
                << evals_used << "," << progress << "," << duration.count() << "\n";
 }
 
@@ -343,15 +195,15 @@ void MA::close_log_for_evolution() {
 }
 
 void MA::save_log_for_solution() {
-    refine_one_solution_by_all_enumeration(*globalBest, *instance);
+    Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
 
     string directoryPath = "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
     create_directories_if_not_exists(directoryPath);
     string filename = "solution." + instance->instanceName + ".txt";
 
     logSolution.open(directoryPath + "/" + filename);
-    logSolution << fixed << setprecision(5) << globalBest->get_lower_cost() << endl;
-    pair<int*, int> tourInfo = globalBest->get_tour();
+    logSolution << fixed << setprecision(5) << verifiedBest->get_lower_cost() << endl;
+    pair<int*, int> tourInfo = verifiedBest->get_tour();
     for (int i = 0; i < tourInfo.second; ++i) {
         logSolution << tourInfo.first[i] << ",";
     }
@@ -359,251 +211,190 @@ void MA::save_log_for_solution() {
     logSolution.close();
 }
 
-void MA::initialize_heuristic() {
-    pop_init_with_clustering();
+void MA::initialize_search() {
+    initialize_population_with_clustering();
     std::vector<std::vector<int>> emptyVector2D;
     std::vector<int> emptyVector1D;
-    iterBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
-    globalBest = make_unique<Individual>(routeCapacity, nodeCapacity, emptyVector2D, INFEASIBLE, emptyVector1D);
+    generationBestComplete = make_unique<Individual>(
+        routeCapacity,
+        nodeCapacity,
+        emptyVector2D,
+        INFEASIBLE_COST,
+        emptyVector1D);
+    verifiedBest = make_unique<Individual>(
+        routeCapacity,
+        nodeCapacity,
+        emptyVector2D,
+        INFEASIBLE_COST,
+        emptyVector1D);
     if (!population.empty()) {
-        globalBestUpper = select_best_individual_by_upper_cost(population)->get_upper_cost();
+        globalBestUpperCost = Reproduction::best_by_upper_cost(population)->get_upper_cost();
     } else {
-        globalBestUpper = DBL_MAX;
+        globalBestUpperCost = DBL_MAX;
     }
 }
 
-void MA::run_heuristic() {
-    gen++;
+void MA::run_generation() {
+    generation++;
 
-    S_stats = calculate_population_metrics(get_upper_cost_vector_from_group(population));
+    populationMetrics = calculate_population_metrics(collect_upper_costs(population));
 
-    vector<shared_ptr<Individual>> S1 = population;
-    double v1 = 0;
-    double v2;
-    shared_ptr<Individual> talentedInd = select_best_individual_by_upper_cost(population);
-    if (gen > delta) { //  switch off - False
-        // when the generations are greater than the threshold, part of the upper-level sub-solutions S1 will be selected for local search
-        double oldUpperCost = talentedInd->get_upper_cost();
+    vector<shared_ptr<Individual>> upperCandidates = population;
+    double bestCandidateImprovement = 0;
+    double improvementThreshold;
+    shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
+    if (generation > confidenceWindowSize) {
+        const double oldUpperCost = bestUpperCandidate->get_upper_cost();
 
-        ls_3_vnd(*talentedInd, *instance);
+        Leader::improve_with_three_neighborhood_vnd(*bestUpperCandidate, *instance);
 
-        double newUpperCost = talentedInd->get_upper_cost();
-        v1 = oldUpperCost - newUpperCost;
-        v2 = *std::max_element(P.begin(), P.end());
-        if (v2 < v1) {
-            v2 = v1 * gammaL;
+        const double newUpperCost = bestUpperCandidate->get_upper_cost();
+        bestCandidateImprovement = oldUpperCost - newUpperCost;
+        improvementThreshold = *std::max_element(
+            recentUpperImprovements.begin(),
+            recentUpperImprovements.end());
+        if (improvementThreshold < bestCandidateImprovement) {
+            improvementThreshold = bestCandidateImprovement * localSearchConfidenceMultiplier;
         }
 
-        S1.clear();
-        for (auto& ind:population) {
-            if (ind->get_upper_cost() - v2 <= newUpperCost) S1.push_back(ind);
+        upperCandidates.clear();
+        for (auto& individual : population) {
+            if (individual->get_upper_cost() - improvementThreshold <= newUpperCost) {
+                upperCandidates.push_back(individual);
+            }
         }
 
-        auto it = std::find(S1.begin(), S1.end(), talentedInd);
-        // If genius_upper is found, remove it from S2
-        if (it != S1.end()) {
-            S1.erase(it);
+        auto bestCandidateIt = std::find(
+            upperCandidates.begin(),
+            upperCandidates.end(),
+            bestUpperCandidate);
+        if (bestCandidateIt != upperCandidates.end()) {
+            upperCandidates.erase(bestCandidateIt);
         }
     }
 
-
-    // make local search on S1
-    v2 = 0;
-    for(auto& ind : S1) {
-        double oldUpperCost = ind->get_upper_cost();
-        ls_3_vnd(*ind, *instance);
-        if (v2 < oldUpperCost - ind->get_upper_cost())
-            v2 = oldUpperCost - ind->get_upper_cost();
+    double maximumUpperImprovement = 0;
+    for (auto& individual : upperCandidates) {
+        const double oldUpperCost = individual->get_upper_cost();
+        Leader::improve_with_three_neighborhood_vnd(*individual, *instance);
+        if (maximumUpperImprovement < oldUpperCost - individual->get_upper_cost()) {
+            maximumUpperImprovement = oldUpperCost - individual->get_upper_cost();
+        }
     }
-    v2 = (v1 > v2) ? v1 : v2;
-    P.push_back(v2);
-    if (P.size() > delta)  P.pop_front();
-    if (gen > delta) S1.push_back(talentedInd); //  *** switch off ***
+    maximumUpperImprovement = std::max(bestCandidateImprovement, maximumUpperImprovement);
+    recentUpperImprovements.push_back(maximumUpperImprovement);
+    if (recentUpperImprovements.size() > static_cast<size_t>(confidenceWindowSize)) {
+        recentUpperImprovements.pop_front();
+    }
+    if (generation > confidenceWindowSize) {
+        upperCandidates.push_back(bestUpperCandidate);
+    }
 
-
-    S1_stats = calculate_population_metrics(get_upper_cost_vector_from_group(S1));
+    upperCandidateMetrics = calculate_population_metrics(
+        collect_upper_costs(upperCandidates));
 
     // Build the quality-diversity parent pool before follower evaluation, so
     // reproduction remains independent from lower-level triggering.
-    vector<shared_ptr<Individual>> rankedUpperSolutions = S1;
+    vector<shared_ptr<Individual>> rankedUpperSolutions = upperCandidates;
     sort(rankedUpperSolutions.begin(), rankedUpperSolutions.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
         return lhs->get_upper_cost() < rhs->get_upper_cost();
     });
     const size_t targetParentPoolSize = std::max<size_t>(2, (static_cast<size_t>(popSize) + 9) / 10);
-    vector<ParentCandidate> parentPool = build_quality_diversity_parent_pool(rankedUpperSolutions, targetParentPoolSize);
+    vector<ParentCandidate> parentPool = Reproduction::build_quality_diversity_parent_pool(
+        rankedUpperSolutions,
+        targetParentPoolSize);
 
-    // Current S1 has been selected and local search.
-    // For the ablation, trigger lower-level charging only for upper-level solutions
-    // whose upper cost is within gammaTrigger * globalBestUpper.
-    vector<shared_ptr<Individual>> S2 = S1;
-    double v3;
-    shared_ptr<Individual> outstandingUpper = select_best_individual_by_upper_cost(S1);
-    if (outstandingUpper->get_upper_cost() < globalBestUpper) {
-        globalBestUpper = outstandingUpper->get_upper_cost();
+    vector<shared_ptr<Individual>> followerCandidates;
+    double minimumChargingPenalty;
+    shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(upperCandidates);
+    if (generationBestUpper->get_upper_cost() < globalBestUpperCost) {
+        globalBestUpperCost = generationBestUpper->get_upper_cost();
     }
 
-    S2.clear();
-    const double triggerUpperBound = globalBestUpper * gammaTrigger;
-    for (auto& ind : S1) {
-        if (ind->get_upper_cost() <= triggerUpperBound) {
-            S2.push_back(ind);
+    const double triggerUpperBound = globalBestUpperCost * lowerLevelTriggerRatio;
+    for (auto& individual : upperCandidates) {
+        if (individual->get_upper_cost() <= triggerUpperBound) {
+            followerCandidates.push_back(individual);
         }
     }
 
-    auto it = std::find(S2.begin(), S2.end(), outstandingUpper);
-    // outstandingUpper is repaired separately below and should not be duplicated in S2
-    if (it != S2.end()) {
-        S2.erase(it);
+    auto generationBestIt = std::find(
+        followerCandidates.begin(),
+        followerCandidates.end(),
+        generationBestUpper);
+    // The generation best is always evaluated below, so avoid evaluating it twice.
+    if (generationBestIt != followerCandidates.end()) {
+        followerCandidates.erase(generationBestIt);
     }
 
-    // Current S2 has been selected and ready for recharging, make recharging on S2
-    vector<shared_ptr<Individual>> S3;
-    S3.push_back(outstandingUpper); //  *** switch off ***
-    const double oldOutstandingUpperCost = outstandingUpper->get_upper_cost();
-    const double newOutstandingLowerCost = fix_one_solution(*outstandingUpper, *instance);
-    v3 = newOutstandingLowerCost - oldOutstandingUpperCost;
-    for (auto& ind:S2) {
-        double oldUpperCost = ind->get_upper_cost();
-        fix_one_solution(*ind, *instance);
-        double newLowerCost = ind->get_lower_cost();
-        S3.push_back(ind);
-        if (v3 > newLowerCost - oldUpperCost)
-            v3 = newLowerCost - oldUpperCost;
+    vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
+    evaluatedCompleteSolutions.push_back(generationBestUpper);
+    const double generationBestUpperCost = generationBestUpper->get_upper_cost();
+    Follower::optimize_charging(*generationBestUpper, *instance);
+    minimumChargingPenalty = generationBestUpper->get_lower_cost() - generationBestUpperCost;
+    for (auto& individual : followerCandidates) {
+        const double oldUpperCost = individual->get_upper_cost();
+        Follower::optimize_charging(*individual, *instance);
+        const double newLowerCost = individual->get_lower_cost();
+        evaluatedCompleteSolutions.push_back(individual);
+        if (minimumChargingPenalty > newLowerCost - oldUpperCost) {
+            minimumChargingPenalty = newLowerCost - oldUpperCost;
+        }
     }
-    if (r == 0 || r > v3) {
-        r = v3;
-    }
-
-    S3_stats = calculate_population_metrics(get_lower_cost_vector_from_group(S3));
-
-
-    // statistics
-    iterBest = make_unique<Individual>(*select_best_individual_by_lower_cost(S3));
-    if (globalBest->get_lower_cost() > iterBest->get_lower_cost()) {
-        globalBest = make_unique<Individual>(*iterBest);
+    if (bestObservedChargingPenalty == 0
+        || bestObservedChargingPenalty > minimumChargingPenalty) {
+        bestObservedChargingPenalty = minimumChargingPenalty;
     }
 
+    followerEvaluatedMetrics = calculate_population_metrics(
+        collect_lower_costs(evaluatedCompleteSolutions));
 
-    vector<vector<int>> chromosomes;
-    chromosomes.reserve(popSize - 1);
+    generationBestComplete = make_unique<Individual>(
+        *Reproduction::best_by_lower_cost(evaluatedCompleteSolutions));
+    if (verifiedBest->get_lower_cost() > generationBestComplete->get_lower_cost()) {
+        verifiedBest = make_unique<Individual>(*generationBestComplete);
+    }
+
 
     const int offspringTarget = popSize - 1;
-    const bool hasVerifiedBest = globalBest->get_lower_cost() < INFEASIBLE;
-    const int verifiedImmigrantTarget = hasVerifiedBest ? static_cast<int>(std::lround(offspringTarget * 0.05)) : 0;
-    const int pureImmigrantTarget = static_cast<int>(std::lround(offspringTarget * 0.10));
-    const int upperUpperTarget = std::max(0, offspringTarget - verifiedImmigrantTarget - pureImmigrantTarget);
-
-    auto append_child = [&](vector<int>& child, int phaseTarget) {
-        if (static_cast<int>(chromosomes.size()) < phaseTarget) {
-            chromosomes.push_back(child);
-        }
-    };
-
-    auto select_upper_parent_index = [&]() {
-        const int actualTournamentSize = std::max(1, std::min(tournamentSize, static_cast<int>(parentPool.size())));
-        std::uniform_int_distribution<size_t> distribution(0, parentPool.size() - 1);
-        size_t bestIndex = distribution(randomEngine);
-        for (int i = 1; i < actualTournamentSize; ++i) {
-            const size_t challengerIndex = distribution(randomEngine);
-            if (parentPool[challengerIndex].upperCost < parentPool[bestIndex].upperCost) {
-                bestIndex = challengerIndex;
-            }
-        }
-        return bestIndex;
-    };
-
-    auto select_diverse_upper_parent_index = [&](size_t anchorIndex) {
-        if (parentPool.size() <= 1) {
-            return anchorIndex;
-        }
-
-        vector<size_t> candidateIndices;
-        candidateIndices.reserve(parentPool.size() - 1);
-        for (size_t i = 0; i < parentPool.size(); ++i) {
-            if (i != anchorIndex) {
-                candidateIndices.push_back(i);
-            }
-        }
-        std::shuffle(candidateIndices.begin(), candidateIndices.end(), randomEngine);
-        const size_t sampleSize = std::min<size_t>(8, candidateIndices.size());
-        candidateIndices.resize(sampleSize);
-
-        size_t bestIndex = candidateIndices.front();
-        double bestDistance = -1.0;
-        for (size_t candidateIndex : candidateIndices) {
-            const double distance = adjacency_distance(parentPool[anchorIndex], parentPool[candidateIndex]);
-            if (distance > bestDistance + 1e-12 ||
-                (std::fabs(distance - bestDistance) <= 1e-12 &&
-                 parentPool[candidateIndex].upperCost < parentPool[bestIndex].upperCost)) {
-                bestDistance = distance;
-                bestIndex = candidateIndex;
-            }
-        }
-        return bestIndex;
-    };
-
-    while (static_cast<int>(chromosomes.size()) < upperUpperTarget) {
-        const size_t parent1Index = select_upper_parent_index();
-        vector<int> child1 = parentPool[parent1Index].chromosome;
-        vector<int> child2;
-        if (parentPool.size() == 1) {
-            child2 = make_random_immigrant(instance->customers, randomEngine);
-        } else {
-            const size_t parent2Index = select_diverse_upper_parent_index(parent1Index);
-            child2 = parentPool[parent2Index].chromosome;
-        }
-        cxPartiallyMatched(child1, child2, randomEngine);
-        append_child(child1, upperUpperTarget);
-        append_child(child2, upperUpperTarget);
-    }
-
-    const int verifiedPhaseTarget = upperUpperTarget + verifiedImmigrantTarget;
-    if (hasVerifiedBest) {
-        const vector<int> verifiedChromosome = globalBest->get_chromosome();
-        while (static_cast<int>(chromosomes.size()) < verifiedPhaseTarget) {
-            vector<int> child1 = verifiedChromosome;
-            vector<int> child2 = make_random_immigrant(instance->customers, randomEngine);
-            cxPartiallyMatched(child1, child2, randomEngine);
-            append_child(child1, verifiedPhaseTarget);
-            append_child(child2, verifiedPhaseTarget);
-        }
-    }
-
-    while (static_cast<int>(chromosomes.size()) < offspringTarget) {
-        chromosomes.push_back(make_random_immigrant(instance->customers, randomEngine));
-    }
-
-    for (auto& chromosome: chromosomes) {
-        if (uniformRealDis(randomEngine) < mutationProb) {
-            mutShuffleIndexes(chromosome, mutationIndProb, randomEngine);
-        }
-    }
+    const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
+    vector<vector<int>> chromosomes = Reproduction::create_offspring(
+        parentPool,
+        verifiedBest.get(),
+        hasVerifiedBest,
+        instance->customers,
+        offspringTarget,
+        tournamentSize,
+        mutationProb,
+        mutationIndProb,
+        randomEngine,
+        uniformRealDis);
 
     // destroy all the individual objects
-    S3.clear();
-    S2.clear();
-    S1.clear();
+    evaluatedCompleteSolutions.clear();
+    followerCandidates.clear();
+    upperCandidates.clear();
     population.clear();
     population.shrink_to_fit();
 
 
     // update population
     population.reserve(popSize);
-    population.push_back(make_shared<Individual>(*iterBest));
+    population.push_back(make_shared<Individual>(*generationBestComplete));
     for (int i = 0; i < popSize - 1; ++i) {
-        vector<int> a_giant_tour = {instance->depot};
-        a_giant_tour.insert(a_giant_tour.end(), chromosomes[i].begin(), chromosomes[i].end());
+        vector<int> giantTour = {instance->depot};
+        giantTour.insert(giantTour.end(), chromosomes[i].begin(), chromosomes[i].end());
 
-        vector<vector<int>> dumb_routes = prins_split(a_giant_tour, *instance);
+        vector<vector<int>> offspringRoutes = Initializer::split_giant_tour(giantTour, *instance);
 
-        for (auto& route : dumb_routes) {
+        for (auto& route : offspringRoutes) {
             route.insert(route.begin(), instance->depot);
             route.push_back(instance->depot);
         }
 
-        population.push_back(make_shared<Individual>(routeCapacity, nodeCapacity, dumb_routes,
-                                                     instance->fitness_evaluation(dumb_routes),
-                                                     instance->compute_demand_sum(dumb_routes))
+        population.push_back(make_shared<Individual>(routeCapacity, nodeCapacity, offspringRoutes,
+                                                     instance->fitness_evaluation(offspringRoutes),
+                                                     instance->compute_demand_sum(offspringRoutes))
                                                      );
     }
 }

@@ -12,27 +12,26 @@
 
 #include "case.hpp"
 #include "stats.hpp"
-#include "utils.hpp"
 #include "individual.hpp"
-
-using namespace std;
 
 class MA : public StatsInterface{
 public:
-    static vector<double> get_upper_cost_vector_from_group(const vector<shared_ptr<Individual>>& group);
-    static vector<double> get_lower_cost_vector_from_group(const vector<shared_ptr<Individual>>& group);
+    static std::vector<double> collect_upper_costs(
+        const std::vector<std::shared_ptr<Individual>>& group);
+    static std::vector<double> collect_lower_costs(
+        const std::vector<std::shared_ptr<Individual>>& group);
 
     MA(Case* instance, int seed, int isMaxEvals = 1, int popSize = 100, double eliteRatio = 0.01, double immigrantRatio = 0.05,
        double crossoverProb = 1.0, double mutationProb = 0.5, double mutationIndProb = 0.2, int tournamentSize = 2);
     ~MA() override;
     void run();
-    void initialize_heuristic();
-    void run_heuristic();
-    bool termination_criteria_1() const;
-    bool termination_criteria_2(const std::chrono::duration<double>& runningTime) const;
-    void pop_init_with_clustering(); // hien clustering
-    void pop_init_with_order_split(); // random order first, split second
-    void pop_init_with_direct_encoding(); // direct encoding approach
+    void initialize_search();
+    void run_generation();
+    bool reached_evaluation_limit() const;
+    bool reached_time_limit(const std::chrono::duration<double>& runningTime) const;
+    void initialize_population_with_clustering();
+    void initialize_population_with_random_split();
+    void initialize_population_with_direct_encoding();
     void open_log_for_evolution() override;
     void flush_row_into_evol_log() override;
     void close_log_for_evolution() override;
@@ -41,33 +40,33 @@ public:
     std::ostringstream ossRowEvol;
     Case* instance;
     std::default_random_engine randomEngine;
-    uniform_real_distribution<double> uniformRealDis;
+    std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
-    std::unique_ptr<Individual> globalBest;
-    std::unique_ptr<Individual> iterBest;
-    PopulationMetrics S1_stats;
-    PopulationMetrics S3_stats;
-    PopulationMetrics S_stats; // statistics
+    std::unique_ptr<Individual> verifiedBest;
+    std::unique_ptr<Individual> generationBestComplete;
+    PopulationMetrics populationMetrics;
+    PopulationMetrics upperCandidateMetrics;
+    PopulationMetrics followerEvaluatedMetrics;
 
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     int popSize;
-    double eliteRatio;
-    double immigrantRatio;
-    double crossoverProb;
+    double eliteRatio; // Legacy API option; reproduction currently uses fixed phase ratios.
+    double immigrantRatio; // Legacy API option; reproduction currently injects a fixed 10%.
+    double crossoverProb; // Legacy API option; PMX is currently always applied.
     double mutationProb;
     double mutationIndProb;
     int tournamentSize;
 
     int routeCapacity;
     int nodeCapacity;
-    int gen; // iteration num
-    double gammaL; // confidence ratio of local search: 调大可以增加local search的解的个数
-    double gammaR; // confidence ratio of recharging: 调小可以增加recharging的解的个数
-    double gammaTrigger; // fixed lower-level trigger threshold for ablation
-    int delta;  // confidence interval
-    deque<double> P; // list for confidence intervals of local search
-    double r; // confidence interval is used to judge whether an upper-level sub-solution should make the charging process
-    double globalBestUpper; // best upper-level objective value seen so far
+    int generation;
+    double localSearchConfidenceMultiplier;
+    double chargingConfidenceMultiplier; // Retained from the former confidence filter.
+    double lowerLevelTriggerRatio;
+    int confidenceWindowSize;
+    std::deque<double> recentUpperImprovements;
+    double bestObservedChargingPenalty; // Monitoring state retained from the former filter.
+    double globalBestUpperCost;
 };
 #endif //CEVRP_YINGHAO_MA_HPP

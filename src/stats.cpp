@@ -11,19 +11,19 @@ PopulationMetrics StatsInterface::calculate_population_metrics(const std::vector
     // Filter out infeasible data
     std::vector<double> feasibleData;
     for (double value : data) {
-        if (value <= INFEASIBLE) {
+        if (value <= INFEASIBLE_COST) {
             feasibleData.push_back(value);
         }
     }
 
     metrics.size = feasibleData.size();
-    metrics.dumbSize = data.size() - feasibleData.size();
+    metrics.infeasibleSize = data.size() - feasibleData.size();
 
     if (feasibleData.empty()) {
         metrics.min = 0.0;
         metrics.max = 0.0;
-        metrics.avg = 0.0;
-        metrics.std = 0.0;
+        metrics.average = 0.0;
+        metrics.standardDeviation = 0.0;
     } else {
         // Calculate min, max, mean, and standard deviation for feasible data
         metrics.min = *std::min_element(feasibleData.begin(), feasibleData.end());
@@ -33,14 +33,16 @@ PopulationMetrics StatsInterface::calculate_population_metrics(const std::vector
         for (double value : feasibleData) {
             sum += value;
         }
-        metrics.avg = sum / static_cast<double>(feasibleData.size());
+        metrics.average = sum / static_cast<double>(feasibleData.size());
 
         double sumSquaredDiff = 0.0;
         for (double value : feasibleData) {
-            double diff = value - metrics.avg;
+            double diff = value - metrics.average;
             sumSquaredDiff += diff * diff;
         }
-        metrics.std = (feasibleData.size() == 1) ? 0.0 : std::sqrt(sumSquaredDiff / static_cast<double>(feasibleData.size() - 1));
+        metrics.standardDeviation = (feasibleData.size() == 1)
+            ? 0.0
+            : std::sqrt(sumSquaredDiff / static_cast<double>(feasibleData.size() - 1));
     }
 
     return metrics;
@@ -72,7 +74,7 @@ void StatsInterface::stats_for_multiple_trials(const std::string& filePath, cons
         oss << fixed << setprecision(2) << perf << endl;
     }
     PopulationMetrics metric = calculate_population_metrics(data);
-    oss << "Mean " << metric.avg << "\t \tStd Dev " << metric.std << "\t " << endl;
+    oss << "Mean " << metric.average << "\t \tStd Dev " << metric.standardDeviation << "\t " << endl;
     oss << "Min: " << metric.min << "\t " << endl;
     oss << "Max: " << metric.max << "\t " << endl;
     logStats << oss.str() << flush;

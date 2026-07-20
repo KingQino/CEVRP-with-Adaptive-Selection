@@ -11,7 +11,7 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
-#include "../include/utils.hpp"
+#include "algorithm_constants.hpp"
 
 namespace fs = std::filesystem;
 
@@ -19,10 +19,10 @@ namespace fs = std::filesystem;
 struct PopulationMetrics {
     double min{};
     double max{};
-    double avg{};
-    double std{};
-    std::size_t size{}; // population size
-    std::size_t dumbSize{}; // the number of infeasible individuals, initialized to 0
+    double average{};
+    double standardDeviation{};
+    std::size_t size{};
+    std::size_t infeasibleSize{};
 };
 
 class StatsInterface {

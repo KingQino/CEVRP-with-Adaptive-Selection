@@ -12,7 +12,7 @@ For details, please refer to the following paper:
 }
 ```
 
-## Usage :dog:
+## Usage
 
 1. First step - compile
 
@@ -35,7 +35,7 @@ For details, please refer to the following paper:
 
 
 
-## Project Structure :dolphin:
+## Project Structure
 
 ```
 .
@@ -47,18 +47,25 @@ For details, please refer to the following paper:
 │   └── X-n916-k207.evrp
 ├── include
 │   ├── MA.hpp
+│   ├── algorithm_constants.hpp
 │   ├── case.hpp
-│   ├── heuristic.hpp
+│   ├── follower.hpp
 │   ├── individual.hpp
+│   ├── initializer.hpp
+│   ├── leader.hpp
+│   ├── reproduction.hpp
 │   ├── stats.hpp
-│   └── utils.hpp
+│   └── ...
 ├── src
 │   ├── MA.cpp
 │   ├── case.cpp
-│   ├── heuristic.cpp
+│   ├── follower.cpp
 │   ├── individual.cpp
+│   ├── initializer.cpp
+│   ├── leader.cpp
+│   ├── reproduction.cpp
 │   ├── stats.cpp
-│   └── utils.cpp
+│   └── ...
 └── main.cpp
 
 ```
@@ -67,3 +74,10 @@ For details, please refer to the following paper:
 > - `include`: header files
 > - `src`: source files
 
+## Algorithm Modules
+
+- `MA` coordinates one generation and owns the population, stopping criteria, and logging.
+- `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
+- `Leader` improves upper-level routing decisions with the three-neighborhood VND.
+- `Follower` inserts charging stations and refines a complete solution by enumeration.
+- `Reproduction` owns population ranking, the depot-aware quality-diversity parent pool, genetic operators, and the 85%/5%/10% offspring strategy.

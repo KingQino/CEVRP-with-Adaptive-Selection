@@ -10,9 +10,6 @@
 #include <cstring>
 #include <limits>
 
-
-using namespace std;
-
 class Individual {
 public:
     static const int TOUR_SIZE;
@@ -30,24 +27,24 @@ public:
 
     Individual(const Individual  &ind);
     Individual(int route_cap, int node_cap);
-    Individual(int route_cap, int node_cap, const vector<vector<int>>& routes, double upper_cost, const vector<int>& demand_sum);
+    Individual(int route_cap, int node_cap, const std::vector<std::vector<int>>& routes, double upper_cost, const std::vector<int>& demand_sum);
     ~Individual();
 
     void reset();
-    [[nodiscard]] vector<vector<int>> get_routes() const;
-    [[nodiscard]] vector<int> get_chromosome() const;
+    [[nodiscard]] std::vector<std::vector<int>> get_routes() const;
+    [[nodiscard]] std::vector<int> get_chromosome() const;
     [[nodiscard]] double get_upper_cost() const;
     [[nodiscard]] double get_lower_cost() const;
     void set_upper_cost(double cost);
     void set_lower_cost(double cost);
     void invalidate_lower_cost();
-    void set_routes(const vector<vector<int>>& _routes);
-    pair<int*, int> get_tour();
-    void set_tour(const vector<vector<int>>& repaired_routes);
+    void set_routes(const std::vector<std::vector<int>>& _routes);
+    std::pair<int*, int> get_tour();
+    void set_tour(const std::vector<std::vector<int>>& repaired_routes);
 
 
 
-    friend ostream& operator<<(ostream& os, const Individual& individual);
+    friend std::ostream& operator<<(std::ostream& os, const Individual& individual);
 };
 
 #endif //CEVRP_YINGHAO_INDIVIDUAL_HPP

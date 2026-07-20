@@ -1,0 +1,6 @@
+#ifndef ALGORITHM_CONSTANTS_HPP
+#define ALGORITHM_CONSTANTS_HPP
+
+inline constexpr double INFEASIBLE_COST = 1'000'000'000.0;
+
+#endif
