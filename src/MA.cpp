@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cfloat>
+#include <limits>
+#include <set>
 
 namespace {
 using AdjacencySignature = std::vector<std::uint64_t>;
@@ -64,6 +66,88 @@ double adjacency_similarity(const AdjacencySignature& lhs, const AdjacencySignat
 
 double adjacency_distance(const ParentCandidate& lhs, const ParentCandidate& rhs) {
     return 1.0 - adjacency_similarity(lhs.signature, rhs.signature, lhs.chromosome.size());
+}
+
+std::vector<ParentCandidate> build_quality_diversity_parent_pool(
+    const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
+    size_t desiredParentPoolSize) {
+    if (rankedUpperSolutions.empty() || desiredParentPoolSize == 0) {
+        return {};
+    }
+
+    const size_t candidateLimit = std::min(rankedUpperSolutions.size(), desiredParentPoolSize * 3);
+    std::set<AdjacencySignature> seenSignatures;
+    std::vector<ParentCandidate> candidates;
+    candidates.reserve(candidateLimit);
+
+    // rankedUpperSolutions is sorted by upper cost, so the first solution kept
+    // for an adjacency signature is also its best representative.
+    for (const auto& solution : rankedUpperSolutions) {
+        ParentCandidate candidate;
+        candidate.chromosome = solution->get_chromosome();
+        candidate.upperCost = solution->get_upper_cost();
+        candidate.signature = build_adjacency_signature(candidate.chromosome);
+
+        if (seenSignatures.insert(candidate.signature).second) {
+            candidates.push_back(std::move(candidate));
+            if (candidates.size() == candidateLimit) {
+                break;
+            }
+        }
+    }
+
+    const size_t parentPoolSize = std::min(desiredParentPoolSize, candidates.size());
+    const size_t qualitySlots = (parentPoolSize + 1) / 2;
+    std::vector<bool> selected(candidates.size(), false);
+    std::vector<ParentCandidate> parentPool;
+    parentPool.reserve(parentPoolSize);
+
+    for (size_t i = 0; i < qualitySlots; ++i) {
+        parentPool.push_back(candidates[i]);
+        selected[i] = true;
+    }
+
+    // Fill the other half by greedy max-min diversity. Each new parent is as
+    // far as possible from its nearest already-selected parent.
+    while (parentPool.size() < parentPoolSize) {
+        size_t bestIndex = candidates.size();
+        double bestMinDistance = -1.0;
+
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            if (selected[i]) {
+                continue;
+            }
+
+            double minDistance = std::numeric_limits<double>::infinity();
+            for (const auto& selectedParent : parentPool) {
+                minDistance = std::min(minDistance, adjacency_distance(candidates[i], selectedParent));
+            }
+
+            const bool hasBetterDiversity = minDistance > bestMinDistance + 1e-12;
+            const bool sameDiversity = std::fabs(minDistance - bestMinDistance) <= 1e-12;
+            const bool hasBetterQuality = bestIndex == candidates.size()
+                                       || candidates[i].upperCost < candidates[bestIndex].upperCost - 1e-12;
+            const bool sameQuality = bestIndex != candidates.size()
+                                  && std::fabs(candidates[i].upperCost - candidates[bestIndex].upperCost) <= 1e-12;
+            const bool hasLexicographicallySmallerChromosome = bestIndex != candidates.size()
+                                                            && candidates[i].chromosome < candidates[bestIndex].chromosome;
+
+            if (hasBetterDiversity
+                || (sameDiversity && hasBetterQuality)
+                || (sameDiversity && sameQuality && hasLexicographicallySmallerChromosome)) {
+                bestIndex = i;
+                bestMinDistance = minDistance;
+            }
+        }
+
+        if (bestIndex == candidates.size()) {
+            break;
+        }
+        parentPool.push_back(candidates[bestIndex]);
+        selected[bestIndex] = true;
+    }
+
+    return parentPool;
 }
 
 std::vector<int> make_random_immigrant(const std::vector<int>& customers, std::default_random_engine& rng) {
@@ -324,26 +408,14 @@ void MA::run_heuristic() {
 
     S1_stats = calculate_population_metrics(get_upper_cost_vector_from_group(S1));
 
-    // Snapshot the upper-level parent pool before follower evaluation.
-    // Reproduction should only see upper-level quality.
+    // Build the quality-diversity parent pool before follower evaluation, so
+    // reproduction remains independent from lower-level triggering.
     vector<shared_ptr<Individual>> rankedUpperSolutions = S1;
     sort(rankedUpperSolutions.begin(), rankedUpperSolutions.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
         return lhs->get_upper_cost() < rhs->get_upper_cost();
     });
     const size_t targetParentPoolSize = std::max<size_t>(2, (static_cast<size_t>(popSize) + 9) / 10);
-    if (rankedUpperSolutions.size() > targetParentPoolSize) {
-        rankedUpperSolutions.resize(targetParentPoolSize);
-    }
-
-    vector<ParentCandidate> parentPool;
-    parentPool.reserve(rankedUpperSolutions.size());
-    for (const auto& sol : rankedUpperSolutions) {
-        ParentCandidate candidate;
-        candidate.chromosome = sol->get_chromosome();
-        candidate.upperCost = sol->get_upper_cost();
-        candidate.signature = build_adjacency_signature(candidate.chromosome);
-        parentPool.push_back(std::move(candidate));
-    }
+    vector<ParentCandidate> parentPool = build_quality_diversity_parent_pool(rankedUpperSolutions, targetParentPoolSize);
 
     // Current S1 has been selected and local search.
     // For the ablation, trigger lower-level charging only for upper-level solutions
@@ -457,9 +529,14 @@ void MA::run_heuristic() {
 
     while (static_cast<int>(chromosomes.size()) < upperUpperTarget) {
         const size_t parent1Index = select_upper_parent_index();
-        const size_t parent2Index = select_diverse_upper_parent_index(parent1Index);
         vector<int> child1 = parentPool[parent1Index].chromosome;
-        vector<int> child2 = parentPool[parent2Index].chromosome;
+        vector<int> child2;
+        if (parentPool.size() == 1) {
+            child2 = make_random_immigrant(instance->customers, randomEngine);
+        } else {
+            const size_t parent2Index = select_diverse_upper_parent_index(parent1Index);
+            child2 = parentPool[parent2Index].chromosome;
+        }
         cxPartiallyMatched(child1, child2, randomEngine);
         append_child(child1, upperUpperTarget);
         append_child(child2, upperUpperTarget);
