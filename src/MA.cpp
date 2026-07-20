@@ -145,52 +145,29 @@ void MA::initialize_population_with_direct_encoding() {
     }
 }
 
-vector<double> MA::collect_upper_costs(const vector<shared_ptr<Individual>>& group) {
-    std::vector<double> ans;
-    ans.reserve(group.size());
-
-    std::transform(group.begin(), group.end(), std::back_inserter(ans),
-                   [](const auto& ind) { return ind->get_upper_cost(); });
-
-    return ans;
-}
-
-vector<double> MA::collect_lower_costs(const vector<shared_ptr<Individual>>& group) {
-    std::vector<double> ans;
-    ans.reserve(group.size());
-
-    std::transform(group.begin(), group.end(), std::back_inserter(ans),
-                   [](const auto& ind) { return ind->get_lower_cost(); });
-
-    return ans;
-}
-
 void MA::open_log_for_evolution() {
     string directoryPath = "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
     create_directories_if_not_exists(directoryPath);
 
     string filename = "evols." + instance->instanceName + ".csv";
     logEvolution.open(directoryPath + "/" + filename);
-    logEvolution << "generation,pop_size,"
-                    "offspring_size,S_min_upper_cost,S_avg_upper_cost,S_max_upper_cost,S_std_upper_cost,"
-                    "upper_pop_size,S1_min_upper_cost,S1_avg_upper_cost,S1_max_upper_cost,S1_std_upper_cost,"
-                    "lower_pop_size,S3_min_lower_cost,S3_avg_lower_cost,S3_max_lower_cost,S3_std_lower_cost,S3_infeasible_size,"
-                    "evaluations,progress,duration\n";
+    logEvolution << EVOLUTION_LOG_HEADER << "\n";
 }
 
 void MA::flush_row_into_evol_log() {
-    double evals_used = instance->get_evals();
-    double progress = evals_used/instance->maxEvals;
-    ossRowEvol << generation << "," << population.size() << ","
-               << populationMetrics.size << "," << populationMetrics.min << "," << populationMetrics.average << "," << populationMetrics.max << "," << populationMetrics.standardDeviation << ","
-               << upperCandidateMetrics.size << "," << upperCandidateMetrics.min << "," << upperCandidateMetrics.average << "," << upperCandidateMetrics.max << "," << upperCandidateMetrics.standardDeviation << ","
-               << followerEvaluatedMetrics.size << "," << followerEvaluatedMetrics.min << "," << followerEvaluatedMetrics.average << "," << followerEvaluatedMetrics.max << "," << followerEvaluatedMetrics.standardDeviation << "," << followerEvaluatedMetrics.infeasibleSize << ","
-               << evals_used << "," << progress << "," << duration.count() << "\n";
+    const double evalsUsed = instance->get_evals();
+    const double progress = evalsUsed / instance->maxEvals;
+    evolutionRows << generation << ","
+                  << evalsUsed << ","
+                  << globalBestUpperCost << ","
+                  << verifiedBest->get_lower_cost() << ","
+                  << progress << ","
+                  << duration.count() << "\n";
 }
 
 void MA::close_log_for_evolution() {
-    logEvolution << ossRowEvol.str();
-    ossRowEvol.clear();
+    logEvolution << evolutionRows.str();
+    evolutionRows.clear();
     logEvolution.close();
 }
 
@@ -236,8 +213,6 @@ void MA::initialize_search() {
 
 void MA::run_generation() {
     generation++;
-
-    populationMetrics = calculate_population_metrics(collect_upper_costs(population));
 
     vector<shared_ptr<Individual>> upperCandidates = population;
     double bestCandidateImprovement = 0;
@@ -289,9 +264,6 @@ void MA::run_generation() {
     if (generation > confidenceWindowSize) {
         upperCandidates.push_back(bestUpperCandidate);
     }
-
-    upperCandidateMetrics = calculate_population_metrics(
-        collect_upper_costs(upperCandidates));
 
     // Build the quality-diversity parent pool before follower evaluation, so
     // reproduction remains independent from lower-level triggering.
@@ -345,9 +317,6 @@ void MA::run_generation() {
         || bestObservedChargingPenalty > minimumChargingPenalty) {
         bestObservedChargingPenalty = minimumChargingPenalty;
     }
-
-    followerEvaluatedMetrics = calculate_population_metrics(
-        collect_lower_costs(evaluatedCompleteSolutions));
 
     generationBestComplete = make_unique<Individual>(
         *Reproduction::best_by_lower_cost(evaluatedCompleteSolutions));

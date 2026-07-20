@@ -107,5 +107,10 @@ int main(int argc, char* argv[]) {
     assert(algorithm.population.size() == 10);
     assert(algorithm.verifiedBest != nullptr);
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
+    assert(std::string(MA::EVOLUTION_LOG_HEADER)
+           == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
+    algorithm.flush_row_into_evol_log();
+    const std::string evolutionRow = algorithm.evolutionRows.str();
+    assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
     return 0;
 }

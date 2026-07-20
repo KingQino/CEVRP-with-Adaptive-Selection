@@ -6,8 +6,6 @@
 #define CEVRP_YINGHAO_MA_HPP
 
 #include <random>
-#include <algorithm>
-#include <iterator>
 #include <deque>
 
 #include "case.hpp"
@@ -16,10 +14,8 @@
 
 class MA : public StatsInterface{
 public:
-    static std::vector<double> collect_upper_costs(
-        const std::vector<std::shared_ptr<Individual>>& group);
-    static std::vector<double> collect_lower_costs(
-        const std::vector<std::shared_ptr<Individual>>& group);
+    static constexpr const char* EVOLUTION_LOG_HEADER =
+        "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
 
     MA(Case* instance, int seed, int isMaxEvals = 1, int popSize = 100, double eliteRatio = 0.01, double immigrantRatio = 0.05,
        double crossoverProb = 1.0, double mutationProb = 0.5, double mutationIndProb = 0.2, int tournamentSize = 2);
@@ -37,17 +33,13 @@ public:
     void close_log_for_evolution() override;
     void save_log_for_solution() override;
 
-    std::ostringstream ossRowEvol;
+    std::ostringstream evolutionRows;
     Case* instance;
     std::default_random_engine randomEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::unique_ptr<Individual> verifiedBest;
     std::unique_ptr<Individual> generationBestComplete;
-    PopulationMetrics populationMetrics;
-    PopulationMetrics upperCandidateMetrics;
-    PopulationMetrics followerEvaluatedMetrics;
-
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     int popSize;
