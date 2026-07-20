@@ -430,7 +430,7 @@ bool two_opt_star_for_individual(Individual& individual, Case& instance) {
     return updated;
 }
 
-void node_shift_for_individual(Individual& individual, Case& instance) {
+bool node_shift_for_individual(Individual& individual, Case& instance) {
     double upperCost = individual.get_upper_cost();
     bool updated = false;
     for (int i = 0; i < individual.route_num; i++) {
@@ -439,6 +439,30 @@ void node_shift_for_individual(Individual& individual, Case& instance) {
     if (updated) {
         individual.set_upper_cost(upperCost);
     }
+    return updated;
+}
+
+bool ls_3_vnd(Individual& individual, Case& instance) {
+    bool improvedOverall = false;
+    bool improvedInRound;
+
+    do {
+        improvedInRound = false;
+
+        if (two_opt_for_individual(individual, instance)) {
+            improvedInRound = true;
+        }
+        if (two_opt_star_for_individual(individual, instance)) {
+            improvedInRound = true;
+        }
+        if (node_shift_for_individual(individual, instance)) {
+            improvedInRound = true;
+        }
+
+        improvedOverall = improvedOverall || improvedInRound;
+    } while (improvedInRound);
+
+    return improvedOverall;
 }
 
 bool node_shift(int* route, int length, double& fitv, Case& instance) {

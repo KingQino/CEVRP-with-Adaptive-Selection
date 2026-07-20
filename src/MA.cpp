@@ -286,9 +286,7 @@ void MA::run_heuristic() {
         // when the generations are greater than the threshold, part of the upper-level sub-solutions S1 will be selected for local search
         double oldUpperCost = talentedInd->get_upper_cost();
 
-        two_opt_for_individual(*talentedInd, *instance);
-        two_opt_star_for_individual(*talentedInd, *instance);
-        node_shift_for_individual(*talentedInd, *instance);
+        ls_3_vnd(*talentedInd, *instance);
 
         double newUpperCost = talentedInd->get_upper_cost();
         v1 = oldUpperCost - newUpperCost;
@@ -314,9 +312,7 @@ void MA::run_heuristic() {
     v2 = 0;
     for(auto& ind : S1) {
         double oldUpperCost = ind->get_upper_cost();
-        two_opt_for_individual(*ind, *instance); // 2-opt
-        two_opt_star_for_individual(*ind, *instance);
-        node_shift_for_individual(*ind, *instance);
+        ls_3_vnd(*ind, *instance);
         if (v2 < oldUpperCost - ind->get_upper_cost())
             v2 = oldUpperCost - ind->get_upper_cost();
     }

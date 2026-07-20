@@ -43,7 +43,8 @@ bool two_opt_for_individual(Individual& individual, Case& instance);
 bool two_opt_star_for_individual(Individual& individual, Case& instance);
 bool node_shift(int* route, int length, double& fitv, Case& instance);
 void moveItoJ(int* route, int a, int b);
-void node_shift_for_individual(Individual& individual, Case& instance);
+bool node_shift_for_individual(Individual& individual, Case& instance);
+bool ls_3_vnd(Individual& individual, Case& instance);
 
 // recharging optimization
 double fix_one_solution(Individual& individual, Case& instance);
