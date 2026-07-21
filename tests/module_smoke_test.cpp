@@ -349,9 +349,12 @@ int main(int argc, char* argv[]) {
     assert(algorithm.population.size() == 10);
     assert(algorithm.verifiedBest != nullptr);
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
+    int finiteLowerCostCount = 0;
     for (const auto& individual : algorithm.population) {
-        assert(std::isinf(individual->get_lower_cost()));
+        finiteLowerCostCount += std::isfinite(individual->get_lower_cost());
     }
+    assert(finiteLowerCostCount == 1);
+    assert(std::isfinite(algorithm.population.front()->get_lower_cost()));
     assert(std::string(MA::EVOLUTION_LOG_HEADER)
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
     assert(std::string(MA::LOCAL_SEARCH_LOG_HEADER)
@@ -392,6 +395,20 @@ int main(int argc, char* argv[]) {
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
 
+    const double archivedLowerCost = algorithm.verifiedBest->get_lower_cost();
+    algorithm.localSearchIntensity = LocalSearchIntensity::Weak;
+    algorithm.globalBestUpperCost = 0.0;
+    algorithm.run_generation();
+    assert(std::fabs(
+        algorithm.verifiedBest->get_lower_cost() - archivedLowerCost) <= 1e-8);
+    finiteLowerCostCount = 0;
+    for (const auto& individual : algorithm.population) {
+        finiteLowerCostCount += std::isfinite(individual->get_lower_cost());
+    }
+    assert(finiteLowerCostCount == 1);
+    assert(std::fabs(
+        algorithm.population.front()->get_lower_cost() - archivedLowerCost) <= 1e-8);
+
     // Crossing the former 30-generation boundary must not reduce the set of
     // individuals receiving local search.
     Case fullPopulationInstance(instancePath, 2);
@@ -420,6 +437,9 @@ int main(int argc, char* argv[]) {
     gammaOnlyAlgorithm.globalBestUpperCost = 0.0;
     gammaOnlyAlgorithm.run_generation();
     assert(std::isinf(gammaOnlyAlgorithm.verifiedBest->get_lower_cost()));
+    for (const auto& individual : gammaOnlyAlgorithm.population) {
+        assert(std::isinf(individual->get_lower_cost()));
+    }
     std::istringstream gammaOnlyRows(gammaOnlyAlgorithm.localSearchRows.str());
     int gammaOnlyRowCount = 0;
     while (std::getline(gammaOnlyRows, localSearchRow)) {

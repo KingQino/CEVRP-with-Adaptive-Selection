@@ -84,4 +84,4 @@ For details, please refer to the following paper:
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Each trial writes per-call local-search feedback to `local-search.tsv` in its stats directory.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
-- `Reproduction` rebuilds the complete population with 85% upper-parent offspring, 5% verified-best/immigrant offspring, and 10% pure immigrants; no lower-level elite is injected directly.
+- With `popSize=100`, `Reproduction` builds the next generation from one lower-level elite, 84 upper-parent offspring, 5 verified-best/immigrant offspring, and 10 pure immigrants.

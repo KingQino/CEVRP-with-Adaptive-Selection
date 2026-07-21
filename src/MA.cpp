@@ -341,9 +341,13 @@ void MA::run_generation() {
             record.individual) != evaluatedCompleteSolutions.end();
     }
 
+    shared_ptr<Individual> lowerElite;
     if (!evaluatedCompleteSolutions.empty()) {
         const shared_ptr<Individual> bestEvaluatedComplete =
             Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
+        if (bestEvaluatedComplete->get_lower_cost() < INFEASIBLE_COST) {
+            lowerElite = make_shared<Individual>(*bestEvaluatedComplete);
+        }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
             if (verifiedLowerCostBefore < INFEASIBLE_COST) {
                 for (auto& record : localSearchRecords) {
@@ -356,6 +360,9 @@ void MA::run_generation() {
             }
             verifiedBest = make_unique<Individual>(*bestEvaluatedComplete);
         }
+    }
+    if (lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST) {
+        lowerElite = make_shared<Individual>(*verifiedBest);
     }
 
     for (const auto& record : localSearchRecords) {
@@ -377,7 +384,7 @@ void MA::run_generation() {
     flush_local_search_log();
 
 
-    const int offspringTarget = popSize;
+    const int offspringTarget = popSize - (lowerElite == nullptr ? 0 : 1);
     const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
     vector<vector<int>> chromosomes = Reproduction::create_offspring(
         parentPool,
@@ -400,7 +407,10 @@ void MA::run_generation() {
 
     // update population
     population.reserve(popSize);
-    for (int i = 0; i < popSize; ++i) {
+    if (lowerElite != nullptr) {
+        population.push_back(std::move(lowerElite));
+    }
+    for (int i = 0; i < offspringTarget; ++i) {
         vector<int> giantTour = {instance->depot};
         giantTour.insert(giantTour.end(), chromosomes[i].begin(), chromosomes[i].end());
 
