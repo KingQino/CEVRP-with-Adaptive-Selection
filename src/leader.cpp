@@ -1504,6 +1504,7 @@ LocalSearchResult improve_with_rvnd_one_move(
         ? (upperCostBefore - individual.get_upper_cost()) / upperCostBefore
         : 0.0;
     result.reachedLocalOptimum = activeNeighborhoods.empty();
+    individual.set_upper_locally_optimal(result.reachedLocalOptimum);
     return result;
 }
 

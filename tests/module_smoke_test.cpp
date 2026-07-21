@@ -454,5 +454,57 @@ int main(int argc, char* argv[]) {
         ++gammaOnlyRowCount;
     }
     assert(gammaOnlyRowCount == 4);
+
+    Case retainedEliteInstance(instancePath, 4);
+    MA retainedEliteAlgorithm(&retainedEliteInstance, 4, 1, 1);
+    retainedEliteAlgorithm.initialize_search();
+    retainedEliteAlgorithm.run_generation();
+    assert(retainedEliteAlgorithm.retainedLowerElite != nullptr);
+    assert(std::isfinite(
+        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost()));
+
+    const auto retainedRoutes =
+        retainedEliteAlgorithm.retainedLowerElite->get_routes();
+    const double retainedUpperCost =
+        retainedEliteAlgorithm.retainedLowerElite->get_upper_cost();
+    const double retainedLowerCost =
+        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost();
+    const double evalsBeforeReuse = retainedEliteInstance.get_evals();
+    retainedEliteAlgorithm.localSearchRows.str("");
+    retainedEliteAlgorithm.localSearchRows.clear();
+
+    retainedEliteAlgorithm.run_generation();
+
+    assert(std::fabs(retainedEliteInstance.get_evals() - evalsBeforeReuse) <= 1e-12);
+    assert(retainedEliteAlgorithm.population.size() == 1);
+    assert(retainedEliteAlgorithm.population.front()
+           == retainedEliteAlgorithm.retainedLowerElite);
+    assert(retainedEliteAlgorithm.retainedLowerElite->get_routes() == retainedRoutes);
+    assert(std::fabs(
+        retainedEliteAlgorithm.retainedLowerElite->get_upper_cost()
+        - retainedUpperCost) <= 1e-8);
+    assert(std::fabs(
+        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost()
+        - retainedLowerCost) <= 1e-8);
+
+    std::istringstream retainedEliteRows(
+        retainedEliteAlgorithm.localSearchRows.str());
+    assert(std::getline(retainedEliteRows, localSearchRow));
+    std::istringstream retainedEliteRowStream(localSearchRow);
+    std::vector<std::string> retainedEliteColumns;
+    std::string retainedEliteColumn;
+    while (std::getline(
+        retainedEliteRowStream,
+        retainedEliteColumn,
+        '\t')) {
+        retainedEliteColumns.push_back(retainedEliteColumn);
+    }
+    assert(retainedEliteColumns.size() == 13);
+    assert(std::stoi(retainedEliteColumns[0]) == 2);
+    assert(std::stoi(retainedEliteColumns[5]) == 0);
+    assert(std::stoi(retainedEliteColumns[6]) == 0);
+    assert(std::fabs(std::stod(retainedEliteColumns[7])) <= 1e-12);
+    assert(retainedEliteColumns[9] == "1");
+    assert(retainedEliteColumns[11] == "0");
     return 0;
 }

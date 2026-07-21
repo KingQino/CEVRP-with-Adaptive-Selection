@@ -51,6 +51,7 @@ public:
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::unique_ptr<Individual> verifiedBest;
+    std::shared_ptr<Individual> retainedLowerElite;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     int popSize;

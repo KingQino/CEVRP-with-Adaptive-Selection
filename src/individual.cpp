@@ -14,6 +14,7 @@ Individual::Individual(const Individual& ind) {
     this->route_num = ind.route_num;
     this->upper_cost = ind.upper_cost;
     this->lower_cost = ind.lower_cost;
+    this->upper_locally_optimal = ind.upper_locally_optimal;
     this->routes = new int *[ind.route_cap];
     for (int i = 0; i < ind.route_cap; ++i) {
         this->routes[i] = new int[ind.node_cap];
@@ -43,6 +44,7 @@ Individual::Individual(int route_cap, int node_cap) {
     memset(this->demand_sum, 0, sizeof(int) * route_cap);
     this->upper_cost = 0.0;
     this->lower_cost = std::numeric_limits<double>::infinity();
+    this->upper_locally_optimal = false;
     this->tour = new int[TOUR_SIZE];
     memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
@@ -79,6 +81,7 @@ void Individual::reset() {
     memset(this->demand_sum, 0, sizeof(int) * this->route_cap);
     this->upper_cost = 0.0;
     this->lower_cost = std::numeric_limits<double>::infinity();
+    this->upper_locally_optimal = false;
     this->route_num = 0;
     memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
@@ -117,13 +120,22 @@ double Individual::get_lower_cost() const {
     return lower_cost;
 }
 
+bool Individual::is_upper_locally_optimal() const {
+    return upper_locally_optimal;
+}
+
 void Individual::set_upper_cost(double cost) {
     this->upper_cost = cost;
+    this->upper_locally_optimal = false;
     invalidate_lower_cost();
 }
 
 void Individual::set_lower_cost(double cost) {
     this->lower_cost = cost;
+}
+
+void Individual::set_upper_locally_optimal(bool locally_optimal) {
+    this->upper_locally_optimal = locally_optimal;
 }
 
 void Individual::invalidate_lower_cost() {
@@ -138,6 +150,7 @@ void Individual::set_routes(const vector<vector<int>>& _routes) {
             this->routes[i][j] = _routes[i][j];
         }
     }
+    this->upper_locally_optimal = false;
     invalidate_lower_cost();
 }
 

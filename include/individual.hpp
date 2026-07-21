@@ -22,6 +22,7 @@ public:
     int* demand_sum; // the demand sum of all customers of each route
     double upper_cost; // routing cost before charging decisions
     double lower_cost; // complete cost after charging decisions
+    bool upper_locally_optimal;
     int* tour; // The specified format of the solution, e.g., 0 - 5 - 6 - 8 - 0 - 1 - 2 - 3 - 4 - 0 - 7 - 0
     int steps;
 
@@ -35,8 +36,10 @@ public:
     [[nodiscard]] std::vector<int> get_chromosome() const;
     [[nodiscard]] double get_upper_cost() const;
     [[nodiscard]] double get_lower_cost() const;
+    [[nodiscard]] bool is_upper_locally_optimal() const;
     void set_upper_cost(double cost);
     void set_lower_cost(double cost);
+    void set_upper_locally_optimal(bool locally_optimal);
     void invalidate_lower_cost();
     void set_routes(const std::vector<std::vector<int>>& _routes);
     std::pair<int*, int> get_tour();

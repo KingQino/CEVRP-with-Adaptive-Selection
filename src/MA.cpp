@@ -229,6 +229,7 @@ void MA::save_log_for_solution() {
 }
 
 void MA::initialize_search() {
+    retainedLowerElite.reset();
     initialize_population_with_clustering();
     std::vector<std::vector<int>> emptyVector2D;
     std::vector<int> emptyVector1D;
@@ -248,6 +249,7 @@ void MA::initialize_search() {
 void MA::run_generation() {
     generation++;
 
+    const shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     vector<LocalSearchLogRecord> localSearchRecords;
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     ParentCandidate localSearchBestReference =
@@ -271,12 +273,20 @@ void MA::run_generation() {
         const bool outsideGammaBefore =
             beforeCandidate.upperCost > triggerUpperBoundBefore;
 
-        const LocalSearchResult result =
-            Leader::improve_with_seven_neighborhood_rvnd_one_move(
+        LocalSearchResult result;
+        const bool canReuseLowerElite = individual == unchangedLowerElite
+            && individual->is_upper_locally_optimal()
+            && individual->get_lower_cost() < INFEASIBLE_COST;
+        if (canReuseLowerElite) {
+            result.moveLimit = -1;
+            result.reachedLocalOptimum = true;
+        } else {
+            result = Leader::improve_with_seven_neighborhood_rvnd_one_move(
                 *individual,
                 *instance,
                 localSearchEngine,
                 localSearchIntensity);
+        }
         const ParentCandidate afterCandidate =
             Reproduction::make_parent_candidate(*individual);
 
@@ -329,16 +339,22 @@ void MA::run_generation() {
     }
 
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
+    vector<shared_ptr<Individual>> followerEvaluatedSolutions;
     const double verifiedLowerCostBefore = verifiedBest->get_lower_cost();
     for (auto& individual : followerCandidates) {
-        Follower::optimize_charging(*individual, *instance);
+        const bool canReuseLowerElite = individual == unchangedLowerElite
+            && individual->get_lower_cost() < INFEASIBLE_COST;
+        if (!canReuseLowerElite) {
+            Follower::optimize_charging(*individual, *instance);
+            followerEvaluatedSolutions.push_back(individual);
+        }
         evaluatedCompleteSolutions.push_back(individual);
     }
     for (auto& record : localSearchRecords) {
         record.lowerEvaluated = std::find(
-            evaluatedCompleteSolutions.begin(),
-            evaluatedCompleteSolutions.end(),
-            record.individual) != evaluatedCompleteSolutions.end();
+            followerEvaluatedSolutions.begin(),
+            followerEvaluatedSolutions.end(),
+            record.individual) != followerEvaluatedSolutions.end();
     }
 
     shared_ptr<Individual> lowerElite;
@@ -400,7 +416,9 @@ void MA::run_generation() {
 
     // Release the old population vector capacity before rebuilding it.
     evaluatedCompleteSolutions.clear();
+    followerEvaluatedSolutions.clear();
     followerCandidates.clear();
+    retainedLowerElite = lowerElite;
     population.clear();
     population.shrink_to_fit();
 
