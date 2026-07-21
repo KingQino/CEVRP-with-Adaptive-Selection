@@ -36,6 +36,7 @@ public:
     std::ostringstream evolutionRows;
     Case* instance;
     std::default_random_engine randomEngine;
+    std::default_random_engine localSearchEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::unique_ptr<Individual> verifiedBest;

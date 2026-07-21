@@ -12,6 +12,12 @@
 
 namespace {
 
+enum class Neighborhood {
+    TwoOpt,
+    TwoOptStar,
+    NodeShift,
+};
+
 struct RoutePairHash {
     std::size_t operator()(const std::pair<int, int>& routePair) const {
         return routePair.first * 256 + routePair.second;
@@ -336,4 +342,42 @@ void Leader::improve_with_three_neighborhood_vnd(Individual& individual, Case& i
             improvedInRound = true;
         }
     } while (improvedInRound);
+}
+
+void Leader::improve_with_three_neighborhood_rvnd(
+    Individual& individual,
+    Case& instance,
+    std::default_random_engine& randomEngine) {
+    const std::vector<Neighborhood> allNeighborhoods = {
+        Neighborhood::TwoOpt,
+        Neighborhood::TwoOptStar,
+        Neighborhood::NodeShift,
+    };
+    std::vector<Neighborhood> activeNeighborhoods = allNeighborhoods;
+
+    while (!activeNeighborhoods.empty()) {
+        std::uniform_int_distribution<std::size_t> selectNeighborhood(
+            0,
+            activeNeighborhoods.size() - 1);
+        const std::size_t selectedIndex = selectNeighborhood(randomEngine);
+
+        bool improved = false;
+        switch (activeNeighborhoods[selectedIndex]) {
+            case Neighborhood::TwoOpt:
+                improved = improve_with_two_opt(individual, instance);
+                break;
+            case Neighborhood::TwoOptStar:
+                improved = improve_with_two_opt_star(individual, instance);
+                break;
+            case Neighborhood::NodeShift:
+                improved = improve_with_node_shift(individual, instance);
+                break;
+        }
+
+        if (improved) {
+            activeNeighborhoods = allNeighborhoods;
+        } else {
+            activeNeighborhoods.erase(activeNeighborhoods.begin() + selectedIndex);
+        }
+    }
 }

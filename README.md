@@ -78,6 +78,6 @@ For details, please refer to the following paper:
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` improves upper-level routing decisions with the three-neighborhood VND.
+- `Leader` provides the LS-3-VND baseline and the default randomized LS-3-RVND upper-level search.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - `Reproduction` owns population ranking, the depot-aware quality-diversity parent pool, genetic operators, and the 85%/5%/10% offspring strategy.

@@ -31,6 +31,8 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     // init parameters
     this->instance = instance;
     this->randomEngine = std::default_random_engine(seed);
+    std::seed_seq localSearchSeed{seed, 0x4C53, 0x52564E44};
+    this->localSearchEngine.seed(localSearchSeed);
     this->seed = seed;
     this->isMaxEvals = isMaxEvals;
 
@@ -221,7 +223,10 @@ void MA::run_generation() {
     if (generation > confidenceWindowSize) {
         const double oldUpperCost = bestUpperCandidate->get_upper_cost();
 
-        Leader::improve_with_three_neighborhood_vnd(*bestUpperCandidate, *instance);
+        Leader::improve_with_three_neighborhood_rvnd(
+            *bestUpperCandidate,
+            *instance,
+            localSearchEngine);
 
         const double newUpperCost = bestUpperCandidate->get_upper_cost();
         bestCandidateImprovement = oldUpperCost - newUpperCost;
@@ -251,7 +256,10 @@ void MA::run_generation() {
     double maximumUpperImprovement = 0;
     for (auto& individual : upperCandidates) {
         const double oldUpperCost = individual->get_upper_cost();
-        Leader::improve_with_three_neighborhood_vnd(*individual, *instance);
+        Leader::improve_with_three_neighborhood_rvnd(
+            *individual,
+            *instance,
+            localSearchEngine);
         if (maximumUpperImprovement < oldUpperCost - individual->get_upper_cost()) {
             maximumUpperImprovement = oldUpperCost - individual->get_upper_cost();
         }

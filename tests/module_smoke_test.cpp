@@ -63,8 +63,18 @@ int main(int argc, char* argv[]) {
         instance.fitness_evaluation(clusteredRoutes),
         instance.compute_demand_sum(clusteredRoutes));
     const double upperCostBeforeSearch = individual.get_upper_cost();
-    Leader::improve_with_three_neighborhood_vnd(individual, instance);
+    Individual vndBaseline(individual);
+    Leader::improve_with_three_neighborhood_vnd(vndBaseline, instance);
+    assert(vndBaseline.get_upper_cost() <= upperCostBeforeSearch + 1e-8);
+
+    Individual repeatedRvnd(individual);
+    std::default_random_engine firstRvndEngine(7);
+    std::default_random_engine secondRvndEngine(7);
+    Leader::improve_with_three_neighborhood_rvnd(individual, instance, firstRvndEngine);
+    Leader::improve_with_three_neighborhood_rvnd(repeatedRvnd, instance, secondRvndEngine);
     assert(individual.get_upper_cost() <= upperCostBeforeSearch + 1e-8);
+    assert(std::fabs(individual.get_upper_cost() - repeatedRvnd.get_upper_cost()) <= 1e-8);
+    assert(individual.get_routes() == repeatedRvnd.get_routes());
 
     Follower::optimize_charging(individual, instance);
     assert(std::isfinite(individual.get_lower_cost()));
