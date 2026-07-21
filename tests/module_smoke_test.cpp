@@ -221,15 +221,53 @@ int main(int argc, char* argv[]) {
            == repeatedSevenNeighborhoodRvnd.get_routes());
     assert_individual_is_consistent(sevenNeighborhoodRvnd, instance);
 
-    Follower::optimize_charging(sevenNeighborhoodRvnd, instance);
-    assert(std::isfinite(sevenNeighborhoodRvnd.get_lower_cost()));
+    Individual sevenNeighborhoodOneMove(fiveNeighborhoodRvnd);
+    Individual repeatedSevenNeighborhoodOneMove(fiveNeighborhoodRvnd);
+    const double upperCostBeforeOneMoveSearch =
+        sevenNeighborhoodOneMove.get_upper_cost();
+    const int routesBeforeOneMoveSearch = sevenNeighborhoodOneMove.route_num;
+    std::default_random_engine firstOneMoveEngine(17);
+    std::default_random_engine secondOneMoveEngine(17);
+    Leader::improve_with_seven_neighborhood_rvnd_one_move(
+        sevenNeighborhoodOneMove,
+        instance,
+        firstOneMoveEngine);
+    Leader::improve_with_seven_neighborhood_rvnd_one_move(
+        repeatedSevenNeighborhoodOneMove,
+        instance,
+        secondOneMoveEngine);
+    assert(sevenNeighborhoodOneMove.get_upper_cost()
+           <= upperCostBeforeOneMoveSearch + 1e-8);
+    assert(sevenNeighborhoodOneMove.route_num <= routesBeforeOneMoveSearch);
+    assert(std::fabs(
+        sevenNeighborhoodOneMove.get_upper_cost()
+        - repeatedSevenNeighborhoodOneMove.get_upper_cost()) <= 1e-8);
+    assert(sevenNeighborhoodOneMove.get_routes()
+           == repeatedSevenNeighborhoodOneMove.get_routes());
+    assert_individual_is_consistent(sevenNeighborhoodOneMove, instance);
+
+    Individual exhaustedOneMoveSearch(sevenNeighborhoodOneMove);
+    std::default_random_engine exhaustedOneMoveEngine(19);
+    Leader::improve_with_seven_neighborhood_rvnd_one_move(
+        exhaustedOneMoveSearch,
+        instance,
+        exhaustedOneMoveEngine);
+    assert(std::fabs(
+        exhaustedOneMoveSearch.get_upper_cost()
+        - sevenNeighborhoodOneMove.get_upper_cost()) <= 1e-8);
+    assert(exhaustedOneMoveSearch.get_routes()
+           == sevenNeighborhoodOneMove.get_routes());
+    assert_individual_is_consistent(exhaustedOneMoveSearch, instance);
+
+    Follower::optimize_charging(sevenNeighborhoodOneMove, instance);
+    assert(std::isfinite(sevenNeighborhoodOneMove.get_lower_cost()));
     if (instance.customerNumber <= 30) {
-        Follower::refine_charging_by_enumeration(sevenNeighborhoodRvnd, instance);
-        assert(std::isfinite(sevenNeighborhoodRvnd.get_lower_cost()));
+        Follower::refine_charging_by_enumeration(sevenNeighborhoodOneMove, instance);
+        assert(std::isfinite(sevenNeighborhoodOneMove.get_lower_cost()));
     }
 
     std::vector<std::shared_ptr<Individual>> rankedSolutions;
-    rankedSolutions.push_back(std::make_shared<Individual>(sevenNeighborhoodRvnd));
+    rankedSolutions.push_back(std::make_shared<Individual>(sevenNeighborhoodOneMove));
     rankedSolutions.push_back(std::make_shared<Individual>(
         instance.vehicleNumber * 3,
         instance.customerNumber + 2,

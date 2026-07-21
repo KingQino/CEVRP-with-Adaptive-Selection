@@ -78,6 +78,6 @@ For details, please refer to the following paper:
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` retains LS-3-VND, LS-3-RVND, and LS-5-RVND as baselines. The default LS-7-RVND adds intra-route swap and separates inter-route 2-opt into H2H and H2T neighborhoods; it does not use empty-route moves.
+- `Leader` retains the full-descent LS-3/5/7 variants as baselines. The default LS-7-RVND-OneMove uses the same seven neighborhoods, but each selected neighborhood accepts at most one improving move before returning to RVND; it does not use empty-route moves.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - `Reproduction` owns population ranking, the depot-aware quality-diversity parent pool, genetic operators, and the 85%/5%/10% offspring strategy.
