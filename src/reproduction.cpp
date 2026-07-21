@@ -275,13 +275,13 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     std::vector<std::vector<int>> offspring;
     offspring.reserve(offspringCount);
 
-    const int verifiedImmigrantCount = hasVerifiedBest
+    const int verifiedUpperCount = hasVerifiedBest
         ? static_cast<int>(std::lround(offspringCount * 0.05))
         : 0;
     const int pureImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.10));
     const int upperParentOffspringCount = std::max(
         0,
-        offspringCount - verifiedImmigrantCount - pureImmigrantCount);
+        offspringCount - verifiedUpperCount - pureImmigrantCount);
 
     auto appendChild = [&](std::vector<int>& child, int phaseTarget) {
         if (static_cast<int>(offspring.size()) < phaseTarget) {
@@ -351,14 +351,28 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
         appendChild(secondChild, upperParentOffspringCount);
     }
 
-    const int verifiedPhaseTarget = upperParentOffspringCount + verifiedImmigrantCount;
+    const int verifiedPhaseTarget = upperParentOffspringCount + verifiedUpperCount;
     if (hasVerifiedBest) {
         const std::vector<int> verifiedChromosome = verifiedBest->get_chromosome();
+        std::vector<std::size_t> mateIndices;
+        mateIndices.reserve(parentPool.size());
+        for (std::size_t i = 0; i < parentPool.size(); ++i) {
+            if (parentPool[i].chromosome != verifiedChromosome) {
+                mateIndices.push_back(i);
+            }
+        }
+        if (mateIndices.empty()) {
+            for (std::size_t i = 0; i < parentPool.size(); ++i) {
+                mateIndices.push_back(i);
+            }
+        }
+        std::uniform_int_distribution<std::size_t> selectMate(
+            0,
+            mateIndices.size() - 1);
         while (static_cast<int>(offspring.size()) < verifiedPhaseTarget) {
             std::vector<int> firstChild = verifiedChromosome;
-            std::vector<int> secondChild = make_random_immigrant(
-                customers,
-                randomEngine);
+            std::vector<int> secondChild = parentPool[
+                mateIndices[selectMate(randomEngine)]].chromosome;
             partially_matched_crossover(firstChild, secondChild, randomEngine);
             appendChild(firstChild, verifiedPhaseTarget);
             appendChild(secondChild, verifiedPhaseTarget);
