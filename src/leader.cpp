@@ -1,6 +1,7 @@
 #include "../include/leader.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <unordered_set>
@@ -16,6 +17,24 @@ enum class Neighborhood {
     TwoOpt,
     TwoOptStar,
     NodeShift,
+    InterRouteRelocate,
+    InterRouteSwap,
+};
+
+constexpr double kImprovementTolerance = 0.00000001;
+
+constexpr std::array<Neighborhood, 3> kThreeNeighborhoods = {
+    Neighborhood::TwoOpt,
+    Neighborhood::TwoOptStar,
+    Neighborhood::NodeShift,
+};
+
+constexpr std::array<Neighborhood, 5> kFiveNeighborhoods = {
+    Neighborhood::TwoOpt,
+    Neighborhood::TwoOptStar,
+    Neighborhood::NodeShift,
+    Neighborhood::InterRouteRelocate,
+    Neighborhood::InterRouteSwap,
 };
 
 struct RoutePairHash {
@@ -326,6 +345,244 @@ bool improve_with_node_shift(Individual& individual, Case& instance) {
     return improved;
 }
 
+void remove_empty_route(Individual& individual, int routeIndex) {
+    const int lastRoute = individual.route_num - 1;
+    if (routeIndex != lastRoute) {
+        std::swap(individual.routes[routeIndex], individual.routes[lastRoute]);
+        std::swap(individual.node_num[routeIndex], individual.node_num[lastRoute]);
+        std::swap(individual.demand_sum[routeIndex], individual.demand_sum[lastRoute]);
+    }
+
+    individual.node_num[lastRoute] = 0;
+    individual.demand_sum[lastRoute] = 0;
+    --individual.route_num;
+}
+
+void relocate_customer(
+    Individual& individual,
+    int sourceRoute,
+    int sourceNode,
+    int targetRoute,
+    int targetEdge,
+    int customer,
+    int customerDemand) {
+    int* source = individual.routes[sourceRoute];
+    for (int i = sourceNode; i < individual.node_num[sourceRoute] - 1; ++i) {
+        source[i] = source[i + 1];
+    }
+    --individual.node_num[sourceRoute];
+    individual.demand_sum[sourceRoute] -= customerDemand;
+
+    int* target = individual.routes[targetRoute];
+    for (int i = individual.node_num[targetRoute]; i > targetEdge + 1; --i) {
+        target[i] = target[i - 1];
+    }
+    target[targetEdge + 1] = customer;
+    ++individual.node_num[targetRoute];
+    individual.demand_sum[targetRoute] += customerDemand;
+}
+
+bool improve_with_inter_route_relocate(Individual& individual, Case& instance) {
+    if (individual.route_num <= 1) {
+        return false;
+    }
+
+    bool improved = false;
+    bool moveApplied;
+    do {
+        moveApplied = false;
+        for (int sourceRoute = 0;
+             sourceRoute < individual.route_num && !moveApplied;
+             ++sourceRoute) {
+            const int sourceLength = individual.node_num[sourceRoute];
+            for (int sourceNode = 1;
+                 sourceNode < sourceLength - 1 && !moveApplied;
+                 ++sourceNode) {
+                const int customer = individual.routes[sourceRoute][sourceNode];
+                const int customerDemand = instance.get_customer_demand(customer);
+                const double sourceImprovement =
+                    instance.get_distance(
+                        individual.routes[sourceRoute][sourceNode - 1],
+                        customer)
+                    + instance.get_distance(
+                        customer,
+                        individual.routes[sourceRoute][sourceNode + 1])
+                    - instance.get_distance(
+                        individual.routes[sourceRoute][sourceNode - 1],
+                        individual.routes[sourceRoute][sourceNode + 1]);
+
+                for (int targetRoute = 0;
+                     targetRoute < individual.route_num && !moveApplied;
+                     ++targetRoute) {
+                    if (targetRoute == sourceRoute
+                        || individual.demand_sum[targetRoute] + customerDemand > instance.maxC) {
+                        continue;
+                    }
+
+                    const int targetLength = individual.node_num[targetRoute];
+                    for (int targetEdge = 0; targetEdge < targetLength - 1; ++targetEdge) {
+                        const int targetFrom = individual.routes[targetRoute][targetEdge];
+                        const int targetTo = individual.routes[targetRoute][targetEdge + 1];
+                        const double improvement = sourceImprovement
+                            + instance.get_distance(targetFrom, targetTo)
+                            - instance.get_distance(targetFrom, customer)
+                            - instance.get_distance(customer, targetTo);
+                        if (improvement <= kImprovementTolerance) {
+                            continue;
+                        }
+
+                        relocate_customer(
+                            individual,
+                            sourceRoute,
+                            sourceNode,
+                            targetRoute,
+                            targetEdge,
+                            customer,
+                            customerDemand);
+                        individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                        if (individual.node_num[sourceRoute] == 2) {
+                            remove_empty_route(individual, sourceRoute);
+                        }
+                        improved = true;
+                        moveApplied = true;
+                        break;
+                    }
+                }
+            }
+        }
+    } while (moveApplied && individual.route_num > 1);
+
+    return improved;
+}
+
+bool improve_with_inter_route_swap(Individual& individual, Case& instance) {
+    if (individual.route_num <= 1) {
+        return false;
+    }
+
+    bool improved = false;
+    bool moveApplied;
+    do {
+        moveApplied = false;
+        for (int firstRoute = 0;
+             firstRoute < individual.route_num - 1 && !moveApplied;
+             ++firstRoute) {
+            for (int secondRoute = firstRoute + 1;
+                 secondRoute < individual.route_num && !moveApplied;
+                 ++secondRoute) {
+                for (int firstNode = 1;
+                     firstNode < individual.node_num[firstRoute] - 1 && !moveApplied;
+                     ++firstNode) {
+                    const int firstCustomer = individual.routes[firstRoute][firstNode];
+                    const int firstDemand = instance.get_customer_demand(firstCustomer);
+                    for (int secondNode = 1;
+                         secondNode < individual.node_num[secondRoute] - 1;
+                         ++secondNode) {
+                        const int secondCustomer = individual.routes[secondRoute][secondNode];
+                        const int secondDemand = instance.get_customer_demand(secondCustomer);
+                        if (individual.demand_sum[firstRoute] - firstDemand + secondDemand > instance.maxC
+                            || individual.demand_sum[secondRoute] - secondDemand + firstDemand > instance.maxC) {
+                            continue;
+                        }
+
+                        const double oldCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode - 1],
+                                firstCustomer)
+                            + instance.get_distance(
+                                firstCustomer,
+                                individual.routes[firstRoute][firstNode + 1])
+                            + instance.get_distance(
+                                individual.routes[secondRoute][secondNode - 1],
+                                secondCustomer)
+                            + instance.get_distance(
+                                secondCustomer,
+                                individual.routes[secondRoute][secondNode + 1]);
+                        const double newCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode - 1],
+                                secondCustomer)
+                            + instance.get_distance(
+                                secondCustomer,
+                                individual.routes[firstRoute][firstNode + 1])
+                            + instance.get_distance(
+                                individual.routes[secondRoute][secondNode - 1],
+                                firstCustomer)
+                            + instance.get_distance(
+                                firstCustomer,
+                                individual.routes[secondRoute][secondNode + 1]);
+                        const double improvement = oldCost - newCost;
+                        if (improvement <= kImprovementTolerance) {
+                            continue;
+                        }
+
+                        std::swap(
+                            individual.routes[firstRoute][firstNode],
+                            individual.routes[secondRoute][secondNode]);
+                        individual.demand_sum[firstRoute] =
+                            individual.demand_sum[firstRoute] - firstDemand + secondDemand;
+                        individual.demand_sum[secondRoute] =
+                            individual.demand_sum[secondRoute] - secondDemand + firstDemand;
+                        individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                        improved = true;
+                        moveApplied = true;
+                        break;
+                    }
+                }
+            }
+        }
+    } while (moveApplied);
+
+    return improved;
+}
+
+bool improve_with_neighborhood(
+    Neighborhood neighborhood,
+    Individual& individual,
+    Case& instance) {
+    switch (neighborhood) {
+        case Neighborhood::TwoOpt:
+            return improve_with_two_opt(individual, instance);
+        case Neighborhood::TwoOptStar:
+            return improve_with_two_opt_star(individual, instance);
+        case Neighborhood::NodeShift:
+            return improve_with_node_shift(individual, instance);
+        case Neighborhood::InterRouteRelocate:
+            return improve_with_inter_route_relocate(individual, instance);
+        case Neighborhood::InterRouteSwap:
+            return improve_with_inter_route_swap(individual, instance);
+    }
+    return false;
+}
+
+template <std::size_t NeighborhoodCount>
+void improve_with_rvnd(
+    Individual& individual,
+    Case& instance,
+    std::default_random_engine& randomEngine,
+    const std::array<Neighborhood, NeighborhoodCount>& neighborhoods) {
+    std::vector<Neighborhood> activeNeighborhoods(
+        neighborhoods.begin(),
+        neighborhoods.end());
+
+    while (!activeNeighborhoods.empty()) {
+        std::uniform_int_distribution<std::size_t> selectNeighborhood(
+            0,
+            activeNeighborhoods.size() - 1);
+        const std::size_t selectedIndex = selectNeighborhood(randomEngine);
+        const bool improved = improve_with_neighborhood(
+            activeNeighborhoods[selectedIndex],
+            individual,
+            instance);
+
+        if (improved) {
+            activeNeighborhoods.assign(neighborhoods.begin(), neighborhoods.end());
+        } else {
+            activeNeighborhoods.erase(activeNeighborhoods.begin() + selectedIndex);
+        }
+    }
+}
+
 }  // namespace
 
 void Leader::improve_with_three_neighborhood_vnd(Individual& individual, Case& instance) {
@@ -348,36 +605,12 @@ void Leader::improve_with_three_neighborhood_rvnd(
     Individual& individual,
     Case& instance,
     std::default_random_engine& randomEngine) {
-    const std::vector<Neighborhood> allNeighborhoods = {
-        Neighborhood::TwoOpt,
-        Neighborhood::TwoOptStar,
-        Neighborhood::NodeShift,
-    };
-    std::vector<Neighborhood> activeNeighborhoods = allNeighborhoods;
+    improve_with_rvnd(individual, instance, randomEngine, kThreeNeighborhoods);
+}
 
-    while (!activeNeighborhoods.empty()) {
-        std::uniform_int_distribution<std::size_t> selectNeighborhood(
-            0,
-            activeNeighborhoods.size() - 1);
-        const std::size_t selectedIndex = selectNeighborhood(randomEngine);
-
-        bool improved = false;
-        switch (activeNeighborhoods[selectedIndex]) {
-            case Neighborhood::TwoOpt:
-                improved = improve_with_two_opt(individual, instance);
-                break;
-            case Neighborhood::TwoOptStar:
-                improved = improve_with_two_opt_star(individual, instance);
-                break;
-            case Neighborhood::NodeShift:
-                improved = improve_with_node_shift(individual, instance);
-                break;
-        }
-
-        if (improved) {
-            activeNeighborhoods = allNeighborhoods;
-        } else {
-            activeNeighborhoods.erase(activeNeighborhoods.begin() + selectedIndex);
-        }
-    }
+void Leader::improve_with_five_neighborhood_rvnd(
+    Individual& individual,
+    Case& instance,
+    std::default_random_engine& randomEngine) {
+    improve_with_rvnd(individual, instance, randomEngine, kFiveNeighborhoods);
 }

@@ -223,7 +223,7 @@ void MA::run_generation() {
     if (generation > confidenceWindowSize) {
         const double oldUpperCost = bestUpperCandidate->get_upper_cost();
 
-        Leader::improve_with_three_neighborhood_rvnd(
+        Leader::improve_with_five_neighborhood_rvnd(
             *bestUpperCandidate,
             *instance,
             localSearchEngine);
@@ -256,7 +256,7 @@ void MA::run_generation() {
     double maximumUpperImprovement = 0;
     for (auto& individual : upperCandidates) {
         const double oldUpperCost = individual->get_upper_cost();
-        Leader::improve_with_three_neighborhood_rvnd(
+        Leader::improve_with_five_neighborhood_rvnd(
             *individual,
             *instance,
             localSearchEngine);
