@@ -80,6 +80,8 @@ For details, please refer to the following paper:
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
 - `Leader` retains the full-descent LS-3/5/7 variants as baselines. LS-7-RVND-OneMove supports interruptible weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
 - Weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`; strong runs until all seven neighborhoods fail.
+- Every generation applies the selected local-search intensity to the complete upper-level population; no confidence filter is used.
+- Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Each trial writes per-call local-search feedback to `local-search.tsv` in its stats directory.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
-- `Reproduction` owns population ranking, the depot-aware quality-diversity parent pool, genetic operators, and the 85%/5%/10% offspring strategy.
+- `Reproduction` rebuilds the complete population with 85% upper-parent offspring, 5% verified-best/immigrant offspring, and 10% pure immigrants; no lower-level elite is injected directly.

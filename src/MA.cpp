@@ -41,7 +41,7 @@ using std::to_string;
 using std::uniform_real_distribution;
 using std::vector;
 
-MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio, double immigrantRatio, double crossoverProb,
+MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double immigrantRatio, double crossoverProb,
        double /*mutationProb*/, double mutationIndProb, int tournamentSize,
        LocalSearchIntensity localSearchIntensity) {
     // init parameters
@@ -57,7 +57,6 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
 
     // hyperparameters for MA
     this->popSize = popSize;
-    this->eliteRatio = eliteRatio;
     this->immigrantRatio = immigrantRatio;
     this->crossoverProb = crossoverProb;
     this->mutationProb = mutationIndProb;
@@ -69,16 +68,11 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     // One upper-level route can contain depot + all customers + depot.
     this->nodeCapacity = this->instance->customerNumber + 2;
     this->generation = 0;
-    this->localSearchConfidenceMultiplier = 1.2;
-    this->chargingConfidenceMultiplier = 0.8;
     this->lowerLevelTriggerRatio = 1.02;
-    this->confidenceWindowSize = 30;
-    this->bestObservedChargingPenalty = 0.0;
     this->globalBestUpperCost = DBL_MAX;
 }
 
 MA::~MA() {
-    generationBestComplete.reset();
     verifiedBest.reset();
     population.clear();
 }
@@ -238,12 +232,6 @@ void MA::initialize_search() {
     initialize_population_with_clustering();
     std::vector<std::vector<int>> emptyVector2D;
     std::vector<int> emptyVector1D;
-    generationBestComplete = make_unique<Individual>(
-        routeCapacity,
-        nodeCapacity,
-        emptyVector2D,
-        INFEASIBLE_COST,
-        emptyVector1D);
     verifiedBest = make_unique<Individual>(
         routeCapacity,
         nodeCapacity,
@@ -260,10 +248,7 @@ void MA::initialize_search() {
 void MA::run_generation() {
     generation++;
 
-    vector<shared_ptr<Individual>> upperCandidates = population;
     vector<LocalSearchLogRecord> localSearchRecords;
-    double bestCandidateImprovement = 0;
-    double improvementThreshold;
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     ParentCandidate localSearchBestReference =
         Reproduction::make_parent_candidate(*bestUpperCandidate);
@@ -313,53 +298,15 @@ void MA::run_generation() {
         if (afterCandidate.upperCost < localSearchBestCost) {
             localSearchBestCost = afterCandidate.upperCost;
         }
-        return beforeCandidate.upperCost - afterCandidate.upperCost;
     };
 
-    if (generation > confidenceWindowSize) {
-        bestCandidateImprovement = applyLocalSearch(bestUpperCandidate);
-        const double newUpperCost = bestUpperCandidate->get_upper_cost();
-        improvementThreshold = *std::max_element(
-            recentUpperImprovements.begin(),
-            recentUpperImprovements.end());
-        if (improvementThreshold < bestCandidateImprovement) {
-            improvementThreshold = bestCandidateImprovement * localSearchConfidenceMultiplier;
-        }
-
-        upperCandidates.clear();
-        for (auto& individual : population) {
-            if (individual->get_upper_cost() - improvementThreshold <= newUpperCost) {
-                upperCandidates.push_back(individual);
-            }
-        }
-
-        auto bestCandidateIt = std::find(
-            upperCandidates.begin(),
-            upperCandidates.end(),
-            bestUpperCandidate);
-        if (bestCandidateIt != upperCandidates.end()) {
-            upperCandidates.erase(bestCandidateIt);
-        }
-    }
-
-    double maximumUpperImprovement = 0;
-    for (auto& individual : upperCandidates) {
-        maximumUpperImprovement = std::max(
-            maximumUpperImprovement,
-            applyLocalSearch(individual));
-    }
-    maximumUpperImprovement = std::max(bestCandidateImprovement, maximumUpperImprovement);
-    recentUpperImprovements.push_back(maximumUpperImprovement);
-    if (recentUpperImprovements.size() > static_cast<size_t>(confidenceWindowSize)) {
-        recentUpperImprovements.pop_front();
-    }
-    if (generation > confidenceWindowSize) {
-        upperCandidates.push_back(bestUpperCandidate);
+    for (auto& individual : population) {
+        applyLocalSearch(individual);
     }
 
     // Build the quality-diversity parent pool before follower evaluation, so
     // reproduction remains independent from lower-level triggering.
-    vector<shared_ptr<Individual>> rankedUpperSolutions = upperCandidates;
+    vector<shared_ptr<Individual>> rankedUpperSolutions = population;
     sort(rankedUpperSolutions.begin(), rankedUpperSolutions.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
         return lhs->get_upper_cost() < rhs->get_upper_cost();
     });
@@ -369,42 +316,23 @@ void MA::run_generation() {
         targetParentPoolSize);
 
     vector<shared_ptr<Individual>> followerCandidates;
-    double minimumChargingPenalty;
-    shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(upperCandidates);
+    shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(population);
     if (generationBestUpper->get_upper_cost() < globalBestUpperCost) {
         globalBestUpperCost = generationBestUpper->get_upper_cost();
     }
 
     const double triggerUpperBound = globalBestUpperCost * lowerLevelTriggerRatio;
-    for (auto& individual : upperCandidates) {
+    for (auto& individual : population) {
         if (individual->get_upper_cost() <= triggerUpperBound) {
             followerCandidates.push_back(individual);
         }
     }
 
-    auto generationBestIt = std::find(
-        followerCandidates.begin(),
-        followerCandidates.end(),
-        generationBestUpper);
-    // The generation best is always evaluated below, so avoid evaluating it twice.
-    if (generationBestIt != followerCandidates.end()) {
-        followerCandidates.erase(generationBestIt);
-    }
-
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
     const double verifiedLowerCostBefore = verifiedBest->get_lower_cost();
-    evaluatedCompleteSolutions.push_back(generationBestUpper);
-    const double generationBestUpperCost = generationBestUpper->get_upper_cost();
-    Follower::optimize_charging(*generationBestUpper, *instance);
-    minimumChargingPenalty = generationBestUpper->get_lower_cost() - generationBestUpperCost;
     for (auto& individual : followerCandidates) {
-        const double oldUpperCost = individual->get_upper_cost();
         Follower::optimize_charging(*individual, *instance);
-        const double newLowerCost = individual->get_lower_cost();
         evaluatedCompleteSolutions.push_back(individual);
-        if (minimumChargingPenalty > newLowerCost - oldUpperCost) {
-            minimumChargingPenalty = newLowerCost - oldUpperCost;
-        }
     }
     for (auto& record : localSearchRecords) {
         record.lowerEvaluated = std::find(
@@ -412,26 +340,22 @@ void MA::run_generation() {
             evaluatedCompleteSolutions.end(),
             record.individual) != evaluatedCompleteSolutions.end();
     }
-    if (bestObservedChargingPenalty == 0
-        || bestObservedChargingPenalty > minimumChargingPenalty) {
-        bestObservedChargingPenalty = minimumChargingPenalty;
-    }
 
-    const shared_ptr<Individual> generationBestCompleteSource =
-        Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
-    generationBestComplete = make_unique<Individual>(
-        *generationBestCompleteSource);
-    if (verifiedBest->get_lower_cost() > generationBestComplete->get_lower_cost()) {
-        if (verifiedLowerCostBefore < INFEASIBLE_COST) {
-            for (auto& record : localSearchRecords) {
-                if (record.individual == generationBestCompleteSource) {
-                    record.verifiedLowerImprovement =
-                        verifiedLowerCostBefore - generationBestComplete->get_lower_cost();
-                    break;
+    if (!evaluatedCompleteSolutions.empty()) {
+        const shared_ptr<Individual> bestEvaluatedComplete =
+            Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
+        if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
+            if (verifiedLowerCostBefore < INFEASIBLE_COST) {
+                for (auto& record : localSearchRecords) {
+                    if (record.individual == bestEvaluatedComplete) {
+                        record.verifiedLowerImprovement =
+                            verifiedLowerCostBefore - bestEvaluatedComplete->get_lower_cost();
+                        break;
+                    }
                 }
             }
+            verifiedBest = make_unique<Individual>(*bestEvaluatedComplete);
         }
-        verifiedBest = make_unique<Individual>(*generationBestComplete);
     }
 
     for (const auto& record : localSearchRecords) {
@@ -453,7 +377,7 @@ void MA::run_generation() {
     flush_local_search_log();
 
 
-    const int offspringTarget = popSize - 1;
+    const int offspringTarget = popSize;
     const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
     vector<vector<int>> chromosomes = Reproduction::create_offspring(
         parentPool,
@@ -467,18 +391,16 @@ void MA::run_generation() {
         randomEngine,
         uniformRealDis);
 
-    // destroy all the individual objects
+    // Release the old population vector capacity before rebuilding it.
     evaluatedCompleteSolutions.clear();
     followerCandidates.clear();
-    upperCandidates.clear();
     population.clear();
     population.shrink_to_fit();
 
 
     // update population
     population.reserve(popSize);
-    population.push_back(make_shared<Individual>(*generationBestComplete));
-    for (int i = 0; i < popSize - 1; ++i) {
+    for (int i = 0; i < popSize; ++i) {
         vector<int> giantTour = {instance->depot};
         giantTour.insert(giantTour.end(), chromosomes[i].begin(), chromosomes[i].end());
 

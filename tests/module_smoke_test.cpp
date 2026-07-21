@@ -349,6 +349,9 @@ int main(int argc, char* argv[]) {
     assert(algorithm.population.size() == 10);
     assert(algorithm.verifiedBest != nullptr);
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
+    for (const auto& individual : algorithm.population) {
+        assert(std::isinf(individual->get_lower_cost()));
+    }
     assert(std::string(MA::EVOLUTION_LOG_HEADER)
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
     assert(std::string(MA::LOCAL_SEARCH_LOG_HEADER)
@@ -388,5 +391,48 @@ int main(int argc, char* argv[]) {
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
+
+    // Crossing the former 30-generation boundary must not reduce the set of
+    // individuals receiving local search.
+    Case fullPopulationInstance(instancePath, 2);
+    MA fullPopulationAlgorithm(&fullPopulationInstance, 2, 1, 4);
+    fullPopulationAlgorithm.localSearchIntensity = LocalSearchIntensity::Weak;
+    fullPopulationAlgorithm.initialize_search();
+    for (int iter = 0; iter < 31; ++iter) {
+        fullPopulationAlgorithm.run_generation();
+    }
+    std::vector<int> localSearchCallsPerIter(32, 0);
+    std::istringstream fullPopulationRows(fullPopulationAlgorithm.localSearchRows.str());
+    while (std::getline(fullPopulationRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::string iterColumn;
+        std::getline(rowStream, iterColumn, '\t');
+        ++localSearchCallsPerIter[std::stoi(iterColumn)];
+    }
+    for (int iter = 1; iter <= 31; ++iter) {
+        assert(localSearchCallsPerIter[iter] == 4);
+    }
+
+    Case gammaOnlyInstance(instancePath, 3);
+    MA gammaOnlyAlgorithm(&gammaOnlyInstance, 3, 1, 4);
+    gammaOnlyAlgorithm.localSearchIntensity = LocalSearchIntensity::Weak;
+    gammaOnlyAlgorithm.initialize_search();
+    gammaOnlyAlgorithm.globalBestUpperCost = 0.0;
+    gammaOnlyAlgorithm.run_generation();
+    assert(std::isinf(gammaOnlyAlgorithm.verifiedBest->get_lower_cost()));
+    std::istringstream gammaOnlyRows(gammaOnlyAlgorithm.localSearchRows.str());
+    int gammaOnlyRowCount = 0;
+    while (std::getline(gammaOnlyRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 13);
+        assert(columns[11] == "0");
+        ++gammaOnlyRowCount;
+    }
+    assert(gammaOnlyRowCount == 4);
     return 0;
 }
