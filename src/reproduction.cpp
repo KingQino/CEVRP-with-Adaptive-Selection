@@ -278,10 +278,14 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     const int verifiedImmigrantCount = hasVerifiedBest
         ? static_cast<int>(std::lround(offspringCount * 0.05))
         : 0;
-    const int pureImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.10));
+    const int guidedImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.05));
+    const int pureImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.05));
     const int upperParentOffspringCount = std::max(
         0,
-        offspringCount - verifiedImmigrantCount - pureImmigrantCount);
+        offspringCount
+            - verifiedImmigrantCount
+            - guidedImmigrantCount
+            - pureImmigrantCount);
 
     auto appendChild = [&](std::vector<int>& child, int phaseTarget) {
         if (static_cast<int>(offspring.size()) < phaseTarget) {
@@ -363,6 +367,24 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
             appendChild(firstChild, verifiedPhaseTarget);
             appendChild(secondChild, verifiedPhaseTarget);
         }
+    }
+
+    const int guidedImmigrantPhaseTarget =
+        upperParentOffspringCount
+        + verifiedImmigrantCount
+        + guidedImmigrantCount;
+    std::uniform_int_distribution<std::size_t> selectGuidingParent(
+        0,
+        parentPool.size() - 1);
+    while (static_cast<int>(offspring.size()) < guidedImmigrantPhaseTarget) {
+        std::vector<int> firstChild = parentPool[
+            selectGuidingParent(randomEngine)].chromosome;
+        std::vector<int> secondChild = make_random_immigrant(
+            customers,
+            randomEngine);
+        partially_matched_crossover(firstChild, secondChild, randomEngine);
+        appendChild(firstChild, guidedImmigrantPhaseTarget);
+        appendChild(secondChild, guidedImmigrantPhaseTarget);
     }
 
     while (static_cast<int>(offspring.size()) < offspringCount) {
