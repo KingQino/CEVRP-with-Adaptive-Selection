@@ -343,7 +343,9 @@ int main(int argc, char* argv[]) {
     assert_is_customer_permutation(firstChild, instance);
     assert_is_customer_permutation(secondChild, instance);
 
-    MA algorithm(&instance, 1, 1, 10);
+    MA algorithm(&instance, 1, 1, 10, 0.05, 1.0, 0.35, 0.07);
+    assert(std::fabs(algorithm.mutationProb - 0.35) <= 1e-12);
+    assert(std::fabs(algorithm.mutationIndProb - 0.07) <= 1e-12);
     algorithm.initialize_search();
     algorithm.run_generation();
     assert(algorithm.population.size() == 10);

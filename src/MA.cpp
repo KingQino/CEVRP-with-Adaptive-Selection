@@ -42,7 +42,7 @@ using std::uniform_real_distribution;
 using std::vector;
 
 MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double immigrantRatio, double crossoverProb,
-       double /*mutationProb*/, double mutationIndProb, int tournamentSize,
+       double mutationProb, double mutationIndProb, int tournamentSize,
        LocalSearchIntensity localSearchIntensity) {
     // init parameters
     this->instance = instance;
@@ -59,7 +59,7 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double immigrantRa
     this->popSize = popSize;
     this->immigrantRatio = immigrantRatio;
     this->crossoverProb = crossoverProb;
-    this->mutationProb = mutationIndProb;
+    this->mutationProb = mutationProb;
     this->mutationIndProb = mutationIndProb;
     this->tournamentSize = tournamentSize;
     this->localSearchIntensity = localSearchIntensity;
