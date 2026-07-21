@@ -196,15 +196,40 @@ int main(int argc, char* argv[]) {
            == repeatedFiveNeighborhoodRvnd.get_routes());
     assert_individual_is_consistent(fiveNeighborhoodRvnd, instance);
 
-    Follower::optimize_charging(fiveNeighborhoodRvnd, instance);
-    assert(std::isfinite(fiveNeighborhoodRvnd.get_lower_cost()));
+    Individual sevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
+    Individual repeatedSevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
+    const double upperCostBeforeSevenNeighborhoodSearch =
+        sevenNeighborhoodRvnd.get_upper_cost();
+    const int routesBeforeSevenNeighborhoodSearch = sevenNeighborhoodRvnd.route_num;
+    std::default_random_engine firstSevenNeighborhoodEngine(13);
+    std::default_random_engine secondSevenNeighborhoodEngine(13);
+    Leader::improve_with_seven_neighborhood_rvnd(
+        sevenNeighborhoodRvnd,
+        instance,
+        firstSevenNeighborhoodEngine);
+    Leader::improve_with_seven_neighborhood_rvnd(
+        repeatedSevenNeighborhoodRvnd,
+        instance,
+        secondSevenNeighborhoodEngine);
+    assert(sevenNeighborhoodRvnd.get_upper_cost()
+           <= upperCostBeforeSevenNeighborhoodSearch + 1e-8);
+    assert(sevenNeighborhoodRvnd.route_num <= routesBeforeSevenNeighborhoodSearch);
+    assert(std::fabs(
+        sevenNeighborhoodRvnd.get_upper_cost()
+        - repeatedSevenNeighborhoodRvnd.get_upper_cost()) <= 1e-8);
+    assert(sevenNeighborhoodRvnd.get_routes()
+           == repeatedSevenNeighborhoodRvnd.get_routes());
+    assert_individual_is_consistent(sevenNeighborhoodRvnd, instance);
+
+    Follower::optimize_charging(sevenNeighborhoodRvnd, instance);
+    assert(std::isfinite(sevenNeighborhoodRvnd.get_lower_cost()));
     if (instance.customerNumber <= 30) {
-        Follower::refine_charging_by_enumeration(fiveNeighborhoodRvnd, instance);
-        assert(std::isfinite(fiveNeighborhoodRvnd.get_lower_cost()));
+        Follower::refine_charging_by_enumeration(sevenNeighborhoodRvnd, instance);
+        assert(std::isfinite(sevenNeighborhoodRvnd.get_lower_cost()));
     }
 
     std::vector<std::shared_ptr<Individual>> rankedSolutions;
-    rankedSolutions.push_back(std::make_shared<Individual>(fiveNeighborhoodRvnd));
+    rankedSolutions.push_back(std::make_shared<Individual>(sevenNeighborhoodRvnd));
     rankedSolutions.push_back(std::make_shared<Individual>(
         instance.vehicleNumber * 3,
         instance.customerNumber + 2,

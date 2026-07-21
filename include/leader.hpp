@@ -17,6 +17,10 @@ public:
         Individual& individual,
         Case& instance,
         std::default_random_engine& randomEngine);
+    static void improve_with_seven_neighborhood_rvnd(
+        Individual& individual,
+        Case& instance,
+        std::default_random_engine& randomEngine);
 };
 
 #endif

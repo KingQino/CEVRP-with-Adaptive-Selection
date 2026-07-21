@@ -19,6 +19,9 @@ enum class Neighborhood {
     NodeShift,
     InterRouteRelocate,
     InterRouteSwap,
+    IntraRouteSwap,
+    TwoOptStarHeadToHead,
+    TwoOptStarHeadToTail,
 };
 
 constexpr double kImprovementTolerance = 0.00000001;
@@ -35,6 +38,16 @@ constexpr std::array<Neighborhood, 5> kFiveNeighborhoods = {
     Neighborhood::NodeShift,
     Neighborhood::InterRouteRelocate,
     Neighborhood::InterRouteSwap,
+};
+
+constexpr std::array<Neighborhood, 7> kSevenNeighborhoods = {
+    Neighborhood::NodeShift,
+    Neighborhood::InterRouteRelocate,
+    Neighborhood::IntraRouteSwap,
+    Neighborhood::InterRouteSwap,
+    Neighborhood::TwoOpt,
+    Neighborhood::TwoOptStarHeadToHead,
+    Neighborhood::TwoOptStarHeadToTail,
 };
 
 struct RoutePairHash {
@@ -345,6 +358,68 @@ bool improve_with_node_shift(Individual& individual, Case& instance) {
     return improved;
 }
 
+bool swap_nodes_within_route(
+    int* route,
+    int length,
+    double& upperCost,
+    Case& instance) {
+    if (length < 5) {
+        return false;
+    }
+
+    bool improved = false;
+    bool moveApplied;
+    do {
+        moveApplied = false;
+        for (int firstNode = 1;
+             firstNode < length - 2 && !moveApplied;
+             ++firstNode) {
+            for (int secondNode = firstNode + 2;
+                 secondNode < length - 1;
+                 ++secondNode) {
+                const double oldCost =
+                    instance.get_distance(route[firstNode - 1], route[firstNode])
+                    + instance.get_distance(route[firstNode], route[firstNode + 1])
+                    + instance.get_distance(route[secondNode - 1], route[secondNode])
+                    + instance.get_distance(route[secondNode], route[secondNode + 1]);
+                const double newCost =
+                    instance.get_distance(route[firstNode - 1], route[secondNode])
+                    + instance.get_distance(route[secondNode], route[firstNode + 1])
+                    + instance.get_distance(route[secondNode - 1], route[firstNode])
+                    + instance.get_distance(route[firstNode], route[secondNode + 1]);
+                const double improvement = oldCost - newCost;
+                if (improvement <= kImprovementTolerance) {
+                    continue;
+                }
+
+                std::swap(route[firstNode], route[secondNode]);
+                upperCost -= improvement;
+                improved = true;
+                moveApplied = true;
+                break;
+            }
+        }
+    } while (moveApplied);
+
+    return improved;
+}
+
+bool improve_with_intra_route_swap(Individual& individual, Case& instance) {
+    double upperCost = individual.get_upper_cost();
+    bool improved = false;
+    for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
+        improved = swap_nodes_within_route(
+            individual.routes[routeIndex],
+            individual.node_num[routeIndex],
+            upperCost,
+            instance) || improved;
+    }
+    if (improved) {
+        individual.set_upper_cost(upperCost);
+    }
+    return improved;
+}
+
 void remove_empty_route(Individual& individual, int routeIndex) {
     const int lastRoute = individual.route_num - 1;
     if (routeIndex != lastRoute) {
@@ -356,6 +431,16 @@ void remove_empty_route(Individual& individual, int routeIndex) {
     individual.node_num[lastRoute] = 0;
     individual.demand_sum[lastRoute] = 0;
     --individual.route_num;
+}
+
+void replace_route(
+    Individual& individual,
+    int routeIndex,
+    const std::vector<int>& route,
+    int demand) {
+    std::copy(route.begin(), route.end(), individual.routes[routeIndex]);
+    individual.node_num[routeIndex] = static_cast<int>(route.size());
+    individual.demand_sum[routeIndex] = demand;
 }
 
 void relocate_customer(
@@ -536,6 +621,222 @@ bool improve_with_inter_route_swap(Individual& individual, Case& instance) {
     return improved;
 }
 
+bool improve_with_two_opt_star_head_to_head(
+    Individual& individual,
+    Case& instance) {
+    if (individual.route_num <= 1) {
+        return false;
+    }
+
+    bool improved = false;
+    bool moveApplied;
+    do {
+        moveApplied = false;
+        for (int firstRoute = 0;
+             firstRoute < individual.route_num - 1 && !moveApplied;
+             ++firstRoute) {
+            for (int secondRoute = firstRoute + 1;
+                 secondRoute < individual.route_num && !moveApplied;
+                 ++secondRoute) {
+                const int firstLength = individual.node_num[firstRoute];
+                const int secondLength = individual.node_num[secondRoute];
+                int firstPrefixDemand = 0;
+                for (int firstNode = 0;
+                     firstNode < firstLength - 1 && !moveApplied;
+                     ++firstNode) {
+                    firstPrefixDemand += instance.get_customer_demand(
+                        individual.routes[firstRoute][firstNode]);
+                    int secondPrefixDemand = 0;
+                    for (int secondNode = 0;
+                         secondNode < secondLength - 1;
+                         ++secondNode) {
+                        secondPrefixDemand += instance.get_customer_demand(
+                            individual.routes[secondRoute][secondNode]);
+                        const bool leavesRoutesUnchanged =
+                            (firstNode == firstLength - 2 && secondNode == 0)
+                            || (firstNode == 0 && secondNode == secondLength - 2);
+                        if (leavesRoutesUnchanged) {
+                            continue;
+                        }
+
+                        const int firstNewDemand = firstPrefixDemand + secondPrefixDemand;
+                        const int secondNewDemand =
+                            individual.demand_sum[firstRoute] - firstPrefixDemand
+                            + individual.demand_sum[secondRoute] - secondPrefixDemand;
+                        if (firstNewDemand > instance.maxC
+                            || secondNewDemand > instance.maxC) {
+                            continue;
+                        }
+
+                        const double oldCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode],
+                                individual.routes[firstRoute][firstNode + 1])
+                            + instance.get_distance(
+                                individual.routes[secondRoute][secondNode],
+                                individual.routes[secondRoute][secondNode + 1]);
+                        const double newCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode],
+                                individual.routes[secondRoute][secondNode])
+                            + instance.get_distance(
+                                individual.routes[firstRoute][firstNode + 1],
+                                individual.routes[secondRoute][secondNode + 1]);
+                        const double improvement = oldCost - newCost;
+                        if (improvement <= kImprovementTolerance) {
+                            continue;
+                        }
+
+                        const std::vector<int> firstOriginal(
+                            individual.routes[firstRoute],
+                            individual.routes[firstRoute] + firstLength);
+                        const std::vector<int> secondOriginal(
+                            individual.routes[secondRoute],
+                            individual.routes[secondRoute] + secondLength);
+                        std::vector<int> firstNew(
+                            firstOriginal.begin(),
+                            firstOriginal.begin() + firstNode + 1);
+                        for (int node = secondNode; node >= 0; --node) {
+                            firstNew.push_back(secondOriginal[node]);
+                        }
+                        std::vector<int> secondNew;
+                        secondNew.reserve(firstLength + secondLength);
+                        for (int node = firstLength - 1; node >= firstNode + 1; --node) {
+                            secondNew.push_back(firstOriginal[node]);
+                        }
+                        secondNew.insert(
+                            secondNew.end(),
+                            secondOriginal.begin() + secondNode + 1,
+                            secondOriginal.end());
+
+                        replace_route(individual, firstRoute, firstNew, firstNewDemand);
+                        replace_route(individual, secondRoute, secondNew, secondNewDemand);
+                        individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                        if (individual.node_num[firstRoute] == 2) {
+                            remove_empty_route(individual, firstRoute);
+                        } else if (individual.node_num[secondRoute] == 2) {
+                            remove_empty_route(individual, secondRoute);
+                        }
+                        improved = true;
+                        moveApplied = true;
+                        break;
+                    }
+                }
+            }
+        }
+    } while (moveApplied && individual.route_num > 1);
+
+    return improved;
+}
+
+bool improve_with_two_opt_star_head_to_tail(
+    Individual& individual,
+    Case& instance) {
+    if (individual.route_num <= 1) {
+        return false;
+    }
+
+    bool improved = false;
+    bool moveApplied;
+    do {
+        moveApplied = false;
+        for (int firstRoute = 0;
+             firstRoute < individual.route_num - 1 && !moveApplied;
+             ++firstRoute) {
+            for (int secondRoute = firstRoute + 1;
+                 secondRoute < individual.route_num && !moveApplied;
+                 ++secondRoute) {
+                const int firstLength = individual.node_num[firstRoute];
+                const int secondLength = individual.node_num[secondRoute];
+                int firstPrefixDemand = 0;
+                for (int firstNode = 0;
+                     firstNode < firstLength - 1 && !moveApplied;
+                     ++firstNode) {
+                    firstPrefixDemand += instance.get_customer_demand(
+                        individual.routes[firstRoute][firstNode]);
+                    int secondPrefixDemand = 0;
+                    for (int secondNode = 0;
+                         secondNode < secondLength - 1;
+                         ++secondNode) {
+                        secondPrefixDemand += instance.get_customer_demand(
+                            individual.routes[secondRoute][secondNode]);
+                        const bool leavesRoutesUnchanged =
+                            (firstNode == 0 && secondNode == 0)
+                            || (firstNode == firstLength - 2
+                                && secondNode == secondLength - 2);
+                        if (leavesRoutesUnchanged) {
+                            continue;
+                        }
+
+                        const int firstNewDemand = firstPrefixDemand
+                            + individual.demand_sum[secondRoute] - secondPrefixDemand;
+                        const int secondNewDemand = secondPrefixDemand
+                            + individual.demand_sum[firstRoute] - firstPrefixDemand;
+                        if (firstNewDemand > instance.maxC
+                            || secondNewDemand > instance.maxC) {
+                            continue;
+                        }
+
+                        const double oldCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode],
+                                individual.routes[firstRoute][firstNode + 1])
+                            + instance.get_distance(
+                                individual.routes[secondRoute][secondNode],
+                                individual.routes[secondRoute][secondNode + 1]);
+                        const double newCost =
+                            instance.get_distance(
+                                individual.routes[firstRoute][firstNode],
+                                individual.routes[secondRoute][secondNode + 1])
+                            + instance.get_distance(
+                                individual.routes[secondRoute][secondNode],
+                                individual.routes[firstRoute][firstNode + 1]);
+                        const double improvement = oldCost - newCost;
+                        if (improvement <= kImprovementTolerance) {
+                            continue;
+                        }
+
+                        const std::vector<int> firstOriginal(
+                            individual.routes[firstRoute],
+                            individual.routes[firstRoute] + firstLength);
+                        const std::vector<int> secondOriginal(
+                            individual.routes[secondRoute],
+                            individual.routes[secondRoute] + secondLength);
+                        std::vector<int> firstNew(
+                            firstOriginal.begin(),
+                            firstOriginal.begin() + firstNode + 1);
+                        firstNew.insert(
+                            firstNew.end(),
+                            secondOriginal.begin() + secondNode + 1,
+                            secondOriginal.end());
+                        std::vector<int> secondNew(
+                            secondOriginal.begin(),
+                            secondOriginal.begin() + secondNode + 1);
+                        secondNew.insert(
+                            secondNew.end(),
+                            firstOriginal.begin() + firstNode + 1,
+                            firstOriginal.end());
+
+                        replace_route(individual, firstRoute, firstNew, firstNewDemand);
+                        replace_route(individual, secondRoute, secondNew, secondNewDemand);
+                        individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                        if (individual.node_num[firstRoute] == 2) {
+                            remove_empty_route(individual, firstRoute);
+                        } else if (individual.node_num[secondRoute] == 2) {
+                            remove_empty_route(individual, secondRoute);
+                        }
+                        improved = true;
+                        moveApplied = true;
+                        break;
+                    }
+                }
+            }
+        }
+    } while (moveApplied && individual.route_num > 1);
+
+    return improved;
+}
+
 bool improve_with_neighborhood(
     Neighborhood neighborhood,
     Individual& individual,
@@ -551,6 +852,12 @@ bool improve_with_neighborhood(
             return improve_with_inter_route_relocate(individual, instance);
         case Neighborhood::InterRouteSwap:
             return improve_with_inter_route_swap(individual, instance);
+        case Neighborhood::IntraRouteSwap:
+            return improve_with_intra_route_swap(individual, instance);
+        case Neighborhood::TwoOptStarHeadToHead:
+            return improve_with_two_opt_star_head_to_head(individual, instance);
+        case Neighborhood::TwoOptStarHeadToTail:
+            return improve_with_two_opt_star_head_to_tail(individual, instance);
     }
     return false;
 }
@@ -613,4 +920,11 @@ void Leader::improve_with_five_neighborhood_rvnd(
     Case& instance,
     std::default_random_engine& randomEngine) {
     improve_with_rvnd(individual, instance, randomEngine, kFiveNeighborhoods);
+}
+
+void Leader::improve_with_seven_neighborhood_rvnd(
+    Individual& individual,
+    Case& instance,
+    std::default_random_engine& randomEngine) {
+    improve_with_rvnd(individual, instance, randomEngine, kSevenNeighborhoods);
 }
