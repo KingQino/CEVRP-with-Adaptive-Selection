@@ -263,8 +263,8 @@ void Reproduction::mutate_by_index_shuffle(
 
 std::vector<std::vector<int>> Reproduction::create_offspring(
     const std::vector<ParentCandidate>& parentPool,
-    const Individual* verifiedBest,
-    bool hasVerifiedBest,
+    const Individual* /*verifiedBest*/,
+    bool /*hasVerifiedBest*/,
     const std::vector<int>& customers,
     int offspringCount,
     int tournamentSize,
@@ -275,13 +275,10 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     std::vector<std::vector<int>> offspring;
     offspring.reserve(offspringCount);
 
-    const int verifiedImmigrantCount = hasVerifiedBest
-        ? static_cast<int>(std::lround(offspringCount * 0.05))
-        : 0;
     const int pureImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.10));
     const int upperParentOffspringCount = std::max(
         0,
-        offspringCount - verifiedImmigrantCount - pureImmigrantCount);
+        offspringCount - pureImmigrantCount);
 
     auto appendChild = [&](std::vector<int>& child, int phaseTarget) {
         if (static_cast<int>(offspring.size()) < phaseTarget) {
@@ -349,20 +346,6 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
         partially_matched_crossover(firstChild, secondChild, randomEngine);
         appendChild(firstChild, upperParentOffspringCount);
         appendChild(secondChild, upperParentOffspringCount);
-    }
-
-    const int verifiedPhaseTarget = upperParentOffspringCount + verifiedImmigrantCount;
-    if (hasVerifiedBest) {
-        const std::vector<int> verifiedChromosome = verifiedBest->get_chromosome();
-        while (static_cast<int>(offspring.size()) < verifiedPhaseTarget) {
-            std::vector<int> firstChild = verifiedChromosome;
-            std::vector<int> secondChild = make_random_immigrant(
-                customers,
-                randomEngine);
-            partially_matched_crossover(firstChild, secondChild, randomEngine);
-            appendChild(firstChild, verifiedPhaseTarget);
-            appendChild(secondChild, verifiedPhaseTarget);
-        }
     }
 
     while (static_cast<int>(offspring.size()) < offspringCount) {
