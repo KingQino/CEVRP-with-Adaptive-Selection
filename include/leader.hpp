@@ -6,6 +6,21 @@
 class Case;
 class Individual;
 
+enum class LocalSearchIntensity {
+    Weak,
+    Medium,
+    Strong,
+};
+
+struct LocalSearchResult {
+    int moveLimit{};
+    int acceptedMoves{};
+    int neighborhoodCalls{};
+    double evalsUsed{};
+    double relativeUpperImprovement{};
+    bool reachedLocalOptimum{};
+};
+
 class Leader {
 public:
     static void improve_with_three_neighborhood_vnd(Individual& individual, Case& instance);
@@ -25,6 +40,11 @@ public:
         Individual& individual,
         Case& instance,
         std::default_random_engine& randomEngine);
+    static LocalSearchResult improve_with_seven_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::default_random_engine& randomEngine,
+        LocalSearchIntensity intensity);
 };
 
 #endif

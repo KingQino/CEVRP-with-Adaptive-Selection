@@ -12,6 +12,21 @@
 
 #include <cfloat>
 
+namespace {
+
+struct LocalSearchLogRecord {
+    std::shared_ptr<Individual> individual;
+    double qualityGap{};
+    double distanceBefore{};
+    double distanceAfter{};
+    LocalSearchResult result;
+    bool crossedGamma{};
+    bool lowerEvaluated{};
+    double verifiedLowerImprovement{};
+};
+
+}  // namespace
+
 using std::endl;
 using std::fixed;
 using std::make_shared;
@@ -27,7 +42,8 @@ using std::uniform_real_distribution;
 using std::vector;
 
 MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio, double immigrantRatio, double crossoverProb,
-       double /*mutationProb*/, double mutationIndProb, int tournamentSize) {
+       double /*mutationProb*/, double mutationIndProb, int tournamentSize,
+       LocalSearchIntensity localSearchIntensity) {
     // init parameters
     this->instance = instance;
     this->randomEngine = std::default_random_engine(seed);
@@ -47,6 +63,7 @@ MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double eliteRatio,
     this->mutationProb = mutationIndProb;
     this->mutationIndProb = mutationIndProb;
     this->tournamentSize = tournamentSize;
+    this->localSearchIntensity = localSearchIntensity;
 
     this->routeCapacity = this->instance->vehicleNumber * 3;
     // One upper-level route can contain depot + all customers + depot.
@@ -73,6 +90,7 @@ void MA::run() {
         duration = end - start;
 
         open_log_for_evolution();
+        open_log_for_local_search();
         initialize_search();
         while (!reached_evaluation_limit()) {
             run_generation();
@@ -80,6 +98,7 @@ void MA::run() {
             flush_row_into_evol_log();
         }
         close_log_for_evolution();
+        close_log_for_local_search();
         save_log_for_solution();
     } else {
         start = std::chrono::high_resolution_clock::now();
@@ -87,6 +106,7 @@ void MA::run() {
         duration = end - start;
 
         open_log_for_evolution();
+        open_log_for_local_search();
         initialize_search();
         while (!reached_time_limit(duration)) {
             run_generation();
@@ -94,6 +114,7 @@ void MA::run() {
             flush_row_into_evol_log();
         }
         close_log_for_evolution();
+        close_log_for_local_search();
         save_log_for_solution();
     }
 }
@@ -173,6 +194,29 @@ void MA::close_log_for_evolution() {
     logEvolution.close();
 }
 
+void MA::open_log_for_local_search() {
+    const string directoryPath =
+        "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
+    create_directories_if_not_exists(directoryPath);
+
+    logLocalSearch.open(directoryPath + "/local-search.tsv");
+    logLocalSearch << LOCAL_SEARCH_LOG_HEADER << "\n";
+}
+
+void MA::flush_local_search_log() {
+    if (!logLocalSearch.is_open()) {
+        return;
+    }
+    logLocalSearch << localSearchRows.str();
+    localSearchRows.str("");
+    localSearchRows.clear();
+}
+
+void MA::close_log_for_local_search() {
+    flush_local_search_log();
+    logLocalSearch.close();
+}
+
 void MA::save_log_for_solution() {
     Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
 
@@ -217,19 +261,64 @@ void MA::run_generation() {
     generation++;
 
     vector<shared_ptr<Individual>> upperCandidates = population;
+    vector<LocalSearchLogRecord> localSearchRecords;
     double bestCandidateImprovement = 0;
     double improvementThreshold;
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
+    ParentCandidate localSearchBestReference =
+        Reproduction::make_parent_candidate(*bestUpperCandidate);
+    double localSearchBestCost = std::min(
+        globalBestUpperCost,
+        localSearchBestReference.upperCost);
+
+    auto applyLocalSearch = [&](const shared_ptr<Individual>& individual) {
+        const ParentCandidate beforeCandidate =
+            Reproduction::make_parent_candidate(*individual);
+        const double referenceCost = localSearchBestReference.upperCost;
+        const double qualityGap = referenceCost > 0.0
+            ? (beforeCandidate.upperCost - referenceCost) / referenceCost
+            : 0.0;
+        const double distanceBefore = Reproduction::adjacency_distance(
+            beforeCandidate,
+            localSearchBestReference);
+        const double triggerUpperBoundBefore =
+            localSearchBestCost * lowerLevelTriggerRatio;
+        const bool outsideGammaBefore =
+            beforeCandidate.upperCost > triggerUpperBoundBefore;
+
+        const LocalSearchResult result =
+            Leader::improve_with_seven_neighborhood_rvnd_one_move(
+                *individual,
+                *instance,
+                localSearchEngine,
+                localSearchIntensity);
+        const ParentCandidate afterCandidate =
+            Reproduction::make_parent_candidate(*individual);
+
+        LocalSearchLogRecord record;
+        record.individual = individual;
+        record.qualityGap = qualityGap;
+        record.distanceBefore = distanceBefore;
+        record.distanceAfter = Reproduction::adjacency_distance(
+            afterCandidate,
+            localSearchBestReference);
+        record.result = result;
+        record.crossedGamma = outsideGammaBefore
+            && afterCandidate.upperCost <= triggerUpperBoundBefore;
+        localSearchRecords.push_back(std::move(record));
+
+        if (afterCandidate.upperCost < localSearchBestReference.upperCost) {
+            localSearchBestReference = afterCandidate;
+        }
+        if (afterCandidate.upperCost < localSearchBestCost) {
+            localSearchBestCost = afterCandidate.upperCost;
+        }
+        return beforeCandidate.upperCost - afterCandidate.upperCost;
+    };
+
     if (generation > confidenceWindowSize) {
-        const double oldUpperCost = bestUpperCandidate->get_upper_cost();
-
-        Leader::improve_with_seven_neighborhood_rvnd_one_move(
-            *bestUpperCandidate,
-            *instance,
-            localSearchEngine);
-
+        bestCandidateImprovement = applyLocalSearch(bestUpperCandidate);
         const double newUpperCost = bestUpperCandidate->get_upper_cost();
-        bestCandidateImprovement = oldUpperCost - newUpperCost;
         improvementThreshold = *std::max_element(
             recentUpperImprovements.begin(),
             recentUpperImprovements.end());
@@ -255,14 +344,9 @@ void MA::run_generation() {
 
     double maximumUpperImprovement = 0;
     for (auto& individual : upperCandidates) {
-        const double oldUpperCost = individual->get_upper_cost();
-        Leader::improve_with_seven_neighborhood_rvnd_one_move(
-            *individual,
-            *instance,
-            localSearchEngine);
-        if (maximumUpperImprovement < oldUpperCost - individual->get_upper_cost()) {
-            maximumUpperImprovement = oldUpperCost - individual->get_upper_cost();
-        }
+        maximumUpperImprovement = std::max(
+            maximumUpperImprovement,
+            applyLocalSearch(individual));
     }
     maximumUpperImprovement = std::max(bestCandidateImprovement, maximumUpperImprovement);
     recentUpperImprovements.push_back(maximumUpperImprovement);
@@ -308,6 +392,7 @@ void MA::run_generation() {
     }
 
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
+    const double verifiedLowerCostBefore = verifiedBest->get_lower_cost();
     evaluatedCompleteSolutions.push_back(generationBestUpper);
     const double generationBestUpperCost = generationBestUpper->get_upper_cost();
     Follower::optimize_charging(*generationBestUpper, *instance);
@@ -321,16 +406,51 @@ void MA::run_generation() {
             minimumChargingPenalty = newLowerCost - oldUpperCost;
         }
     }
+    for (auto& record : localSearchRecords) {
+        record.lowerEvaluated = std::find(
+            evaluatedCompleteSolutions.begin(),
+            evaluatedCompleteSolutions.end(),
+            record.individual) != evaluatedCompleteSolutions.end();
+    }
     if (bestObservedChargingPenalty == 0
         || bestObservedChargingPenalty > minimumChargingPenalty) {
         bestObservedChargingPenalty = minimumChargingPenalty;
     }
 
+    const shared_ptr<Individual> generationBestCompleteSource =
+        Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
     generationBestComplete = make_unique<Individual>(
-        *Reproduction::best_by_lower_cost(evaluatedCompleteSolutions));
+        *generationBestCompleteSource);
     if (verifiedBest->get_lower_cost() > generationBestComplete->get_lower_cost()) {
+        if (verifiedLowerCostBefore < INFEASIBLE_COST) {
+            for (auto& record : localSearchRecords) {
+                if (record.individual == generationBestCompleteSource) {
+                    record.verifiedLowerImprovement =
+                        verifiedLowerCostBefore - generationBestComplete->get_lower_cost();
+                    break;
+                }
+            }
+        }
         verifiedBest = make_unique<Individual>(*generationBestComplete);
     }
+
+    for (const auto& record : localSearchRecords) {
+        localSearchRows << setprecision(12)
+                        << generation << "\t"
+                        << record.qualityGap << "\t"
+                        << record.distanceBefore << "\t"
+                        << record.distanceAfter << "\t"
+                        << record.result.moveLimit << "\t"
+                        << record.result.acceptedMoves << "\t"
+                        << record.result.neighborhoodCalls << "\t"
+                        << record.result.evalsUsed << "\t"
+                        << record.result.relativeUpperImprovement << "\t"
+                        << record.result.reachedLocalOptimum << "\t"
+                        << record.crossedGamma << "\t"
+                        << record.lowerEvaluated << "\t"
+                        << record.verifiedLowerImprovement << "\n";
+    }
+    flush_local_search_log();
 
 
     const int offspringTarget = popSize - 1;

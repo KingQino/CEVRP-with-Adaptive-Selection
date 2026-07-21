@@ -108,6 +108,14 @@ double Reproduction::adjacency_distance(
         second.adjacencySignature);
 }
 
+ParentCandidate Reproduction::make_parent_candidate(const Individual& individual) {
+    ParentCandidate candidate;
+    candidate.chromosome = individual.get_chromosome();
+    candidate.upperCost = individual.get_upper_cost();
+    candidate.adjacencySignature = build_depot_aware_signature(individual);
+    return candidate;
+}
+
 std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
     std::size_t desiredPoolSize) {
@@ -123,10 +131,7 @@ std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     candidates.reserve(candidateLimit);
 
     for (const auto& solution : rankedUpperSolutions) {
-        ParentCandidate candidate;
-        candidate.chromosome = solution->get_chromosome();
-        candidate.upperCost = solution->get_upper_cost();
-        candidate.adjacencySignature = build_depot_aware_signature(*solution);
+        ParentCandidate candidate = make_parent_candidate(*solution);
         if (seenSignatures.insert(candidate.adjacencySignature).second) {
             candidates.push_back(std::move(candidate));
             if (candidates.size() == candidateLimit) {

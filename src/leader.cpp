@@ -26,6 +26,8 @@ enum class Neighborhood {
 };
 
 constexpr double kImprovementTolerance = 0.00000001;
+constexpr double kWeakMoveFraction = 0.02;
+constexpr double kMediumMoveFraction = 0.10;
 
 constexpr std::array<Neighborhood, 3> kThreeNeighborhoods = {
     Neighborhood::TwoOpt,
@@ -1456,21 +1458,32 @@ void improve_with_rvnd(
 }
 
 template <std::size_t NeighborhoodCount>
-void improve_with_rvnd_one_move(
+LocalSearchResult improve_with_rvnd_one_move(
     Individual& individual,
     Case& instance,
     std::default_random_engine& randomEngine,
-    const std::array<Neighborhood, NeighborhoodCount>& neighborhoods) {
+    const std::array<Neighborhood, NeighborhoodCount>& neighborhoods,
+    int moveLimit) {
+    const double upperCostBefore = individual.get_upper_cost();
+    const double evalsBefore = instance.get_evals();
+    LocalSearchResult result;
+    result.moveLimit = moveLimit;
+
     std::vector<Neighborhood> activeNeighborhoods(
         neighborhoods.begin(),
         neighborhoods.end());
     OneMoveWorkspace workspace;
 
     while (!activeNeighborhoods.empty()) {
+        if (moveLimit >= 0 && result.acceptedMoves >= moveLimit) {
+            break;
+        }
+
         std::uniform_int_distribution<std::size_t> selectNeighborhood(
             0,
             activeNeighborhoods.size() - 1);
         const std::size_t selectedIndex = selectNeighborhood(randomEngine);
+        ++result.neighborhoodCalls;
         const bool improved = improve_with_neighborhood_one_move(
             activeNeighborhoods[selectedIndex],
             individual,
@@ -1479,11 +1492,39 @@ void improve_with_rvnd_one_move(
             workspace);
 
         if (improved) {
+            ++result.acceptedMoves;
             activeNeighborhoods.assign(neighborhoods.begin(), neighborhoods.end());
         } else {
             activeNeighborhoods.erase(activeNeighborhoods.begin() + selectedIndex);
         }
     }
+
+    result.evalsUsed = instance.get_evals() - evalsBefore;
+    result.relativeUpperImprovement = upperCostBefore > 0.0
+        ? (upperCostBefore - individual.get_upper_cost()) / upperCostBefore
+        : 0.0;
+    result.reachedLocalOptimum = activeNeighborhoods.empty();
+    return result;
+}
+
+int move_limit_for_intensity(
+    const Individual& individual,
+    const Case& instance,
+    LocalSearchIntensity intensity) {
+    const int solutionScale = instance.customerNumber + individual.route_num;
+    switch (intensity) {
+        case LocalSearchIntensity::Weak:
+            return std::max(
+                1,
+                static_cast<int>(std::ceil(kWeakMoveFraction * solutionScale)));
+        case LocalSearchIntensity::Medium:
+            return std::max(
+                1,
+                static_cast<int>(std::ceil(kMediumMoveFraction * solutionScale)));
+        case LocalSearchIntensity::Strong:
+            return -1;
+    }
+    return -1;
 }
 
 }  // namespace
@@ -1533,5 +1574,19 @@ void Leader::improve_with_seven_neighborhood_rvnd_one_move(
         individual,
         instance,
         randomEngine,
-        kSevenNeighborhoods);
+        kSevenNeighborhoods,
+        -1);
+}
+
+LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::default_random_engine& randomEngine,
+    LocalSearchIntensity intensity) {
+    return improve_with_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        kSevenNeighborhoods,
+        move_limit_for_intensity(individual, instance, intensity));
 }

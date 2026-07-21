@@ -26,10 +26,10 @@ For details, please refer to the following paper:
 2. Second step - run
 
    ```shell
-   ./Run E-n22-k4.evrp 1 1
+   ./Run E-n22-k4.evrp 1 1 strong
    
    # Explanation
-   # ./Run <problem_instance_filename> <stop_criteria: 1 for max-evals, 2 for max-time> <multithreading: 1 for yes>
+   # ./Run <instance> <stop_criteria> <multithreading> [weak|medium|strong]
    ```
    
 
@@ -78,6 +78,8 @@ For details, please refer to the following paper:
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` retains the full-descent LS-3/5/7 variants as baselines. The default LS-7-RVND-OneMove uses the same seven neighborhoods, but each selected neighborhood accepts at most one improving move before returning to RVND; it does not use empty-route moves.
+- `Leader` retains the full-descent LS-3/5/7 variants as baselines. LS-7-RVND-OneMove supports interruptible weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
+- Weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`; strong runs until all seven neighborhoods fail.
+- Each trial writes per-call local-search feedback to `local-search.tsv` in its stats directory.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - `Reproduction` owns population ranking, the depot-aware quality-diversity parent pool, genetic operators, and the 85%/5%/10% offspring strategy.

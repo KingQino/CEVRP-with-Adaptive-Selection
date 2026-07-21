@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -196,6 +197,45 @@ int main(int argc, char* argv[]) {
            == repeatedFiveNeighborhoodRvnd.get_routes());
     assert_individual_is_consistent(fiveNeighborhoodRvnd, instance);
 
+    Individual weakSevenNeighborhoodSearch(vndBaseline);
+    const int weakSolutionScale =
+        instance.customerNumber + weakSevenNeighborhoodSearch.route_num;
+    std::default_random_engine weakSearchEngine(12);
+    const LocalSearchResult weakSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            weakSevenNeighborhoodSearch,
+            instance,
+            weakSearchEngine,
+            LocalSearchIntensity::Weak);
+    assert(weakSearchResult.moveLimit
+           == std::max(1, static_cast<int>(std::ceil(0.02 * weakSolutionScale))));
+    assert(weakSearchResult.acceptedMoves <= weakSearchResult.moveLimit);
+    assert(weakSearchResult.neighborhoodCalls >= weakSearchResult.acceptedMoves);
+    assert(weakSearchResult.evalsUsed >= 0.0);
+    if (weakSearchResult.acceptedMoves < weakSearchResult.moveLimit) {
+        assert(weakSearchResult.reachedLocalOptimum);
+    }
+    assert_individual_is_consistent(weakSevenNeighborhoodSearch, instance);
+
+    Individual mediumSevenNeighborhoodSearch(vndBaseline);
+    const int mediumSolutionScale =
+        instance.customerNumber + mediumSevenNeighborhoodSearch.route_num;
+    std::default_random_engine mediumSearchEngine(12);
+    const LocalSearchResult mediumSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            mediumSevenNeighborhoodSearch,
+            instance,
+            mediumSearchEngine,
+            LocalSearchIntensity::Medium);
+    assert(mediumSearchResult.moveLimit
+           == std::max(1, static_cast<int>(std::ceil(0.10 * mediumSolutionScale))));
+    assert(mediumSearchResult.acceptedMoves <= mediumSearchResult.moveLimit);
+    assert(mediumSearchResult.neighborhoodCalls >= mediumSearchResult.acceptedMoves);
+    if (mediumSearchResult.acceptedMoves < mediumSearchResult.moveLimit) {
+        assert(mediumSearchResult.reachedLocalOptimum);
+    }
+    assert_individual_is_consistent(mediumSevenNeighborhoodSearch, instance);
+
     Individual sevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
     Individual repeatedSevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
     const double upperCostBeforeSevenNeighborhoodSearch =
@@ -228,14 +268,19 @@ int main(int argc, char* argv[]) {
     const int routesBeforeOneMoveSearch = sevenNeighborhoodOneMove.route_num;
     std::default_random_engine firstOneMoveEngine(17);
     std::default_random_engine secondOneMoveEngine(17);
-    Leader::improve_with_seven_neighborhood_rvnd_one_move(
+    const LocalSearchResult strongSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
         sevenNeighborhoodOneMove,
         instance,
-        firstOneMoveEngine);
+        firstOneMoveEngine,
+        LocalSearchIntensity::Strong);
     Leader::improve_with_seven_neighborhood_rvnd_one_move(
         repeatedSevenNeighborhoodOneMove,
         instance,
         secondOneMoveEngine);
+    assert(strongSearchResult.moveLimit == -1);
+    assert(strongSearchResult.reachedLocalOptimum);
+    assert(strongSearchResult.neighborhoodCalls >= strongSearchResult.acceptedMoves);
     assert(sevenNeighborhoodOneMove.get_upper_cost()
            <= upperCostBeforeOneMoveSearch + 1e-8);
     assert(sevenNeighborhoodOneMove.route_num <= routesBeforeOneMoveSearch);
@@ -248,10 +293,14 @@ int main(int argc, char* argv[]) {
 
     Individual exhaustedOneMoveSearch(sevenNeighborhoodOneMove);
     std::default_random_engine exhaustedOneMoveEngine(19);
-    Leader::improve_with_seven_neighborhood_rvnd_one_move(
-        exhaustedOneMoveSearch,
-        instance,
-        exhaustedOneMoveEngine);
+    const LocalSearchResult exhaustedSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            exhaustedOneMoveSearch,
+            instance,
+            exhaustedOneMoveEngine,
+            LocalSearchIntensity::Strong);
+    assert(exhaustedSearchResult.acceptedMoves == 0);
+    assert(exhaustedSearchResult.reachedLocalOptimum);
     assert(std::fabs(
         exhaustedOneMoveSearch.get_upper_cost()
         - sevenNeighborhoodOneMove.get_upper_cost()) <= 1e-8);
@@ -302,6 +351,40 @@ int main(int argc, char* argv[]) {
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
     assert(std::string(MA::EVOLUTION_LOG_HEADER)
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
+    assert(std::string(MA::LOCAL_SEARCH_LOG_HEADER)
+           == "iter\tquality_gap\tdistance_before\tdistance_after\tmove_limit\t"
+              "accepted_moves\tneighborhood_calls\tls_evals\t"
+              "relative_upper_improvement\treached_local_optimum\tcrossed_gamma\t"
+              "lower_evaluated\tverified_lower_improvement");
+    const std::string localSearchRows = algorithm.localSearchRows.str();
+    std::istringstream localSearchStream(localSearchRows);
+    std::string localSearchRow;
+    int localSearchRowCount = 0;
+    while (std::getline(localSearchStream, localSearchRow)) {
+        assert(std::count(localSearchRow.begin(), localSearchRow.end(), '\t') == 12);
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 13);
+        assert(std::stoi(columns[0]) == 1);
+        assert(std::stod(columns[1]) >= -1e-12);
+        assert(std::stod(columns[2]) >= 0.0 && std::stod(columns[2]) <= 1.0);
+        assert(std::stod(columns[3]) >= 0.0 && std::stod(columns[3]) <= 1.0);
+        assert(std::stoi(columns[4]) == -1);
+        assert(std::stoi(columns[5]) >= 0);
+        assert(std::stoi(columns[6]) >= std::stoi(columns[5]));
+        assert(std::stod(columns[7]) >= 0.0);
+        assert(std::stod(columns[8]) >= -1e-12);
+        assert(columns[9] == "1");
+        assert(columns[10] == "0" || columns[10] == "1");
+        assert(columns[11] == "0" || columns[11] == "1");
+        assert(std::stod(columns[12]) >= 0.0);
+        ++localSearchRowCount;
+    }
+    assert(localSearchRowCount == 10);
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
