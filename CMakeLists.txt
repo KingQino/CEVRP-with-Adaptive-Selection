@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3") # -O3 optimization argument
 
 set(CORE_SOURCES
+        src/parameters.cpp
+        src/command_line.cpp
         src/stats.cpp
         src/initializer.cpp
         src/leader.cpp
@@ -33,6 +35,10 @@ if(BUILD_TESTING)
     target_compile_definitions(module_smoke_test PRIVATE
             TEST_DATA_DIRECTORY="${CMAKE_SOURCE_DIR}/data")
     add_test(NAME module_smoke_test COMMAND module_smoke_test)
+
+    add_executable(command_line_test tests/command_line_test.cpp)
+    target_link_libraries(command_line_test PRIVATE cevrp_core)
+    add_test(NAME command_line_test COMMAND command_line_test)
 endif()
 
 add_custom_target(valgrind

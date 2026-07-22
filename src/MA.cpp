@@ -11,6 +11,9 @@
 #include "../include/reproduction.hpp"
 
 #include <cfloat>
+#include <cmath>
+#include <filesystem>
+#include <stdexcept>
 
 namespace {
 
@@ -41,34 +44,37 @@ using std::to_string;
 using std::uniform_real_distribution;
 using std::vector;
 
-MA::MA(Case* instance, int seed, int isMaxEvals, int popSize, double immigrantRatio, double crossoverProb,
-       double mutationProb, double mutationIndProb, int tournamentSize,
-       LocalSearchIntensity localSearchIntensity) {
+MA::MA(Case* instance, const Parameters& parameters) {
     // init parameters
     this->instance = instance;
-    this->randomEngine = std::default_random_engine(seed);
-    std::seed_seq localSearchSeed{seed, 0x4C53, 0x52564E44};
+    this->randomEngine = std::default_random_engine(
+        static_cast<std::default_random_engine::result_type>(parameters.seed));
+    std::seed_seq localSearchSeed{parameters.seed, 0x4C53, 0x52564E44};
     this->localSearchEngine.seed(localSearchSeed);
-    this->seed = seed;
-    this->isMaxEvals = isMaxEvals;
+    this->seed = parameters.seed;
+    this->isMaxEvals = parameters.stopCriteria;
+    this->enableLogging = parameters.enableLogging;
+    this->statsDirectory = parameters.statsPath;
 
     uniform_real_distribution<double> udist(0.0, 1.0);
     this->uniformRealDis = udist;
 
     // hyperparameters for MA
-    this->popSize = popSize;
-    this->immigrantRatio = immigrantRatio;
-    this->crossoverProb = crossoverProb;
-    this->mutationProb = mutationProb;
-    this->mutationIndProb = mutationIndProb;
-    this->tournamentSize = tournamentSize;
-    this->localSearchIntensity = localSearchIntensity;
+    this->popSize = parameters.popSize;
+    this->mutationProb = parameters.mutationProb;
+    this->mutationIndProb = parameters.mutationIndProb;
+    this->tournamentSize = parameters.tournamentSize;
+    this->localSearchIntensity = parameters.localSearchIntensity;
+    this->parentPoolRatio = parameters.parentPoolRatio;
+    this->qualityRatio = parameters.qualityRatio;
+    this->verifiedUpperRatio = parameters.verifiedUpperRatio;
+    this->pureImmigrantRatio = parameters.pureImmigrantRatio;
 
     this->routeCapacity = this->instance->vehicleNumber * 3;
     // One upper-level route can contain depot + all customers + depot.
     this->nodeCapacity = this->instance->customerNumber + 2;
     this->generation = 0;
-    this->lowerLevelTriggerRatio = 1.02;
+    this->lowerLevelTriggerRatio = parameters.gamma;
     this->globalBestUpperCost = DBL_MAX;
 }
 
@@ -78,37 +84,36 @@ MA::~MA() {
 }
 
 void MA::run() {
-    if (this->isMaxEvals == 1) {
-        start = std::chrono::high_resolution_clock::now();
-        end = std::chrono::high_resolution_clock::now();
-        duration = end - start;
-
+    start = std::chrono::high_resolution_clock::now();
+    end = start;
+    duration = end - start;
+    if (enableLogging) {
         open_log_for_evolution();
         open_log_for_local_search();
-        initialize_search();
-        while (!reached_evaluation_limit()) {
-            run_generation();
-            duration = std::chrono::high_resolution_clock::now() - start;
-            flush_row_into_evol_log();
-        }
-        close_log_for_evolution();
-        close_log_for_local_search();
-        save_log_for_solution();
-    } else {
-        start = std::chrono::high_resolution_clock::now();
-        end = std::chrono::high_resolution_clock::now();
-        duration = end - start;
+    }
 
-        open_log_for_evolution();
-        open_log_for_local_search();
-        initialize_search();
-        while (!reached_time_limit(duration)) {
-            run_generation();
-            duration = std::chrono::high_resolution_clock::now() - start;
+    initialize_search();
+    while (isMaxEvals == 1
+        ? !reached_evaluation_limit()
+        : !reached_time_limit(duration)) {
+        run_generation();
+        duration = std::chrono::high_resolution_clock::now() - start;
+        if (enableLogging) {
             flush_row_into_evol_log();
         }
+    }
+
+    if (enableLogging) {
         close_log_for_evolution();
         close_log_for_local_search();
+    }
+
+    if (verifiedBest == nullptr
+        || verifiedBest->get_lower_cost() >= INFEASIBLE_COST) {
+        throw std::runtime_error("search finished without a feasible complete solution");
+    }
+    Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
+    if (enableLogging) {
         save_log_for_solution();
     }
 }
@@ -163,11 +168,12 @@ void MA::initialize_population_with_direct_encoding() {
 }
 
 void MA::open_log_for_evolution() {
-    string directoryPath = "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
-    create_directories_if_not_exists(directoryPath);
+    const std::filesystem::path directoryPath =
+        std::filesystem::path(statsDirectory) / instance->instanceName / to_string(seed);
+    create_directories_if_not_exists(directoryPath.string());
 
     string filename = "evols." + instance->instanceName + ".csv";
-    logEvolution.open(directoryPath + "/" + filename);
+    logEvolution.open(directoryPath / filename);
     logEvolution << EVOLUTION_LOG_HEADER << "\n";
 }
 
@@ -189,11 +195,11 @@ void MA::close_log_for_evolution() {
 }
 
 void MA::open_log_for_local_search() {
-    const string directoryPath =
-        "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
-    create_directories_if_not_exists(directoryPath);
+    const std::filesystem::path directoryPath =
+        std::filesystem::path(statsDirectory) / instance->instanceName / to_string(seed);
+    create_directories_if_not_exists(directoryPath.string());
 
-    logLocalSearch.open(directoryPath + "/local-search.tsv");
+    logLocalSearch.open(directoryPath / "local-search.tsv");
     logLocalSearch << LOCAL_SEARCH_LOG_HEADER << "\n";
 }
 
@@ -212,13 +218,12 @@ void MA::close_log_for_local_search() {
 }
 
 void MA::save_log_for_solution() {
-    Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
-
-    string directoryPath = "../" + statsPath + "/" + instance->instanceName + "/" + to_string(seed);
-    create_directories_if_not_exists(directoryPath);
+    const std::filesystem::path directoryPath =
+        std::filesystem::path(statsDirectory) / instance->instanceName / to_string(seed);
+    create_directories_if_not_exists(directoryPath.string());
     string filename = "solution." + instance->instanceName + ".txt";
 
-    logSolution.open(directoryPath + "/" + filename);
+    logSolution.open(directoryPath / filename);
     logSolution << fixed << setprecision(5) << verifiedBest->get_lower_cost() << endl;
     pair<int*, int> tourInfo = verifiedBest->get_tour();
     for (int i = 0; i < tourInfo.second; ++i) {
@@ -252,13 +257,30 @@ void MA::run_generation() {
     const shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     vector<LocalSearchLogRecord> localSearchRecords;
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
-    ParentCandidate localSearchBestReference =
-        Reproduction::make_parent_candidate(*bestUpperCandidate);
+    ParentCandidate localSearchBestReference;
+    if (enableLogging) {
+        localSearchBestReference =
+            Reproduction::make_parent_candidate(*bestUpperCandidate);
+    }
     double localSearchBestCost = std::min(
         globalBestUpperCost,
-        localSearchBestReference.upperCost);
+        bestUpperCandidate->get_upper_cost());
 
     auto applyLocalSearch = [&](const shared_ptr<Individual>& individual) {
+        const bool canReuseLowerElite = individual == unchangedLowerElite
+            && individual->is_upper_locally_optimal()
+            && individual->get_lower_cost() < INFEASIBLE_COST;
+        if (!enableLogging) {
+            if (!canReuseLowerElite) {
+                Leader::improve_with_seven_neighborhood_rvnd_one_move(
+                    *individual,
+                    *instance,
+                    localSearchEngine,
+                    localSearchIntensity);
+            }
+            return;
+        }
+
         const ParentCandidate beforeCandidate =
             Reproduction::make_parent_candidate(*individual);
         const double referenceCost = localSearchBestReference.upperCost;
@@ -274,9 +296,6 @@ void MA::run_generation() {
             beforeCandidate.upperCost > triggerUpperBoundBefore;
 
         LocalSearchResult result;
-        const bool canReuseLowerElite = individual == unchangedLowerElite
-            && individual->is_upper_locally_optimal()
-            && individual->get_lower_cost() < INFEASIBLE_COST;
         if (canReuseLowerElite) {
             result.moveLimit = -1;
             result.reachedLocalOptimum = true;
@@ -320,10 +339,12 @@ void MA::run_generation() {
     sort(rankedUpperSolutions.begin(), rankedUpperSolutions.end(), [](const shared_ptr<Individual>& lhs, const shared_ptr<Individual>& rhs) {
         return lhs->get_upper_cost() < rhs->get_upper_cost();
     });
-    const size_t targetParentPoolSize = std::max<size_t>(2, (static_cast<size_t>(popSize) + 9) / 10);
+    const size_t targetParentPoolSize = static_cast<size_t>(
+        std::ceil(static_cast<double>(popSize) * parentPoolRatio));
     vector<ParentCandidate> parentPool = Reproduction::build_quality_diversity_parent_pool(
         rankedUpperSolutions,
-        targetParentPoolSize);
+        targetParentPoolSize,
+        qualityRatio);
 
     vector<shared_ptr<Individual>> followerCandidates;
     shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(population);
@@ -346,15 +367,19 @@ void MA::run_generation() {
             && individual->get_lower_cost() < INFEASIBLE_COST;
         if (!canReuseLowerElite) {
             Follower::optimize_charging(*individual, *instance);
-            followerEvaluatedSolutions.push_back(individual);
+            if (enableLogging) {
+                followerEvaluatedSolutions.push_back(individual);
+            }
         }
         evaluatedCompleteSolutions.push_back(individual);
     }
-    for (auto& record : localSearchRecords) {
-        record.lowerEvaluated = std::find(
-            followerEvaluatedSolutions.begin(),
-            followerEvaluatedSolutions.end(),
-            record.individual) != followerEvaluatedSolutions.end();
+    if (enableLogging) {
+        for (auto& record : localSearchRecords) {
+            record.lowerEvaluated = std::find(
+                followerEvaluatedSolutions.begin(),
+                followerEvaluatedSolutions.end(),
+                record.individual) != followerEvaluatedSolutions.end();
+        }
     }
 
     shared_ptr<Individual> lowerElite;
@@ -365,7 +390,7 @@ void MA::run_generation() {
             lowerElite = make_shared<Individual>(*bestEvaluatedComplete);
         }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
-            if (verifiedLowerCostBefore < INFEASIBLE_COST) {
+            if (enableLogging && verifiedLowerCostBefore < INFEASIBLE_COST) {
                 for (auto& record : localSearchRecords) {
                     if (record.individual == bestEvaluatedComplete) {
                         record.verifiedLowerImprovement =
@@ -381,23 +406,25 @@ void MA::run_generation() {
         lowerElite = make_shared<Individual>(*verifiedBest);
     }
 
-    for (const auto& record : localSearchRecords) {
-        localSearchRows << setprecision(12)
-                        << generation << "\t"
-                        << record.qualityGap << "\t"
-                        << record.distanceBefore << "\t"
-                        << record.distanceAfter << "\t"
-                        << record.result.moveLimit << "\t"
-                        << record.result.acceptedMoves << "\t"
-                        << record.result.neighborhoodCalls << "\t"
-                        << record.result.evalsUsed << "\t"
-                        << record.result.relativeUpperImprovement << "\t"
-                        << record.result.reachedLocalOptimum << "\t"
-                        << record.crossedGamma << "\t"
-                        << record.lowerEvaluated << "\t"
-                        << record.verifiedLowerImprovement << "\n";
+    if (enableLogging) {
+        for (const auto& record : localSearchRecords) {
+            localSearchRows << setprecision(12)
+                            << generation << "\t"
+                            << record.qualityGap << "\t"
+                            << record.distanceBefore << "\t"
+                            << record.distanceAfter << "\t"
+                            << record.result.moveLimit << "\t"
+                            << record.result.acceptedMoves << "\t"
+                            << record.result.neighborhoodCalls << "\t"
+                            << record.result.evalsUsed << "\t"
+                            << record.result.relativeUpperImprovement << "\t"
+                            << record.result.reachedLocalOptimum << "\t"
+                            << record.crossedGamma << "\t"
+                            << record.lowerEvaluated << "\t"
+                            << record.verifiedLowerImprovement << "\n";
+        }
+        flush_local_search_log();
     }
-    flush_local_search_log();
 
 
     const int offspringTarget = popSize - (lowerElite == nullptr ? 0 : 1);
@@ -411,6 +438,8 @@ void MA::run_generation() {
         tournamentSize,
         mutationProb,
         mutationIndProb,
+        verifiedUpperRatio,
+        pureImmigrantRatio,
         randomEngine,
         uniformRealDis);
 
@@ -424,13 +453,13 @@ void MA::run_generation() {
 
 
     // update population
-    population.reserve(popSize);
+    population.reserve(static_cast<size_t>(popSize));
     if (lowerElite != nullptr) {
         population.push_back(std::move(lowerElite));
     }
-    for (int i = 0; i < offspringTarget; ++i) {
+    for (const auto& chromosome : chromosomes) {
         vector<int> giantTour = {instance->depot};
-        giantTour.insert(giantTour.end(), chromosomes[i].begin(), chromosomes[i].end());
+        giantTour.insert(giantTour.end(), chromosome.begin(), chromosome.end());
 
         vector<vector<int>> offspringRoutes = Initializer::split_giant_tour(giantTour, *instance);
 

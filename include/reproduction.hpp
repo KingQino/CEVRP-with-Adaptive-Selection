@@ -23,7 +23,8 @@ public:
 
     static std::vector<ParentCandidate> build_quality_diversity_parent_pool(
         const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
-        std::size_t desiredPoolSize);
+        std::size_t desiredPoolSize,
+        double qualityRatio);
     static ParentCandidate make_parent_candidate(const Individual& individual);
     static double adjacency_distance(
         const ParentCandidate& first,
@@ -50,6 +51,8 @@ public:
         int tournamentSize,
         double mutationProbability,
         double geneMutationProbability,
+        double verifiedUpperRatio,
+        double pureImmigrantRatio,
         std::default_random_engine& randomEngine,
         std::uniform_real_distribution<double>& probabilityDistribution);
 };

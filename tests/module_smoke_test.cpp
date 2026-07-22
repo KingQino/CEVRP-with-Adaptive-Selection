@@ -329,7 +329,10 @@ int main(int argc, char* argv[]) {
         [](const auto& first, const auto& second) {
             return first->get_upper_cost() < second->get_upper_cost();
         });
-    const auto parentPool = Reproduction::build_quality_diversity_parent_pool(rankedSolutions, 2);
+    const auto parentPool = Reproduction::build_quality_diversity_parent_pool(
+        rankedSolutions,
+        2,
+        0.5);
     assert(!parentPool.empty());
     if (parentPool.size() == 2) {
         const double distance = Reproduction::adjacency_distance(parentPool[0], parentPool[1]);
@@ -343,7 +346,14 @@ int main(int argc, char* argv[]) {
     assert_is_customer_permutation(firstChild, instance);
     assert_is_customer_permutation(secondChild, instance);
 
-    MA algorithm(&instance, 1, 1, 10, 0.05, 1.0, 0.35, 0.07);
+    Parameters algorithmParameters;
+    algorithmParameters.seed = 1;
+    algorithmParameters.stopCriteria = 1;
+    algorithmParameters.popSize = 10;
+    algorithmParameters.mutationProb = 0.35;
+    algorithmParameters.mutationIndProb = 0.07;
+    algorithmParameters.enableLogging = true;
+    MA algorithm(&instance, algorithmParameters);
     assert(std::fabs(algorithm.mutationProb - 0.35) <= 1e-12);
     assert(std::fabs(algorithm.mutationIndProb - 0.07) <= 1e-12);
     algorithm.initialize_search();
@@ -414,8 +424,12 @@ int main(int argc, char* argv[]) {
     // Crossing the former 30-generation boundary must not reduce the set of
     // individuals receiving local search.
     Case fullPopulationInstance(instancePath, 2);
-    MA fullPopulationAlgorithm(&fullPopulationInstance, 2, 1, 4);
-    fullPopulationAlgorithm.localSearchIntensity = LocalSearchIntensity::Weak;
+    Parameters fullPopulationParameters;
+    fullPopulationParameters.seed = 2;
+    fullPopulationParameters.popSize = 4;
+    fullPopulationParameters.localSearchIntensity = LocalSearchIntensity::Weak;
+    fullPopulationParameters.enableLogging = true;
+    MA fullPopulationAlgorithm(&fullPopulationInstance, fullPopulationParameters);
     fullPopulationAlgorithm.initialize_search();
     for (int iter = 0; iter < 31; ++iter) {
         fullPopulationAlgorithm.run_generation();
@@ -433,8 +447,12 @@ int main(int argc, char* argv[]) {
     }
 
     Case gammaOnlyInstance(instancePath, 3);
-    MA gammaOnlyAlgorithm(&gammaOnlyInstance, 3, 1, 4);
-    gammaOnlyAlgorithm.localSearchIntensity = LocalSearchIntensity::Weak;
+    Parameters gammaOnlyParameters;
+    gammaOnlyParameters.seed = 3;
+    gammaOnlyParameters.popSize = 4;
+    gammaOnlyParameters.localSearchIntensity = LocalSearchIntensity::Weak;
+    gammaOnlyParameters.enableLogging = true;
+    MA gammaOnlyAlgorithm(&gammaOnlyInstance, gammaOnlyParameters);
     gammaOnlyAlgorithm.initialize_search();
     gammaOnlyAlgorithm.globalBestUpperCost = 0.0;
     gammaOnlyAlgorithm.run_generation();
@@ -458,7 +476,11 @@ int main(int argc, char* argv[]) {
     assert(gammaOnlyRowCount == 4);
 
     Case retainedEliteInstance(instancePath, 4);
-    MA retainedEliteAlgorithm(&retainedEliteInstance, 4, 1, 1);
+    Parameters retainedEliteParameters;
+    retainedEliteParameters.seed = 4;
+    retainedEliteParameters.popSize = 1;
+    retainedEliteParameters.enableLogging = true;
+    MA retainedEliteAlgorithm(&retainedEliteInstance, retainedEliteParameters);
     retainedEliteAlgorithm.initialize_search();
     retainedEliteAlgorithm.run_generation();
     assert(retainedEliteAlgorithm.retainedLowerElite != nullptr);

@@ -23,15 +23,42 @@ For details, please refer to the following paper:
    make
    ```
 
-2. Second step - run
+2. Second step - run one seeded trial without logs
 
    ```shell
-   ./Run E-n22-k4.evrp 1 1 strong
-   
-   # Explanation
-   # ./Run <instance> <stop_criteria> <multithreading> [weak|medium|strong]
+   ./Run -ins E-n22-k4.evrp -seed 1 -stp 1 -mth 0 -log 0 -ls strong
    ```
-   
+
+   The command prints only the final `lower_cost`, which can be consumed directly
+   by IRACE. Set `-mth 1` to run ten trials in parallel and print their mean, or
+   `-log 1` to write evolution, local-search, solution, and aggregate logs.
+
+   The former positional syntax remains available:
+
+   ```shell
+   ./Run E-n22-k4.evrp 1 0 strong
+   ```
+
+### Tunable Parameters
+
+| Option | Default | Meaning |
+| --- | ---: | --- |
+| `-pop_size` | `100` | Population size |
+| `-mutation_prob` | `0.5` | Probability that an offspring enters mutation |
+| `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
+| `-tournament_size` | `2` | Upper-parent tournament size |
+| `-ls` | `strong` | `weak`, `medium`, or `strong` local-search intensity |
+| `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
+| `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
+| `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
+| `-pure_immigrant_ratio` | `0.10` | Pure immigrant offspring share |
+| `-gamma` | `1.02` | Upper-cost ratio that triggers follower evaluation |
+
+Invalid configurations exit with a non-zero status. Probabilities must be in
+`[0, 1]`, `quality_ratio` must be strictly between 0 and 1,
+`parent_pool_ratio * pop_size >= 5`, and
+`verified_upper_ratio + pure_immigrant_ratio <= 0.25`. The tournament size
+cannot exceed the resulting parent-pool size.
 
 
 

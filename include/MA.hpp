@@ -11,6 +11,7 @@
 #include "stats.hpp"
 #include "individual.hpp"
 #include "leader.hpp"
+#include "parameters.hpp"
 
 class MA : public StatsInterface{
 public:
@@ -22,9 +23,7 @@ public:
         "reached_local_optimum\tcrossed_gamma\tlower_evaluated\t"
         "verified_lower_improvement";
 
-    MA(Case* instance, int seed, int isMaxEvals = 1, int popSize = 100, double immigrantRatio = 0.05,
-       double crossoverProb = 1.0, double mutationProb = 0.5, double mutationIndProb = 0.2, int tournamentSize = 2,
-       LocalSearchIntensity localSearchIntensity = LocalSearchIntensity::Strong);
+    MA(Case* instance, const Parameters& parameters);
     ~MA() override;
     void run();
     void initialize_search();
@@ -54,13 +53,17 @@ public:
     std::shared_ptr<Individual> retainedLowerElite;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
+    bool enableLogging;
+    std::string statsDirectory;
     int popSize;
-    double immigrantRatio; // Legacy API option; reproduction currently injects a fixed 10%.
-    double crossoverProb; // Legacy API option; PMX is currently always applied.
     double mutationProb;
     double mutationIndProb;
     int tournamentSize;
     LocalSearchIntensity localSearchIntensity;
+    double parentPoolRatio;
+    double qualityRatio;
+    double verifiedUpperRatio;
+    double pureImmigrantRatio;
 
     int routeCapacity;
     int nodeCapacity;

@@ -118,7 +118,8 @@ ParentCandidate Reproduction::make_parent_candidate(const Individual& individual
 
 std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
-    std::size_t desiredPoolSize) {
+    std::size_t desiredPoolSize,
+    double qualityRatio) {
     if (rankedUpperSolutions.empty() || desiredPoolSize == 0) {
         return {};
     }
@@ -141,7 +142,12 @@ std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     }
 
     const std::size_t poolSize = std::min(desiredPoolSize, candidates.size());
-    const std::size_t qualitySlots = (poolSize + 1) / 2;
+    const std::size_t qualitySlots = poolSize <= 1
+        ? poolSize
+        : std::clamp<std::size_t>(
+            static_cast<std::size_t>(std::lround(poolSize * qualityRatio)),
+            1,
+            poolSize - 1);
     std::vector<bool> selected(candidates.size(), false);
     std::vector<ParentCandidate> parentPool;
     parentPool.reserve(poolSize);
@@ -270,15 +276,18 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     int tournamentSize,
     double mutationProbability,
     double geneMutationProbability,
+    double verifiedUpperRatio,
+    double pureImmigrantRatio,
     std::default_random_engine& randomEngine,
     std::uniform_real_distribution<double>& probabilityDistribution) {
     std::vector<std::vector<int>> offspring;
-    offspring.reserve(offspringCount);
+    offspring.reserve(static_cast<std::size_t>(offspringCount));
 
     const int verifiedUpperCount = hasVerifiedBest
-        ? static_cast<int>(std::lround(offspringCount * 0.05))
+        ? static_cast<int>(std::lround(offspringCount * verifiedUpperRatio))
         : 0;
-    const int pureImmigrantCount = static_cast<int>(std::lround(offspringCount * 0.10));
+    const int pureImmigrantCount = static_cast<int>(
+        std::lround(offspringCount * pureImmigrantRatio));
     const int upperParentOffspringCount = std::max(
         0,
         offspringCount - verifiedUpperCount - pureImmigrantCount);
