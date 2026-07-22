@@ -175,6 +175,34 @@ int main(int argc, char* argv[]) {
     assert(individual.get_routes() == repeatedRvnd.get_routes());
     assert_individual_is_consistent(individual, instance);
 
+    Individual skippedSevenNeighborhoodSearch(vndBaseline);
+    const auto routesBeforeSkip = skippedSevenNeighborhoodSearch.get_routes();
+    const double upperCostBeforeSkip =
+        skippedSevenNeighborhoodSearch.get_upper_cost();
+    const bool locallyOptimalBeforeSkip =
+        skippedSevenNeighborhoodSearch.is_upper_locally_optimal();
+    const double evalsBeforeSkip = instance.get_evals();
+    std::default_random_engine skipSearchEngine(12);
+    const LocalSearchResult skipSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            skippedSevenNeighborhoodSearch,
+            instance,
+            skipSearchEngine,
+            LocalSearchIntensity::Skip);
+    assert(skipSearchResult.moveLimit == 0);
+    assert(skipSearchResult.acceptedMoves == 0);
+    assert(skipSearchResult.neighborhoodCalls == 0);
+    assert(std::fabs(skipSearchResult.evalsUsed) <= 1e-12);
+    assert(std::fabs(skipSearchResult.relativeUpperImprovement) <= 1e-12);
+    assert(!skipSearchResult.reachedLocalOptimum);
+    assert(skippedSevenNeighborhoodSearch.is_upper_locally_optimal()
+           == locallyOptimalBeforeSkip);
+    assert(std::fabs(instance.get_evals() - evalsBeforeSkip) <= 1e-12);
+    assert(std::fabs(
+        skippedSevenNeighborhoodSearch.get_upper_cost()
+        - upperCostBeforeSkip) <= 1e-12);
+    assert(skippedSevenNeighborhoodSearch.get_routes() == routesBeforeSkip);
+
     Individual fiveNeighborhoodRvnd(vndBaseline);
     Individual repeatedFiveNeighborhoodRvnd(vndBaseline);
     const double upperCostBeforeFiveNeighborhoodSearch = fiveNeighborhoodRvnd.get_upper_cost();
@@ -474,6 +502,17 @@ int main(int argc, char* argv[]) {
         ++gammaOnlyRowCount;
     }
     assert(gammaOnlyRowCount == 4);
+
+    Case skipFollowerInstance(instancePath, 5);
+    Parameters skipFollowerParameters;
+    skipFollowerParameters.seed = 5;
+    skipFollowerParameters.popSize = 4;
+    skipFollowerParameters.localSearchIntensity = LocalSearchIntensity::Skip;
+    MA skipFollowerAlgorithm(&skipFollowerInstance, skipFollowerParameters);
+    skipFollowerAlgorithm.initialize_search();
+    skipFollowerAlgorithm.run_generation();
+    assert(std::isfinite(skipFollowerAlgorithm.verifiedBest->get_lower_cost()));
+    assert(skipFollowerAlgorithm.localSearchRows.str().empty());
 
     Case retainedEliteInstance(instancePath, 4);
     Parameters retainedEliteParameters;

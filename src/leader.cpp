@@ -1468,6 +1468,9 @@ LocalSearchResult improve_with_rvnd_one_move(
     const double evalsBefore = instance.get_evals();
     LocalSearchResult result;
     result.moveLimit = moveLimit;
+    if (moveLimit == 0) {
+        return result;
+    }
 
     std::vector<Neighborhood> activeNeighborhoods(
         neighborhoods.begin(),
@@ -1514,6 +1517,8 @@ int move_limit_for_intensity(
     LocalSearchIntensity intensity) {
     const int solutionScale = instance.customerNumber + individual.route_num;
     switch (intensity) {
+        case LocalSearchIntensity::Skip:
+            return 0;
         case LocalSearchIntensity::Weak:
             return std::max(
                 1,

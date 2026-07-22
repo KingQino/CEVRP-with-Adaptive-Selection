@@ -82,6 +82,15 @@ int main() {
     assert(!legacyParameters.enableMultithreading);
     assert(legacyParameters.localSearchIntensity == LocalSearchIntensity::Weak);
 
+    std::vector<std::string> skipArguments = {
+        "build/command_line_test",
+        "-ls", "skip",
+    };
+    CommandLine skipCommandLine = make_command_line(skipArguments);
+    Parameters skipParameters;
+    skipCommandLine.parse_parameters(skipParameters);
+    assert(skipParameters.localSearchIntensity == LocalSearchIntensity::Skip);
+
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;
     invalidMix.pureImmigrantRatio = 0.15;

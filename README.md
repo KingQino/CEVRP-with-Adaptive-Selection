@@ -47,7 +47,7 @@ For details, please refer to the following paper:
 | `-mutation_prob` | `0.5` | Probability that an offspring enters mutation |
 | `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
 | `-tournament_size` | `2` | Upper-parent tournament size |
-| `-ls` | `strong` | `weak`, `medium`, or `strong` local-search intensity |
+| `-ls` | `strong` | `skip`, `weak`, `medium`, or `strong` local-search intensity |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
@@ -105,8 +105,8 @@ cannot exceed the resulting parent-pool size.
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` retains the full-descent LS-3/5/7 variants as baselines. LS-7-RVND-OneMove supports interruptible weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
-- Weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`; strong runs until all seven neighborhoods fail.
+- `Leader` retains the full-descent LS-3/5/7 variants as baselines. LS-7-RVND-OneMove supports skip, weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
+- Skip performs no upper-level local search, weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`, and strong runs until all seven neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - Every generation applies the selected local-search intensity to the complete upper-level population; no confidence filter is used.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Each trial writes per-call local-search feedback to `local-search.tsv` in its stats directory.

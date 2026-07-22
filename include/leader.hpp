@@ -7,6 +7,7 @@ class Case;
 class Individual;
 
 enum class LocalSearchIntensity {
+    Skip,
     Weak,
     Medium,
     Strong,

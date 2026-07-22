@@ -35,6 +35,9 @@ bool starts_with_option_prefix(const std::string& value) {
 
 LocalSearchIntensity parse_local_search_intensity(const std::string& value) {
     const std::string normalized = lowercase(value);
+    if (normalized == "skip") {
+        return LocalSearchIntensity::Skip;
+    }
     if (normalized == "weak") {
         return LocalSearchIntensity::Weak;
     }
@@ -45,7 +48,7 @@ LocalSearchIntensity parse_local_search_intensity(const std::string& value) {
         return LocalSearchIntensity::Strong;
     }
     throw std::invalid_argument(
-        "ls must be one of: weak, medium, strong");
+        "ls must be one of: skip, weak, medium, strong");
 }
 
 }  // namespace
@@ -63,7 +66,7 @@ CommandLine::CommandLine(int argc, char* argv[]) {
         legacyMode = true;
         if (argc < 4 || argc > 5) {
             throw std::invalid_argument(
-                "legacy usage: ./Run <instance> <stp> <mth> [weak|medium|strong]");
+                "legacy usage: ./Run <instance> <stp> <mth> [skip|weak|medium|strong]");
         }
         arguments["ins"] = argv[1];
         arguments["stp"] = argv[2];
@@ -159,14 +162,14 @@ void CommandLine::display_help() {
         << "  -mutation_prob <double>        Offspring mutation probability (default: 0.5)\n"
         << "  -mutation_ind_prob <double>    Per-gene mutation probability (default: 0.2)\n"
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
-        << "  -ls <weak|medium|strong>        Local-search intensity (default: strong)\n"
+        << "  -ls <skip|weak|medium|strong>   Local-search intensity (default: strong)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"
         << "  -pure_immigrant_ratio <double> Pure immigrant share (default: 0.10)\n"
         << "  -gamma <double>                Follower trigger ratio (default: 1.02)\n"
         << "\nLegacy syntax remains accepted:\n"
-        << "  ./Run <instance> <stp> <mth> [weak|medium|strong]\n";
+        << "  ./Run <instance> <stp> <mth> [skip|weak|medium|strong]\n";
 }
 
 int CommandLine::get_int(const std::string& key, int defaultValue) const {
