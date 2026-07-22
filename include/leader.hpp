@@ -28,23 +28,23 @@ public:
     static void improve_with_three_neighborhood_rvnd(
         Individual& individual,
         Case& instance,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static void improve_with_five_neighborhood_rvnd(
         Individual& individual,
         Case& instance,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static void improve_with_seven_neighborhood_rvnd(
         Individual& individual,
         Case& instance,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static void improve_with_seven_neighborhood_rvnd_one_move(
         Individual& individual,
         Case& instance,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static LocalSearchResult improve_with_seven_neighborhood_rvnd_one_move(
         Individual& individual,
         Case& instance,
-        std::default_random_engine& randomEngine,
+        std::mt19937& randomEngine,
         LocalSearchIntensity intensity);
 };
 

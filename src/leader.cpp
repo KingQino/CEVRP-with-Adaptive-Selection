@@ -847,7 +847,7 @@ struct OneMoveWorkspace {
 
 const std::vector<int>& shuffled_route_order(
     int routeCount,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     auto& routeOrder = workspace.routeOrder;
     routeOrder.resize(routeCount);
@@ -859,7 +859,7 @@ const std::vector<int>& shuffled_route_order(
 const std::vector<std::pair<int, int>>& shuffled_route_pairs(
     int routeCount,
     bool directed,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     auto& routePairs = workspace.routePairs;
     routePairs.clear();
@@ -885,7 +885,7 @@ const std::vector<std::pair<int, int>>& shuffled_route_pairs(
 bool improve_with_node_shift_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
@@ -938,7 +938,7 @@ bool improve_with_node_shift_one_move(
 bool improve_with_inter_route_relocate_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
@@ -1002,7 +1002,7 @@ bool improve_with_inter_route_relocate_one_move(
 bool improve_with_intra_route_swap_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
@@ -1046,7 +1046,7 @@ bool improve_with_intra_route_swap_one_move(
 bool improve_with_inter_route_swap_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
@@ -1122,7 +1122,7 @@ bool improve_with_inter_route_swap_one_move(
 bool improve_with_two_opt_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
@@ -1158,7 +1158,7 @@ bool improve_with_two_opt_one_move(
 bool improve_with_two_opt_star_head_to_head_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
@@ -1255,7 +1255,7 @@ bool improve_with_two_opt_star_head_to_head_one_move(
 bool improve_with_two_opt_star_head_to_tail_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
@@ -1353,7 +1353,7 @@ bool improve_with_neighborhood_one_move(
     Neighborhood neighborhood,
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     OneMoveWorkspace& workspace) {
     switch (neighborhood) {
         case Neighborhood::TwoOpt:
@@ -1433,7 +1433,7 @@ template <std::size_t NeighborhoodCount>
 void improve_with_rvnd(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     const std::array<Neighborhood, NeighborhoodCount>& neighborhoods) {
     std::vector<Neighborhood> activeNeighborhoods(
         neighborhoods.begin(),
@@ -1461,7 +1461,7 @@ template <std::size_t NeighborhoodCount>
 LocalSearchResult improve_with_rvnd_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     const std::array<Neighborhood, NeighborhoodCount>& neighborhoods,
     int moveLimit) {
     const double upperCostBefore = individual.get_upper_cost();
@@ -1554,28 +1554,28 @@ void Leader::improve_with_three_neighborhood_vnd(Individual& individual, Case& i
 void Leader::improve_with_three_neighborhood_rvnd(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     improve_with_rvnd(individual, instance, randomEngine, kThreeNeighborhoods);
 }
 
 void Leader::improve_with_five_neighborhood_rvnd(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     improve_with_rvnd(individual, instance, randomEngine, kFiveNeighborhoods);
 }
 
 void Leader::improve_with_seven_neighborhood_rvnd(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     improve_with_rvnd(individual, instance, randomEngine, kSevenNeighborhoods);
 }
 
 void Leader::improve_with_seven_neighborhood_rvnd_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     improve_with_rvnd_one_move(
         individual,
         instance,
@@ -1587,7 +1587,7 @@ void Leader::improve_with_seven_neighborhood_rvnd_one_move(
 LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
     Individual& individual,
     Case& instance,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     LocalSearchIntensity intensity) {
     return improve_with_rvnd_one_move(
         individual,

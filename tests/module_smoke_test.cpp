@@ -119,7 +119,7 @@ void assert_inter_route_relocate_removes_empty_route(Case& instance) {
         instance.fitness_evaluation(routes),
         instance.compute_demand_sum(routes));
     // Seed 2 selects inter-route relocate first from the five-neighborhood list.
-    std::default_random_engine randomEngine(2);
+    std::mt19937 randomEngine(2);
     Leader::improve_with_five_neighborhood_rvnd(individual, instance, randomEngine);
 
     assert(individual.route_num == 1);
@@ -144,7 +144,7 @@ int main(int argc, char* argv[]) {
     const std::string instanceName = argc > 1 ? argv[1] : "E-n22-k4.evrp";
     const std::string instancePath = std::string(TEST_DATA_DIRECTORY) + "/" + instanceName;
     Case instance(instancePath, 1);
-    std::default_random_engine randomEngine(1);
+    std::mt19937 randomEngine(1);
     assert_inter_route_relocate_removes_empty_route(instance);
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
@@ -166,8 +166,8 @@ int main(int argc, char* argv[]) {
     assert(vndBaseline.get_upper_cost() <= upperCostBeforeSearch + 1e-8);
 
     Individual repeatedRvnd(individual);
-    std::default_random_engine firstRvndEngine(7);
-    std::default_random_engine secondRvndEngine(7);
+    std::mt19937 firstRvndEngine(7);
+    std::mt19937 secondRvndEngine(7);
     Leader::improve_with_three_neighborhood_rvnd(individual, instance, firstRvndEngine);
     Leader::improve_with_three_neighborhood_rvnd(repeatedRvnd, instance, secondRvndEngine);
     assert(individual.get_upper_cost() <= upperCostBeforeSearch + 1e-8);
@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) {
     const bool locallyOptimalBeforeSkip =
         skippedSevenNeighborhoodSearch.is_upper_locally_optimal();
     const double evalsBeforeSkip = instance.get_evals();
-    std::default_random_engine skipSearchEngine(12);
+    std::mt19937 skipSearchEngine(12);
     const LocalSearchResult skipSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
             skippedSevenNeighborhoodSearch,
@@ -206,8 +206,8 @@ int main(int argc, char* argv[]) {
     Individual fiveNeighborhoodRvnd(vndBaseline);
     Individual repeatedFiveNeighborhoodRvnd(vndBaseline);
     const double upperCostBeforeFiveNeighborhoodSearch = fiveNeighborhoodRvnd.get_upper_cost();
-    std::default_random_engine firstFiveNeighborhoodEngine(11);
-    std::default_random_engine secondFiveNeighborhoodEngine(11);
+    std::mt19937 firstFiveNeighborhoodEngine(11);
+    std::mt19937 secondFiveNeighborhoodEngine(11);
     Leader::improve_with_five_neighborhood_rvnd(
         fiveNeighborhoodRvnd,
         instance,
@@ -228,7 +228,7 @@ int main(int argc, char* argv[]) {
     Individual weakSevenNeighborhoodSearch(vndBaseline);
     const int weakSolutionScale =
         instance.customerNumber + weakSevenNeighborhoodSearch.route_num;
-    std::default_random_engine weakSearchEngine(12);
+    std::mt19937 weakSearchEngine(12);
     const LocalSearchResult weakSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
             weakSevenNeighborhoodSearch,
@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
     Individual mediumSevenNeighborhoodSearch(vndBaseline);
     const int mediumSolutionScale =
         instance.customerNumber + mediumSevenNeighborhoodSearch.route_num;
-    std::default_random_engine mediumSearchEngine(12);
+    std::mt19937 mediumSearchEngine(12);
     const LocalSearchResult mediumSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
             mediumSevenNeighborhoodSearch,
@@ -269,8 +269,8 @@ int main(int argc, char* argv[]) {
     const double upperCostBeforeSevenNeighborhoodSearch =
         sevenNeighborhoodRvnd.get_upper_cost();
     const int routesBeforeSevenNeighborhoodSearch = sevenNeighborhoodRvnd.route_num;
-    std::default_random_engine firstSevenNeighborhoodEngine(13);
-    std::default_random_engine secondSevenNeighborhoodEngine(13);
+    std::mt19937 firstSevenNeighborhoodEngine(13);
+    std::mt19937 secondSevenNeighborhoodEngine(13);
     Leader::improve_with_seven_neighborhood_rvnd(
         sevenNeighborhoodRvnd,
         instance,
@@ -294,8 +294,8 @@ int main(int argc, char* argv[]) {
     const double upperCostBeforeOneMoveSearch =
         sevenNeighborhoodOneMove.get_upper_cost();
     const int routesBeforeOneMoveSearch = sevenNeighborhoodOneMove.route_num;
-    std::default_random_engine firstOneMoveEngine(17);
-    std::default_random_engine secondOneMoveEngine(17);
+    std::mt19937 firstOneMoveEngine(17);
+    std::mt19937 secondOneMoveEngine(17);
     const LocalSearchResult strongSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
         sevenNeighborhoodOneMove,
@@ -320,7 +320,7 @@ int main(int argc, char* argv[]) {
     assert_individual_is_consistent(sevenNeighborhoodOneMove, instance);
 
     Individual exhaustedOneMoveSearch(sevenNeighborhoodOneMove);
-    std::default_random_engine exhaustedOneMoveEngine(19);
+    std::mt19937 exhaustedOneMoveEngine(19);
     const LocalSearchResult exhaustedSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
             exhaustedOneMoveSearch,

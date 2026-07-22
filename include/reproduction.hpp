@@ -32,15 +32,15 @@ public:
 
     static std::vector<int> make_random_immigrant(
         const std::vector<int>& customers,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static void partially_matched_crossover(
         std::vector<int>& firstParent,
         std::vector<int>& secondParent,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
     static void mutate_by_index_shuffle(
         std::vector<int>& chromosome,
         double mutationProbability,
-        std::default_random_engine& randomEngine);
+        std::mt19937& randomEngine);
 
     static std::vector<std::vector<int>> create_offspring(
         const std::vector<ParentCandidate>& parentPool,
@@ -53,7 +53,7 @@ public:
         double geneMutationProbability,
         double verifiedUpperRatio,
         double pureImmigrantRatio,
-        std::default_random_engine& randomEngine,
+        std::mt19937& randomEngine,
         std::uniform_real_distribution<double>& probabilityDistribution);
 };
 

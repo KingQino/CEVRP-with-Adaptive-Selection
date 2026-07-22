@@ -47,8 +47,8 @@ using std::vector;
 MA::MA(Case* instance, const Parameters& parameters) {
     // init parameters
     this->instance = instance;
-    this->randomEngine = std::default_random_engine(
-        static_cast<std::default_random_engine::result_type>(parameters.seed));
+    this->randomEngine = std::mt19937(
+        static_cast<std::mt19937::result_type>(parameters.seed));
     std::seed_seq localSearchSeed{parameters.seed, 0x4C53, 0x52564E44};
     this->localSearchEngine.seed(localSearchSeed);
     this->seed = parameters.seed;

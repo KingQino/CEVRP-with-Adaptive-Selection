@@ -200,7 +200,7 @@ std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
 
 std::vector<int> Reproduction::make_random_immigrant(
     const std::vector<int>& customers,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<int> immigrant(customers);
     std::shuffle(immigrant.begin(), immigrant.end(), randomEngine);
     return immigrant;
@@ -209,7 +209,7 @@ std::vector<int> Reproduction::make_random_immigrant(
 void Reproduction::partially_matched_crossover(
     std::vector<int>& firstParent,
     std::vector<int>& secondParent,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     const int chromosomeSize = static_cast<int>(firstParent.size());
     std::uniform_int_distribution<> distribution(0, chromosomeSize - 1);
 
@@ -265,7 +265,7 @@ void Reproduction::partially_matched_crossover(
 void Reproduction::mutate_by_index_shuffle(
     std::vector<int>& chromosome,
     double mutationProbability,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     const int chromosomeSize = static_cast<int>(chromosome.size());
     std::uniform_real_distribution<double> probabilityDistribution(0.0, 1.0);
     std::uniform_int_distribution<int> swapDistribution(0, chromosomeSize - 2);
@@ -292,7 +292,7 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     double geneMutationProbability,
     double verifiedUpperRatio,
     double pureImmigrantRatio,
-    std::default_random_engine& randomEngine,
+    std::mt19937& randomEngine,
     std::uniform_real_distribution<double>& probabilityDistribution) {
     std::vector<std::vector<int>> offspring;
     offspring.reserve(static_cast<std::size_t>(offspringCount));

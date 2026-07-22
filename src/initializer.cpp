@@ -12,7 +12,7 @@ namespace {
 
 std::vector<std::vector<int>> cluster_customers(
     const Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<int> customers(instance.customers);
     std::shuffle(customers.begin(), customers.end(), randomEngine);
 
@@ -50,7 +50,7 @@ std::vector<std::vector<int>> cluster_customers(
 void balance_last_route(
     std::vector<std::vector<int>>& routes,
     const Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<int>& lastRoute = routes.back();
 
     std::uniform_int_distribution<> distribution(0, static_cast<int>(lastRoute.size()) - 1);
@@ -154,7 +154,7 @@ std::vector<std::vector<int>> Initializer::split_giant_tour(
 
 std::vector<std::vector<int>> Initializer::build_with_random_split(
     Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<int> giantTour(instance.customers);
     std::shuffle(giantTour.begin(), giantTour.end(), randomEngine);
     giantTour.insert(giantTour.begin(), instance.depot);
@@ -169,7 +169,7 @@ std::vector<std::vector<int>> Initializer::build_with_random_split(
 
 std::vector<std::vector<int>> Initializer::build_with_clustering(
     const Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<std::vector<int>> routes = cluster_customers(instance, randomEngine);
     balance_last_route(routes, instance, randomEngine);
 
@@ -182,7 +182,7 @@ std::vector<std::vector<int>> Initializer::build_with_clustering(
 
 std::vector<std::vector<int>> Initializer::build_with_direct_encoding(
     const Case& instance,
-    std::default_random_engine& randomEngine) {
+    std::mt19937& randomEngine) {
     std::vector<int> customers(instance.customers);
     int vehicleIndex = 0;
     int currentLoad = 0;

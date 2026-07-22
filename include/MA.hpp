@@ -45,8 +45,8 @@ public:
     std::ostringstream localSearchRows;
     std::ofstream logLocalSearch;
     Case* instance;
-    std::default_random_engine randomEngine;
-    std::default_random_engine localSearchEngine;
+    std::mt19937 randomEngine;
+    std::mt19937 localSearchEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::unique_ptr<Individual> verifiedBest;
