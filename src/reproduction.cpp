@@ -1,4 +1,4 @@
-#include "../include/reproduction.hpp"
+#include "reproduction.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 #include <set>
 #include <unordered_map>
 
-#include "../include/individual.hpp"
+#include "individual.hpp"
 
 namespace {
 

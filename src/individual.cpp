@@ -2,7 +2,7 @@
 // Created by Yinghao Qin on 16/11/2023.
 //
 
-#include "../include/individual.hpp"
+#include "individual.hpp"
 
 using namespace std;
 

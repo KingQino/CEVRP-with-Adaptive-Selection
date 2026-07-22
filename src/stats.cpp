@@ -1,4 +1,4 @@
-#include "../include/stats.hpp"
+#include "stats.hpp"
 
 using namespace std;
 

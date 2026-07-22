@@ -1,4 +1,4 @@
-#include "../include/follower.hpp"
+#include "follower.hpp"
 
 #include <cfloat>
 #include <cmath>
@@ -7,9 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "../include/algorithm_constants.hpp"
-#include "../include/case.hpp"
-#include "../include/individual.hpp"
+#include "algorithm_constants.hpp"
+#include "case.hpp"
+#include "individual.hpp"
 
 namespace {
 

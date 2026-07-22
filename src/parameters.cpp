@@ -1,4 +1,4 @@
-#include "../include/parameters.hpp"
+#include "parameters.hpp"
 
 #include <cmath>
 #include <limits>

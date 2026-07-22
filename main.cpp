@@ -5,11 +5,11 @@
 #include <thread>
 #include <vector>
 
-#include "include/MA.hpp"
-#include "include/case.hpp"
-#include "include/command_line.hpp"
-#include "include/parameters.hpp"
-#include "include/stats.hpp"
+#include "MA.hpp"
+#include "case.hpp"
+#include "command_line.hpp"
+#include "parameters.hpp"
+#include "stats.hpp"
 
 namespace fs = std::filesystem;
 

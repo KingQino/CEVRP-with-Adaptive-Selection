@@ -2,13 +2,13 @@
 // Created by Yinghao Qin on 19/12/2023.
 //
 
-#include "../include/MA.hpp"
+#include "MA.hpp"
 
-#include "../include/algorithm_constants.hpp"
-#include "../include/follower.hpp"
-#include "../include/initializer.hpp"
-#include "../include/leader.hpp"
-#include "../include/reproduction.hpp"
+#include "algorithm_constants.hpp"
+#include "follower.hpp"
+#include "initializer.hpp"
+#include "leader.hpp"
+#include "reproduction.hpp"
 
 #include <cfloat>
 #include <cmath>

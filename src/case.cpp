@@ -2,7 +2,7 @@
 // Created by Yinghao Qin on 19/12/2023.
 //
 
-#include "../include/case.hpp"
+#include "case.hpp"
 #include <stdexcept>
 
 using namespace std;

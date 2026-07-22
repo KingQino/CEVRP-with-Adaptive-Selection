@@ -1,4 +1,4 @@
-#include "../include/leader.hpp"
+#include "leader.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "../include/case.hpp"
-#include "../include/individual.hpp"
+#include "case.hpp"
+#include "individual.hpp"
 
 namespace {
 

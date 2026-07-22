@@ -1,4 +1,4 @@
-#include "../include/initializer.hpp"
+#include "initializer.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -6,7 +6,7 @@
 #include <cstring>
 #include <numeric>
 
-#include "../include/case.hpp"
+#include "case.hpp"
 
 namespace {
 
