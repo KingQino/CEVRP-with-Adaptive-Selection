@@ -110,9 +110,20 @@ void MA::run() {
 
     if (verifiedBest == nullptr
         || verifiedBest->get_lower_cost() >= INFEASIBLE_COST) {
+        const shared_ptr<Individual> bestUpperCandidate =
+            Reproduction::best_by_upper_cost(population);
+        if (bestUpperCandidate != nullptr) {
+            verifiedBest = make_unique<Individual>(*bestUpperCandidate);
+        }
+    }
+
+    if (verifiedBest == nullptr) {
         throw std::runtime_error("search finished without a feasible complete solution");
     }
     Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
+    if (verifiedBest->get_lower_cost() >= INFEASIBLE_COST) {
+        throw std::runtime_error("search finished without a feasible complete solution");
+    }
     if (enableLogging) {
         save_log_for_solution();
     }

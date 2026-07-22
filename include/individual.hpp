@@ -24,6 +24,7 @@ public:
     double lower_cost; // complete cost after charging decisions
     bool upper_locally_optimal;
     int* tour; // The specified format of the solution, e.g., 0 - 5 - 6 - 8 - 0 - 1 - 2 - 3 - 4 - 0 - 7 - 0
+    int tour_capacity;
     int steps;
 
     Individual(const Individual  &ind);
@@ -48,6 +49,9 @@ public:
 
 
     friend std::ostream& operator<<(std::ostream& os, const Individual& individual);
+
+private:
+    void ensure_tour_capacity(int required_capacity);
 };
 
 #endif //CEVRP_YINGHAO_INDIVIDUAL_HPP

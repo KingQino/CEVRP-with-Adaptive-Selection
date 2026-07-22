@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "MA.hpp"
+#include "algorithm_constants.hpp"
 #include "follower.hpp"
 #include "initializer.hpp"
 #include "leader.hpp"
@@ -138,6 +139,81 @@ void assert_inter_route_relocate_removes_empty_route(Case& instance) {
         - individual.get_upper_cost()) <= 1e-8);
 }
 
+void assert_refinement_handles_boundary_cases() {
+    const std::string instancePath =
+        std::string(TEST_DATA_DIRECTORY) + "/RC108-10.evrp";
+    Case instance(instancePath, 8);
+    const std::vector<std::vector<int>> routes = {
+        {0, 6, 8, 1, 10, 2, 3, 5, 7, 9, 4, 0},
+    };
+    const double upperCost = instance.fitness_evaluation(routes);
+    const std::vector<int> demandSums = instance.compute_demand_sum(routes);
+
+    Individual standard(
+        instance.vehicleNumber * 3,
+        instance.customerNumber + 2,
+        routes,
+        upperCost,
+        demandSums);
+    Follower::optimize_charging(standard, instance);
+    assert(std::isfinite(standard.get_lower_cost()));
+    assert(standard.get_lower_cost() < INFEASIBLE_COST);
+
+    Individual refined(
+        instance.vehicleNumber * 3,
+        instance.customerNumber + 2,
+        routes,
+        upperCost,
+        demandSums);
+    Follower::refine_charging_by_enumeration(refined, instance);
+    assert(std::isfinite(refined.get_lower_cost()));
+    assert(refined.get_lower_cost() < INFEASIBLE_COST);
+    assert(refined.get_lower_cost() <= standard.get_lower_cost() + 1e-8);
+
+    const auto [tour, steps] = refined.get_tour();
+    assert(steps > 1);
+    assert(tour[0] == instance.depot);
+    assert(tour[steps - 1] == instance.depot);
+    double distanceSinceCharge = 0.0;
+    for (int index = 1; index < steps; ++index) {
+        distanceSinceCharge += instance.get_distance(tour[index - 1], tour[index]);
+        if (instance.is_charging_station(tour[index])) {
+            assert(distanceSinceCharge <= instance.maxDis + 1e-8);
+            distanceSinceCharge = 0.0;
+        }
+    }
+
+    Individual malformed(1, 2, {{}}, 0.0, {0});
+    Follower::refine_charging_by_enumeration(malformed, instance);
+    assert(malformed.get_lower_cost() >= INFEASIBLE_COST);
+
+    Individual empty(1, 2);
+    Follower::refine_charging_by_enumeration(empty, instance);
+    assert(empty.get_lower_cost() >= INFEASIBLE_COST);
+
+    Case noStationInstance(instancePath, 9);
+    noStationInstance.stations.clear();
+    noStationInstance.stationSet.clear();
+    noStationInstance.stationNumber = 0;
+    Individual noStation(
+        noStationInstance.vehicleNumber * 3,
+        noStationInstance.customerNumber + 2,
+        routes,
+        upperCost,
+        demandSums);
+    Follower::refine_charging_by_enumeration(noStation, noStationInstance);
+    assert(noStation.get_lower_cost() >= INFEASIBLE_COST);
+
+    Individual expandableTour(1, 2);
+    std::vector<int> longRoute(Individual::TOUR_SIZE + 100, 1);
+    longRoute.front() = 0;
+    longRoute.back() = 0;
+    expandableTour.set_tour({longRoute});
+    const auto [expandedTour, expandedSteps] = expandableTour.get_tour();
+    assert(expandedSteps == static_cast<int>(longRoute.size()));
+    assert(expandedTour[expandedSteps - 1] == 0);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -146,6 +222,7 @@ int main(int argc, char* argv[]) {
     Case instance(instancePath, 1);
     std::mt19937 randomEngine(1);
     assert_inter_route_relocate_removes_empty_route(instance);
+    assert_refinement_handles_boundary_cases();
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
     auto splitRoutes = Initializer::build_with_random_split(instance, randomEngine);
@@ -513,6 +590,17 @@ int main(int argc, char* argv[]) {
     skipFollowerAlgorithm.run_generation();
     assert(std::isfinite(skipFollowerAlgorithm.verifiedBest->get_lower_cost()));
     assert(skipFollowerAlgorithm.localSearchRows.str().empty());
+
+    Case finalFallbackInstance(instancePath, 6);
+    finalFallbackInstance.maxEvals = 0;
+    Parameters finalFallbackParameters;
+    finalFallbackParameters.seed = 6;
+    finalFallbackParameters.enableLogging = false;
+    MA finalFallbackAlgorithm(&finalFallbackInstance, finalFallbackParameters);
+    finalFallbackAlgorithm.run();
+    assert(finalFallbackAlgorithm.verifiedBest != nullptr);
+    assert(finalFallbackAlgorithm.verifiedBest->get_lower_cost()
+           < INFEASIBLE_COST);
 
     Case retainedEliteInstance(instancePath, 4);
     Parameters retainedEliteParameters;

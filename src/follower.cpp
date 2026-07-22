@@ -1,5 +1,6 @@
 #include "follower.hpp"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <list>
@@ -15,12 +16,24 @@ namespace {
 
 using RouteRepair = std::pair<double, std::vector<int>>;
 
+RouteRepair infeasible_repair() {
+    return std::make_pair(-1.0, std::vector<int>());
+}
+
+bool is_valid_upper_route(const std::vector<int>& route, const Case& instance) {
+    if (route.size() < 2
+        || route.front() != instance.depot
+        || route.back() != instance.depot) {
+        return false;
+    }
+    return std::all_of(route.begin(), route.end(), [&](int node) {
+        return node >= 0 && node < instance.actualProblemSize;
+    });
+}
+
 RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instance);
 RouteRepair insert_then_remove_redundant_stations(int* route, int length, Case& instance);
 RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instance);
-std::pair<std::vector<int>, double> enumerate_exact_station_choices(
-    std::vector<int>& route,
-    Case& instance);
 
 void enumerate_station_positions(
     int minimumPosition,
@@ -48,6 +61,10 @@ void enumerate_stations_and_positions(
 
 RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instance) {
     std::vector<int> repairedRoute;
+    if (route == nullptr || length < 2
+        || !std::isfinite(instance.maxDis) || instance.maxDis <= 0.0) {
+        return infeasible_repair();
+    }
     std::vector<double> cumulativeDistance(length, 0);
     for (int i = 1; i < length; ++i) {
         cumulativeDistance[i] = cumulativeDistance[i - 1]
@@ -56,6 +73,9 @@ RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instan
     if (cumulativeDistance.back() <= instance.maxDis) {
         repairedRoute.insert(repairedRoute.end(), route, route + length);
         return std::make_pair(cumulativeDistance.back(), repairedRoute);
+    }
+    if (!std::isfinite(cumulativeDistance.back()) || instance.stationNumber <= 0) {
+        return infeasible_repair();
     }
 
     const int upperBound = static_cast<int>(cumulativeDistance.back() / instance.maxDis + 1);
@@ -108,6 +128,11 @@ RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instan
 RouteRepair insert_then_remove_redundant_stations(int* route, int length, Case& instance) {
     std::vector<int> repairedRoute;
     std::list<std::pair<int, int>> insertedStations;
+
+    if (route == nullptr || length < 2
+        || !std::isfinite(instance.maxDis) || instance.maxDis <= 0.0) {
+        return infeasible_repair();
+    }
 
     for (int i = 0; i < length - 1; ++i) {
         double availableRange = instance.maxDis;
@@ -306,6 +331,11 @@ void enumerate_station_positions(
 }
 
 RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instance) {
+    if (!is_valid_upper_route(route, instance)
+        || !std::isfinite(instance.maxDis) || instance.maxDis <= 0.0) {
+        return infeasible_repair();
+    }
+
     std::vector<double> cumulativeDistance(route.size(), 0);
     for (int i = 1; i < static_cast<int>(route.size()); ++i) {
         cumulativeDistance[i] = cumulativeDistance[i - 1]
@@ -313,6 +343,9 @@ RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instanc
     }
     if (cumulativeDistance.back() <= instance.maxDis) {
         return std::make_pair(cumulativeDistance.back(), route);
+    }
+    if (!std::isfinite(cumulativeDistance.back()) || instance.stationNumber <= 0) {
+        return infeasible_repair();
     }
 
     const int originalLength = static_cast<int>(route.size());
@@ -324,6 +357,9 @@ RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instanc
     double bestCost = DBL_MAX;
 
     auto tryStationCount = [&](int stationCount) {
+        if (stationCount <= 0 || stationCount >= originalLength) {
+            return false;
+        }
         std::vector<int> candidateRoute;
         double candidateCost = DBL_MAX;
         enumerate_stations_and_positions(
@@ -365,12 +401,6 @@ RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instanc
         }
     }
 
-    std::vector<int> routeCopy(route);
-    auto exactResult = enumerate_exact_station_choices(routeCopy, instance);
-    if (exactResult.second >= 0) {
-        return std::make_pair(exactResult.second, exactResult.first);
-    }
-
     auto simpleResult = enumerate_best_station_per_edge(route.data(), originalLength, instance);
     if (simpleResult.first >= 0) {
         return simpleResult;
@@ -378,46 +408,7 @@ RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instanc
     if (removalResult.first >= 0) {
         return removalResult;
     }
-    return std::make_pair(-1.0, std::vector<int>());
-}
-
-std::pair<std::vector<int>, double> enumerate_exact_station_choices(
-    std::vector<int>& route,
-    Case& instance) {
-    std::vector<double> cumulativeDistance(route.size(), 0);
-    for (int i = 1; i < static_cast<int>(route.size()); ++i) {
-        cumulativeDistance[i] = cumulativeDistance[i - 1]
-            + instance.get_distance(route[i], route[i - 1]);
-    }
-    if (cumulativeDistance.back() <= instance.maxDis) {
-        return std::make_pair(route, cumulativeDistance.back());
-    }
-
-    const int upperBound = static_cast<int>(std::ceil(cumulativeDistance.back() / instance.maxDis));
-    const int lowerBound = static_cast<int>(std::floor(cumulativeDistance.back() / instance.maxDis));
-    int* chosenPositions = new int[route.size()];
-    int* chosenStations = new int[route.size()];
-    std::vector<int> bestRoute;
-    double bestCost = DBL_MAX;
-    for (int stationCount = lowerBound; stationCount <= upperBound; ++stationCount) {
-        enumerate_stations_and_positions(
-            0,
-            stationCount,
-            chosenStations,
-            chosenPositions,
-            bestRoute,
-            bestCost,
-            stationCount,
-            route,
-            cumulativeDistance,
-            instance);
-    }
-    delete[] chosenPositions;
-    delete[] chosenStations;
-    if (bestCost != DBL_MAX) {
-        return std::make_pair(bestRoute, bestCost);
-    }
-    return std::make_pair(route, -1);
+    return infeasible_repair();
 }
 
 void enumerate_stations_and_positions(
@@ -556,6 +547,11 @@ void Follower::optimize_charging(Individual& individual, Case& instance) {
 
 void Follower::refine_charging_by_enumeration(Individual& individual, Case& instance) {
     individual.invalidate_lower_cost();
+    if (individual.route_num <= 0) {
+        individual.set_lower_cost(INFEASIBLE_COST);
+        return;
+    }
+
     double lowerCost = 0.0;
     std::vector<std::vector<int>> repairedRoutes;
     bool feasible = true;
@@ -565,10 +561,10 @@ void Follower::refine_charging_by_enumeration(Individual& individual, Case& inst
             individual.routes[routeIndex],
             individual.routes[routeIndex] + individual.node_num[routeIndex]);
         auto result = enumerate_all_station_choices(route, instance);
-        if (result.first < 0) {
-            lowerCost += INFEASIBLE_COST;
+        if (!std::isfinite(result.first) || result.first < 0.0) {
+            lowerCost = INFEASIBLE_COST;
             feasible = false;
-            continue;
+            break;
         }
         lowerCost += result.first;
         repairedRoutes.push_back(std::move(result.second));

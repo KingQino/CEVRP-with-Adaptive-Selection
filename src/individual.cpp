@@ -5,6 +5,7 @@
 #include "individual.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
 using namespace std;
 
@@ -28,7 +29,8 @@ Individual::Individual(const Individual& ind) {
         this->demand_sum[i] = ind.demand_sum[i];
         memcpy(this->routes[i], ind.routes[i], sizeof(int) * ind.node_num[i]);
     }
-    this->tour = new int [TOUR_SIZE];
+    this->tour_capacity = std::max(TOUR_SIZE, ind.steps);
+    this->tour = new int[this->tour_capacity];
     this->steps = ind.steps;
     if (this->steps > 0) {
         memcpy(this->tour, ind.tour, sizeof(int) * this->steps);
@@ -48,7 +50,8 @@ Individual::Individual(int route_cap, int node_cap) {
     this->upper_cost = 0.0;
     this->lower_cost = std::numeric_limits<double>::infinity();
     this->upper_locally_optimal = false;
-    this->tour = new int[TOUR_SIZE];
+    this->tour_capacity = TOUR_SIZE;
+    this->tour = new int[this->tour_capacity];
     this->steps = 0;
 }
 
@@ -85,7 +88,6 @@ void Individual::reset() {
     this->lower_cost = std::numeric_limits<double>::infinity();
     this->upper_locally_optimal = false;
     this->route_num = 0;
-    memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
 }
 
@@ -147,7 +149,6 @@ void Individual::set_upper_locally_optimal(bool locally_optimal) {
 
 void Individual::invalidate_lower_cost() {
     this->lower_cost = std::numeric_limits<double>::infinity();
-    memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
 }
 
@@ -167,14 +168,40 @@ pair<int*, int> Individual::get_tour() {
 }
 
 void Individual::set_tour(const vector<vector<int>>& repaired_routes) {
+    std::size_t requiredCapacity = 1;
+    for (const auto& route : repaired_routes) {
+        if (!route.empty()) {
+            requiredCapacity += route.size() - 1;
+        }
+    }
+    if (requiredCapacity > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::length_error("repaired tour is too large");
+    }
+    ensure_tour_capacity(static_cast<int>(requiredCapacity));
+
     int index = 0;
     for (const auto& route : repaired_routes) {
-        for (size_t i = 0; i < route.size() - 1; ++i) {
+        for (size_t i = 0; i + 1 < route.size(); ++i) {
             this->tour[index++] = route[i];
         }
     }
     this->tour[index++] = 0; // DEPOT
     this->steps = index;
+}
+
+void Individual::ensure_tour_capacity(int required_capacity) {
+    if (required_capacity <= this->tour_capacity) {
+        return;
+    }
+
+    const int newCapacity = std::max(required_capacity, this->tour_capacity * 2);
+    int* expandedTour = new int[newCapacity];
+    if (this->steps > 0) {
+        memcpy(expandedTour, this->tour, sizeof(int) * this->steps);
+    }
+    delete[] this->tour;
+    this->tour = expandedTour;
+    this->tour_capacity = newCapacity;
 }
 
 
