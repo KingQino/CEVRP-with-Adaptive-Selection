@@ -14,6 +14,15 @@ struct ParentCandidate {
     std::vector<std::uint64_t> adjacencySignature;
 };
 
+struct ReproductionWorkspace {
+    std::vector<int> firstChild;
+    std::vector<int> secondChild;
+    std::vector<int> firstMapping;
+    std::vector<int> secondMapping;
+    std::vector<std::size_t> candidateIndices;
+    std::vector<std::size_t> mateIndices;
+};
+
 class Reproduction {
 public:
     static std::shared_ptr<Individual> best_by_upper_cost(
@@ -37,6 +46,11 @@ public:
         std::vector<int>& firstParent,
         std::vector<int>& secondParent,
         std::mt19937& randomEngine);
+    static void partially_matched_crossover(
+        std::vector<int>& firstParent,
+        std::vector<int>& secondParent,
+        std::mt19937& randomEngine,
+        ReproductionWorkspace& workspace);
     static void mutate_by_index_shuffle(
         std::vector<int>& chromosome,
         double mutationProbability,
@@ -55,6 +69,20 @@ public:
         double pureImmigrantRatio,
         std::mt19937& randomEngine,
         std::uniform_real_distribution<double>& probabilityDistribution);
+    static std::vector<std::vector<int>> create_offspring(
+        const std::vector<ParentCandidate>& parentPool,
+        const Individual* verifiedBest,
+        bool hasVerifiedBest,
+        const std::vector<int>& customers,
+        int offspringCount,
+        int tournamentSize,
+        double mutationProbability,
+        double geneMutationProbability,
+        double verifiedUpperRatio,
+        double pureImmigrantRatio,
+        std::mt19937& randomEngine,
+        std::uniform_real_distribution<double>& probabilityDistribution,
+        ReproductionWorkspace& workspace);
 };
 
 #endif

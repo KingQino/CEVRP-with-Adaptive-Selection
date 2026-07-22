@@ -81,6 +81,7 @@ MA::MA(Case* instance, const Parameters& parameters) {
 MA::~MA() {
     verifiedBest.reset();
     population.clear();
+    populationBuffer.clear();
 }
 
 void MA::run() {
@@ -113,7 +114,11 @@ void MA::run() {
         const shared_ptr<Individual> bestUpperCandidate =
             Reproduction::best_by_upper_cost(population);
         if (bestUpperCandidate != nullptr) {
-            verifiedBest = make_unique<Individual>(*bestUpperCandidate);
+            if (verifiedBest == nullptr) {
+                verifiedBest = make_unique<Individual>(*bestUpperCandidate);
+            } else {
+                verifiedBest->copy_from(*bestUpperCandidate);
+            }
         }
     }
 
@@ -246,6 +251,10 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     retainedLowerElite.reset();
+    population.clear();
+    populationBuffer.clear();
+    population.reserve(static_cast<size_t>(popSize));
+    populationBuffer.reserve(static_cast<size_t>(popSize));
     initialize_population_with_clustering();
     std::vector<std::vector<int>> emptyVector2D;
     std::vector<int> emptyVector1D;
@@ -265,7 +274,7 @@ void MA::initialize_search() {
 void MA::run_generation() {
     generation++;
 
-    const shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
+    shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     vector<LocalSearchLogRecord> localSearchRecords;
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     ParentCandidate localSearchBestReference;
@@ -287,7 +296,8 @@ void MA::run_generation() {
                     *individual,
                     *instance,
                     localSearchEngine,
-                    localSearchIntensity);
+                    localSearchIntensity,
+                    localSearchWorkspace);
             }
             return;
         }
@@ -315,7 +325,8 @@ void MA::run_generation() {
                 *individual,
                 *instance,
                 localSearchEngine,
-                localSearchIntensity);
+                localSearchIntensity,
+                localSearchWorkspace);
         }
         const ParentCandidate afterCandidate =
             Reproduction::make_parent_candidate(*individual);
@@ -377,7 +388,10 @@ void MA::run_generation() {
         const bool canReuseLowerElite = individual == unchangedLowerElite
             && individual->get_lower_cost() < INFEASIBLE_COST;
         if (!canReuseLowerElite) {
-            Follower::optimize_charging(*individual, *instance);
+            Follower::optimize_charging(
+                *individual,
+                *instance,
+                followerWorkspace);
             if (enableLogging) {
                 followerEvaluatedSolutions.push_back(individual);
             }
@@ -398,7 +412,7 @@ void MA::run_generation() {
         const shared_ptr<Individual> bestEvaluatedComplete =
             Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
         if (bestEvaluatedComplete->get_lower_cost() < INFEASIBLE_COST) {
-            lowerElite = make_shared<Individual>(*bestEvaluatedComplete);
+            lowerElite = bestEvaluatedComplete;
         }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
             if (enableLogging && verifiedLowerCostBefore < INFEASIBLE_COST) {
@@ -410,12 +424,11 @@ void MA::run_generation() {
                     }
                 }
             }
-            verifiedBest = make_unique<Individual>(*bestEvaluatedComplete);
+            verifiedBest->copy_from(*bestEvaluatedComplete);
         }
     }
-    if (lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST) {
-        lowerElite = make_shared<Individual>(*verifiedBest);
-    }
+    const bool retainVerifiedFallback =
+        lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
 
     if (enableLogging) {
         for (const auto& record : localSearchRecords) {
@@ -438,7 +451,8 @@ void MA::run_generation() {
     }
 
 
-    const int offspringTarget = popSize - (lowerElite == nullptr ? 0 : 1);
+    const bool hasLowerElite = lowerElite != nullptr || retainVerifiedFallback;
+    const int offspringTarget = popSize - (hasLowerElite ? 1 : 0);
     const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
     vector<vector<int>> chromosomes = Reproduction::create_offspring(
         parentPool,
@@ -452,36 +466,82 @@ void MA::run_generation() {
         verifiedUpperRatio,
         pureImmigrantRatio,
         randomEngine,
-        uniformRealDis);
+        uniformRealDis,
+        reproductionWorkspace);
 
-    // Release the old population vector capacity before rebuilding it.
+    // All information needed from the old population is now materialized.
     evaluatedCompleteSolutions.clear();
     followerEvaluatedSolutions.clear();
     followerCandidates.clear();
-    retainedLowerElite = lowerElite;
-    population.clear();
-    population.shrink_to_fit();
+    rankedUpperSolutions.clear();
+    localSearchRecords.clear();
+    bestUpperCandidate.reset();
+    generationBestUpper.reset();
+    unchangedLowerElite.reset();
+    retainedLowerElite.reset();
 
-
-    // update population
-    population.reserve(static_cast<size_t>(popSize));
+    populationBuffer.clear();
+    size_t lowerEliteIndex = population.size();
     if (lowerElite != nullptr) {
-        population.push_back(std::move(lowerElite));
+        const auto lowerElitePosition = std::find(
+            population.begin(),
+            population.end(),
+            lowerElite);
+        if (lowerElitePosition == population.end()) {
+            throw std::logic_error("lower elite is not part of the current population");
+        }
+        lowerEliteIndex = static_cast<size_t>(
+            std::distance(population.begin(), lowerElitePosition));
+        populationBuffer.push_back(lowerElite);
     }
-    for (const auto& chromosome : chromosomes) {
-        vector<int> giantTour = {instance->depot};
-        giantTour.insert(giantTour.end(), chromosome.begin(), chromosome.end());
 
-        vector<vector<int>> offspringRoutes = Initializer::split_giant_tour(giantTour, *instance);
+    size_t reusableIndex = 0;
+    auto takeReusableIndividual = [&]() -> shared_ptr<Individual> {
+        while (reusableIndex < population.size()
+               && reusableIndex == lowerEliteIndex) {
+            ++reusableIndex;
+        }
+        if (reusableIndex >= population.size()) {
+            throw std::logic_error("population reuse pool was exhausted");
+        }
+        return population[reusableIndex++];
+    };
+
+    if (retainVerifiedFallback) {
+        lowerElite = takeReusableIndividual();
+        lowerElite->copy_from(*verifiedBest);
+        populationBuffer.push_back(lowerElite);
+    }
+
+    for (const auto& chromosome : chromosomes) {
+        splitWorkspace.giantTour.clear();
+        splitWorkspace.giantTour.push_back(instance->depot);
+        splitWorkspace.giantTour.insert(
+            splitWorkspace.giantTour.end(),
+            chromosome.begin(),
+            chromosome.end());
+
+        vector<vector<int>> offspringRoutes = Initializer::split_giant_tour(
+            splitWorkspace.giantTour,
+            *instance,
+            splitWorkspace);
 
         for (auto& route : offspringRoutes) {
             route.insert(route.begin(), instance->depot);
             route.push_back(instance->depot);
         }
 
-        population.push_back(make_shared<Individual>(routeCapacity, nodeCapacity, offspringRoutes,
-                                                     instance->fitness_evaluation(offspringRoutes),
-                                                     instance->compute_demand_sum(offspringRoutes))
-                                                     );
+        shared_ptr<Individual> offspring = takeReusableIndividual();
+        const double upperCost = instance->fitness_evaluation(offspringRoutes);
+        const vector<int> demandSums = instance->compute_demand_sum(offspringRoutes);
+        offspring->load_upper_solution(offspringRoutes, upperCost, demandSums);
+        populationBuffer.push_back(std::move(offspring));
     }
+
+    if (populationBuffer.size() != static_cast<size_t>(popSize)) {
+        throw std::logic_error("rebuilt population has an unexpected size");
+    }
+    retainedLowerElite = lowerElite;
+    population.clear();
+    population.swap(populationBuffer);
 }

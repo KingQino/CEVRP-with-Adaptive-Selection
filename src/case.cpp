@@ -184,6 +184,9 @@ void Case::read_problem(const string& filepath) {
     stationNodes.erase(unique(stationNodes.begin(), stationNodes.end()), stationNodes.end());
 
     this->actualProblemSize = maxNodeId + 1;
+    this->evalIncrement = actualProblemSize > 0
+        ? 1.0 / static_cast<double>(actualProblemSize)
+        : 0.0;
     this->positions.assign(actualProblemSize, make_pair(0.0, 0.0));
     this->demand.assign(actualProblemSize, 0);
     this->depot = depotNodes.front();

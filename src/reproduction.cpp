@@ -210,6 +210,19 @@ void Reproduction::partially_matched_crossover(
     std::vector<int>& firstParent,
     std::vector<int>& secondParent,
     std::mt19937& randomEngine) {
+    ReproductionWorkspace workspace;
+    partially_matched_crossover(
+        firstParent,
+        secondParent,
+        randomEngine,
+        workspace);
+}
+
+void Reproduction::partially_matched_crossover(
+    std::vector<int>& firstParent,
+    std::vector<int>& secondParent,
+    std::mt19937& randomEngine,
+    ReproductionWorkspace& workspace) {
     const int chromosomeSize = static_cast<int>(firstParent.size());
     std::uniform_int_distribution<> distribution(0, chromosomeSize - 1);
 
@@ -219,8 +232,10 @@ void Reproduction::partially_matched_crossover(
         std::swap(firstCut, secondCut);
     }
 
-    std::vector<int> firstChild;
-    std::vector<int> secondChild;
+    auto& firstChild = workspace.firstChild;
+    auto& secondChild = workspace.secondChild;
+    firstChild.clear();
+    secondChild.clear();
     firstChild.reserve(chromosomeSize);
     secondChild.reserve(chromosomeSize);
     firstChild.insert(
@@ -235,8 +250,10 @@ void Reproduction::partially_matched_crossover(
     const int maxGene = std::max(
         *std::max_element(firstParent.begin(), firstParent.end()),
         *std::max_element(secondParent.begin(), secondParent.end()));
-    std::vector<int> firstMapping(static_cast<std::size_t>(maxGene + 1), -1);
-    std::vector<int> secondMapping(static_cast<std::size_t>(maxGene + 1), -1);
+    workspace.firstMapping.assign(static_cast<std::size_t>(maxGene + 1), -1);
+    workspace.secondMapping.assign(static_cast<std::size_t>(maxGene + 1), -1);
+    auto& firstMapping = workspace.firstMapping;
+    auto& secondMapping = workspace.secondMapping;
     for (int i = 0; i < secondCut - firstCut; ++i) {
         firstMapping[secondChild[i]] = firstChild[i];
         secondMapping[firstChild[i]] = secondChild[i];
@@ -258,8 +275,8 @@ void Reproduction::partially_matched_crossover(
         }
     }
 
-    firstParent = firstChild;
-    secondParent = secondChild;
+    firstParent.swap(firstChild);
+    secondParent.swap(secondChild);
 }
 
 void Reproduction::mutate_by_index_shuffle(
@@ -294,6 +311,37 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     double pureImmigrantRatio,
     std::mt19937& randomEngine,
     std::uniform_real_distribution<double>& probabilityDistribution) {
+    ReproductionWorkspace workspace;
+    return create_offspring(
+        parentPool,
+        verifiedBest,
+        hasVerifiedBest,
+        customers,
+        offspringCount,
+        tournamentSize,
+        mutationProbability,
+        geneMutationProbability,
+        verifiedUpperRatio,
+        pureImmigrantRatio,
+        randomEngine,
+        probabilityDistribution,
+        workspace);
+}
+
+std::vector<std::vector<int>> Reproduction::create_offspring(
+    const std::vector<ParentCandidate>& parentPool,
+    const Individual* verifiedBest,
+    bool hasVerifiedBest,
+    const std::vector<int>& customers,
+    int offspringCount,
+    int tournamentSize,
+    double mutationProbability,
+    double geneMutationProbability,
+    double verifiedUpperRatio,
+    double pureImmigrantRatio,
+    std::mt19937& randomEngine,
+    std::uniform_real_distribution<double>& probabilityDistribution,
+    ReproductionWorkspace& workspace) {
     std::vector<std::vector<int>> offspring;
     offspring.reserve(static_cast<std::size_t>(offspringCount));
 
@@ -332,7 +380,8 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
             return anchorIndex;
         }
 
-        std::vector<std::size_t> candidateIndices;
+        auto& candidateIndices = workspace.candidateIndices;
+        candidateIndices.clear();
         candidateIndices.reserve(parentPool.size() - 1);
         for (std::size_t i = 0; i < parentPool.size(); ++i) {
             if (i != anchorIndex) {
@@ -369,7 +418,11 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
             const std::size_t secondParentIndex = selectDiverseMateIndex(firstParentIndex);
             secondChild = parentPool[secondParentIndex].chromosome;
         }
-        partially_matched_crossover(firstChild, secondChild, randomEngine);
+        partially_matched_crossover(
+            firstChild,
+            secondChild,
+            randomEngine,
+            workspace);
         appendChild(firstChild, upperParentOffspringCount);
         appendChild(secondChild, upperParentOffspringCount);
     }
@@ -377,7 +430,8 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     const int verifiedPhaseTarget = upperParentOffspringCount + verifiedUpperCount;
     if (hasVerifiedBest) {
         const std::vector<int> verifiedChromosome = verifiedBest->get_chromosome();
-        std::vector<std::size_t> mateIndices;
+        auto& mateIndices = workspace.mateIndices;
+        mateIndices.clear();
         mateIndices.reserve(parentPool.size());
         for (std::size_t i = 0; i < parentPool.size(); ++i) {
             if (parentPool[i].chromosome != verifiedChromosome) {
@@ -396,7 +450,11 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
             std::vector<int> firstChild = verifiedChromosome;
             std::vector<int> secondChild = parentPool[
                 mateIndices[selectMate(randomEngine)]].chromosome;
-            partially_matched_crossover(firstChild, secondChild, randomEngine);
+            partially_matched_crossover(
+                firstChild,
+                secondChild,
+                randomEngine,
+                workspace);
             appendChild(firstChild, verifiedPhaseTarget);
             appendChild(secondChild, verifiedPhaseTarget);
         }

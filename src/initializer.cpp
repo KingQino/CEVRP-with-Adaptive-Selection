@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
-#include <cstring>
 #include <numeric>
 
 #include "case.hpp"
@@ -103,14 +102,20 @@ void balance_last_route(
 std::vector<std::vector<int>> Initializer::split_giant_tour(
     const std::vector<int>& giantTour,
     Case& instance) {
+    SplitWorkspace workspace;
+    return split_giant_tour(giantTour, instance, workspace);
+}
+
+std::vector<std::vector<int>> Initializer::split_giant_tour(
+    const std::vector<int>& giantTour,
+    Case& instance,
+    SplitWorkspace& workspace) {
     const int arrayLength = instance.customerNumber + 1;
-    auto* predecessors = new int[arrayLength];
-    auto* costs = new double[arrayLength];
-    std::memset(predecessors, 0, sizeof(int) * arrayLength);
-    costs[0] = 0;
-    for (int i = 1; i < arrayLength; ++i) {
-        costs[i] = DBL_MAX;
-    }
+    workspace.predecessors.assign(static_cast<std::size_t>(arrayLength), 0);
+    workspace.costs.assign(static_cast<std::size_t>(arrayLength), DBL_MAX);
+    workspace.costs[0] = 0.0;
+    auto& predecessors = workspace.predecessors;
+    auto& costs = workspace.costs;
 
     for (int i = 1; i < static_cast<int>(giantTour.size()); ++i) {
         int load = 0;
@@ -147,19 +152,28 @@ std::vector<std::vector<int>> Initializer::split_giant_tour(
         }
     }
 
-    delete[] predecessors;
-    delete[] costs;
     return routes;
 }
 
 std::vector<std::vector<int>> Initializer::build_with_random_split(
     Case& instance,
     std::mt19937& randomEngine) {
-    std::vector<int> giantTour(instance.customers);
-    std::shuffle(giantTour.begin(), giantTour.end(), randomEngine);
-    giantTour.insert(giantTour.begin(), instance.depot);
+    SplitWorkspace workspace;
+    return build_with_random_split(instance, randomEngine, workspace);
+}
 
-    std::vector<std::vector<int>> routes = split_giant_tour(giantTour, instance);
+std::vector<std::vector<int>> Initializer::build_with_random_split(
+    Case& instance,
+    std::mt19937& randomEngine,
+    SplitWorkspace& workspace) {
+    workspace.giantTour.assign(instance.customers.begin(), instance.customers.end());
+    std::shuffle(workspace.giantTour.begin(), workspace.giantTour.end(), randomEngine);
+    workspace.giantTour.insert(workspace.giantTour.begin(), instance.depot);
+
+    std::vector<std::vector<int>> routes = split_giant_tour(
+        workspace.giantTour,
+        instance,
+        workspace);
     for (auto& route : routes) {
         route.insert(route.begin(), instance.depot);
         route.push_back(instance.depot);

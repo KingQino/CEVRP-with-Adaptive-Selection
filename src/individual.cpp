@@ -11,30 +11,9 @@ using namespace std;
 
 const int Individual::TOUR_SIZE = 1500;
 
-Individual::Individual(const Individual& ind) {
-    this->route_cap = ind.route_cap;
-    this->node_cap = ind.node_cap;
-    this->route_num = ind.route_num;
-    this->upper_cost = ind.upper_cost;
-    this->lower_cost = ind.lower_cost;
-    this->upper_locally_optimal = ind.upper_locally_optimal;
-    this->routes = new int *[ind.route_cap];
-    for (int i = 0; i < ind.route_cap; ++i) {
-        this->routes[i] = new int[ind.node_cap];
-    }
-    this->node_num = new int[ind.route_cap]();
-    this->demand_sum = new int[ind.route_cap]();
-    for (int i = 0; i < ind.route_num; ++i) {
-        this->node_num[i] = ind.node_num[i];
-        this->demand_sum[i] = ind.demand_sum[i];
-        memcpy(this->routes[i], ind.routes[i], sizeof(int) * ind.node_num[i]);
-    }
-    this->tour_capacity = std::max(TOUR_SIZE, ind.steps);
-    this->tour = new int[this->tour_capacity];
-    this->steps = ind.steps;
-    if (this->steps > 0) {
-        memcpy(this->tour, ind.tour, sizeof(int) * this->steps);
-    }
+Individual::Individual(const Individual& ind)
+    : Individual(ind.route_cap, ind.node_cap) {
+    copy_from(ind);
 }
 
 Individual::Individual(int route_cap, int node_cap) {
@@ -57,17 +36,7 @@ Individual::Individual(int route_cap, int node_cap) {
 
 Individual::Individual(int route_cap, int node_cap, const vector<vector<int>>& _routes, double upper_cost, const vector<int>& demand_sum)
 :Individual(route_cap, node_cap) {
-    this->upper_cost = upper_cost;
-    this->route_num = _routes.size();
-    for (int i = 0; i < this->route_num; ++i) {
-        this->node_num[i] = _routes[i].size();
-        for (int j = 0; j < this->node_num[i]; ++j) {
-            this->routes[i][j] = _routes[i][j];
-        }
-    }
-    for (size_t i = 0; i < demand_sum.size(); ++i) {
-        this->demand_sum[i] = demand_sum[i];
-    }
+    load_upper_solution(_routes, upper_cost, demand_sum);
 }
 
 Individual::~Individual() {
@@ -150,6 +119,68 @@ void Individual::set_upper_locally_optimal(bool locally_optimal) {
 void Individual::invalidate_lower_cost() {
     this->lower_cost = std::numeric_limits<double>::infinity();
     this->steps = 0;
+}
+
+void Individual::load_upper_solution(
+    const vector<vector<int>>& new_routes,
+    double cost,
+    const vector<int>& route_demand_sum) {
+    if (new_routes.size() > static_cast<size_t>(route_cap)) {
+        throw std::length_error("upper solution exceeds route capacity");
+    }
+    if (route_demand_sum.size() != new_routes.size()) {
+        throw std::invalid_argument("route demand count does not match route count");
+    }
+    for (const auto& route : new_routes) {
+        if (route.size() > static_cast<size_t>(node_cap)) {
+            throw std::length_error("upper route exceeds node capacity");
+        }
+    }
+
+    reset();
+    upper_cost = cost;
+    route_num = static_cast<int>(new_routes.size());
+    for (int routeIndex = 0; routeIndex < route_num; ++routeIndex) {
+        node_num[routeIndex] = static_cast<int>(new_routes[routeIndex].size());
+        demand_sum[routeIndex] = route_demand_sum[routeIndex];
+        if (node_num[routeIndex] > 0) {
+            memcpy(
+                routes[routeIndex],
+                new_routes[routeIndex].data(),
+                sizeof(int) * node_num[routeIndex]);
+        }
+    }
+}
+
+void Individual::copy_from(const Individual& other) {
+    if (this == &other) {
+        return;
+    }
+    if (route_cap != other.route_cap || node_cap != other.node_cap) {
+        throw std::invalid_argument("individual capacities do not match");
+    }
+
+    reset();
+    route_num = other.route_num;
+    upper_cost = other.upper_cost;
+    lower_cost = other.lower_cost;
+    upper_locally_optimal = other.upper_locally_optimal;
+    for (int routeIndex = 0; routeIndex < route_num; ++routeIndex) {
+        node_num[routeIndex] = other.node_num[routeIndex];
+        demand_sum[routeIndex] = other.demand_sum[routeIndex];
+        if (node_num[routeIndex] > 0) {
+            memcpy(
+                routes[routeIndex],
+                other.routes[routeIndex],
+                sizeof(int) * node_num[routeIndex]);
+        }
+    }
+
+    ensure_tour_capacity(other.steps);
+    steps = other.steps;
+    if (steps > 0) {
+        memcpy(tour, other.tour, sizeof(int) * steps);
+    }
 }
 
 void Individual::set_routes(const vector<vector<int>>& _routes) {

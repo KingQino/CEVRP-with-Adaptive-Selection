@@ -34,6 +34,15 @@ bool is_valid_upper_route(const std::vector<int>& route, const Case& instance) {
 RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instance);
 RouteRepair insert_then_remove_redundant_stations(int* route, int length, Case& instance);
 RouteRepair enumerate_all_station_choices(std::vector<int>& route, Case& instance);
+double evaluate_best_station_per_edge_cost(
+    const int* route,
+    int length,
+    Case& instance,
+    FollowerWorkspace& workspace);
+double evaluate_remove_redundant_stations_cost(
+    const int* route,
+    int length,
+    Case& instance);
 
 void enumerate_station_positions(
     int minimumPosition,
@@ -42,9 +51,9 @@ void enumerate_station_positions(
     int* bestChosenPositions,
     double& bestCost,
     int stationCount,
-    int* route,
+    const int* route,
     int length,
-    std::vector<double>& cumulativeDistance,
+    const std::vector<double>& cumulativeDistance,
     Case& instance);
 
 void enumerate_stations_and_positions(
@@ -123,6 +132,52 @@ RouteRepair enumerate_best_station_per_edge(int* route, int length, Case& instan
         return std::make_pair(bestCostForCount, repairedRoute);
     }
     return std::make_pair(-1, repairedRoute);
+}
+
+double evaluate_best_station_per_edge_cost(
+    const int* route,
+    int length,
+    Case& instance,
+    FollowerWorkspace& workspace) {
+    if (route == nullptr || length < 2
+        || !std::isfinite(instance.maxDis) || instance.maxDis <= 0.0) {
+        return -1.0;
+    }
+
+    workspace.cumulativeDistance.resize(static_cast<std::size_t>(length));
+    auto& cumulativeDistance = workspace.cumulativeDistance;
+    cumulativeDistance[0] = 0.0;
+    for (int i = 1; i < length; ++i) {
+        cumulativeDistance[i] = cumulativeDistance[i - 1]
+            + instance.get_distance(route[i], route[i - 1]);
+    }
+    if (cumulativeDistance.back() <= instance.maxDis) {
+        return cumulativeDistance.back();
+    }
+    if (!std::isfinite(cumulativeDistance.back()) || instance.stationNumber <= 0) {
+        return -1.0;
+    }
+
+    const int upperBound = static_cast<int>(
+        cumulativeDistance.back() / instance.maxDis + 1);
+    const int lowerBound = static_cast<int>(
+        cumulativeDistance.back() / instance.maxDis);
+    workspace.chosenPositions.resize(static_cast<std::size_t>(length));
+    double bestCost = DBL_MAX;
+    for (int stationCount = lowerBound; stationCount <= upperBound; ++stationCount) {
+        enumerate_station_positions(
+            0,
+            stationCount,
+            workspace.chosenPositions.data(),
+            nullptr,
+            bestCost,
+            stationCount,
+            route,
+            length,
+            cumulativeDistance,
+            instance);
+    }
+    return bestCost == DBL_MAX ? -1.0 : bestCost;
 }
 
 RouteRepair insert_then_remove_redundant_stations(int* route, int length, Case& instance) {
@@ -257,6 +312,135 @@ RouteRepair insert_then_remove_redundant_stations(int* route, int length, Case& 
     return std::make_pair(routeCost, repairedRoute);
 }
 
+double evaluate_remove_redundant_stations_cost(
+    const int* route,
+    int length,
+    Case& instance) {
+    if (route == nullptr || length < 2
+        || !std::isfinite(instance.maxDis) || instance.maxDis <= 0.0) {
+        return -1.0;
+    }
+
+    std::list<std::pair<int, int>> insertedStations;
+    for (int i = 0; i < length - 1; ++i) {
+        double availableRange = instance.maxDis;
+        if (i != 0) {
+            availableRange -= instance.get_distance(
+                insertedStations.back().second,
+                route[i]);
+        }
+        const int station = instance.find_best_station_feasible(
+            route[i],
+            route[i + 1],
+            availableRange);
+        if (station == -1) {
+            return -1.0;
+        }
+        insertedStations.push_back(std::make_pair(i, station));
+    }
+
+    while (!insertedStations.empty()) {
+        bool changed = false;
+        auto stationToRemove = insertedStations.begin();
+        double savedDistance = 0;
+        auto stationIt = insertedStations.begin();
+        auto nextStationIt = stationIt;
+        ++nextStationIt;
+
+        if (nextStationIt != insertedStations.end()) {
+            const int endIndex = nextStationIt->first;
+            const int endStation = nextStationIt->second;
+            double segmentDistance = 0;
+            for (int i = 0; i < endIndex; ++i) {
+                segmentDistance += instance.get_distance(route[i], route[i + 1]);
+            }
+            segmentDistance += instance.get_distance(route[endIndex], endStation);
+            if (segmentDistance <= instance.maxDis) {
+                savedDistance = instance.get_distance(route[stationIt->first], stationIt->second)
+                    + instance.get_distance(stationIt->second, route[stationIt->first + 1])
+                    - instance.get_distance(route[stationIt->first], route[stationIt->first + 1]);
+            }
+        } else {
+            double segmentDistance = 0;
+            for (int i = 0; i < length - 1; ++i) {
+                segmentDistance += instance.get_distance(route[i], route[i + 1]);
+            }
+            if (segmentDistance <= instance.maxDis) {
+                savedDistance = instance.get_distance(route[stationIt->first], stationIt->second)
+                    + instance.get_distance(stationIt->second, route[stationIt->first + 1])
+                    - instance.get_distance(route[stationIt->first], route[stationIt->first + 1]);
+            }
+        }
+
+        ++stationIt;
+        while (stationIt != insertedStations.end()) {
+            nextStationIt = stationIt;
+            ++nextStationIt;
+            auto previousStationIt = stationIt;
+            --previousStationIt;
+            double segmentDistance = 0;
+
+            if (nextStationIt != insertedStations.end()) {
+                const int startIndex = previousStationIt->first + 1;
+                const int endIndex = nextStationIt->first;
+                segmentDistance += instance.get_distance(previousStationIt->second, route[startIndex]);
+                for (int i = startIndex; i < endIndex; ++i) {
+                    segmentDistance += instance.get_distance(route[i], route[i + 1]);
+                }
+                segmentDistance += instance.get_distance(route[endIndex], nextStationIt->second);
+                if (segmentDistance <= instance.maxDis) {
+                    const double candidateSaving =
+                        instance.get_distance(route[stationIt->first], stationIt->second)
+                        + instance.get_distance(stationIt->second, route[stationIt->first + 1])
+                        - instance.get_distance(route[stationIt->first], route[stationIt->first + 1]);
+                    if (candidateSaving > savedDistance) {
+                        savedDistance = candidateSaving;
+                        stationToRemove = stationIt;
+                    }
+                }
+            } else {
+                const int startIndex = previousStationIt->first + 1;
+                segmentDistance += instance.get_distance(previousStationIt->second, route[startIndex]);
+                for (int i = startIndex; i < length - 1; ++i) {
+                    segmentDistance += instance.get_distance(route[i], route[i + 1]);
+                }
+                if (segmentDistance <= instance.maxDis) {
+                    const double candidateSaving =
+                        instance.get_distance(route[stationIt->first], stationIt->second)
+                        + instance.get_distance(stationIt->second, route[stationIt->first + 1])
+                        - instance.get_distance(route[stationIt->first], route[stationIt->first + 1]);
+                    if (candidateSaving > savedDistance) {
+                        savedDistance = candidateSaving;
+                        stationToRemove = stationIt;
+                    }
+                }
+            }
+            ++stationIt;
+        }
+
+        if (savedDistance != 0) {
+            insertedStations.erase(stationToRemove);
+            changed = true;
+        }
+        if (!changed) {
+            break;
+        }
+    }
+
+    double routeCost = 0.0;
+    for (int i = 0; i < length - 1; ++i) {
+        routeCost += instance.get_distance(route[i], route[i + 1]);
+    }
+    for (const auto& insertedStation : insertedStations) {
+        const int position = insertedStation.first;
+        const int station = insertedStation.second;
+        routeCost -= instance.get_distance(route[position], route[position + 1]);
+        routeCost += instance.get_distance(route[position], station);
+        routeCost += instance.get_distance(station, route[position + 1]);
+    }
+    return routeCost;
+}
+
 void enumerate_station_positions(
     int minimumPosition,
     int remainingPositions,
@@ -264,9 +448,9 @@ void enumerate_station_positions(
     int* bestChosenPositions,
     double& bestCost,
     int stationCount,
-    int* route,
+    const int* route,
     int length,
-    std::vector<double>& cumulativeDistance,
+    const std::vector<double>& cumulativeDistance,
     Case& instance) {
     for (int i = minimumPosition; i <= length - 1 - remainingPositions; ++i) {
         if (stationCount == remainingPositions) {
@@ -322,8 +506,10 @@ void enumerate_station_positions(
             }
             if (routeCost < bestCost) {
                 bestCost = routeCost;
-                for (int j = 0; j < length; ++j) {
-                    bestChosenPositions[j] = chosenPositions[j];
+                if (bestChosenPositions != nullptr) {
+                    for (int j = 0; j < length; ++j) {
+                        bestChosenPositions[j] = chosenPositions[j];
+                    }
                 }
             }
         }
@@ -511,38 +697,39 @@ void enumerate_stations_and_positions(
 }  // namespace
 
 void Follower::optimize_charging(Individual& individual, Case& instance) {
+    FollowerWorkspace workspace;
+    optimize_charging(individual, instance, workspace);
+}
+
+void Follower::optimize_charging(
+    Individual& individual,
+    Case& instance,
+    FollowerWorkspace& workspace) {
     individual.invalidate_lower_cost();
     double lowerCost = 0.0;
-    std::vector<std::vector<int>> repairedRoutes;
-    bool feasible = true;
 
     for (int routeIndex = 0; routeIndex < individual.route_num; ++routeIndex) {
-        auto result = enumerate_best_station_per_edge(
+        double routeCost = evaluate_best_station_per_edge_cost(
             individual.routes[routeIndex],
             individual.node_num[routeIndex],
-            instance);
-        if (result.first == -1) {
-            result = insert_then_remove_redundant_stations(
+            instance,
+            workspace);
+        if (routeCost < 0.0) {
+            routeCost = evaluate_remove_redundant_stations_cost(
                 individual.routes[routeIndex],
                 individual.node_num[routeIndex],
                 instance);
-            if (result.first == -1) {
+            if (routeCost < 0.0) {
                 lowerCost += INFEASIBLE_COST;
-                feasible = false;
             } else {
-                lowerCost += result.first;
-                repairedRoutes.push_back(std::move(result.second));
+                lowerCost += routeCost;
             }
         } else {
-            lowerCost += result.first;
-            repairedRoutes.push_back(std::move(result.second));
+            lowerCost += routeCost;
         }
     }
 
     individual.set_lower_cost(lowerCost);
-    if (feasible) {
-        individual.set_tour(repairedRoutes);
-    }
 }
 
 void Follower::refine_charging_by_enumeration(Individual& individual, Case& instance) {

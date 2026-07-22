@@ -33,7 +33,7 @@ public:
     void init_customer_nearest_station_map();
     static double **generate_2D_matrix_double(int n, int m);
     [[nodiscard]] int get_customer_demand(int customer) const;				//returns the customer demand
-    double get_distance(int from, int to);				//returns the distance
+    [[nodiscard]] inline double get_distance(int from, int to);	//returns the distance
     [[nodiscard]] double get_evals() const;									//returns the number of evaluations
     double fitness_evaluation(const std::vector<std::vector<int>>& routes); // customized fitness function
     [[nodiscard]] double fitness_evaluation(const std::vector<int>& route) const; // used for testing TODO: DELETE on Release
@@ -69,7 +69,8 @@ public:
     std::unordered_map<int, std::vector<int>> customerClustersMap; // For Hien's clustering usage only. For each customer, a list of customer nodes from near to far, e.g., {1: [5,3,2,6], 2: [], ...}
     std::unordered_map<int, std::pair<int, double>> customerNearestStationMap; // for each customer, find the nearest station and store the corresponding distance
     std::unordered_set<int> stationSet;
-    double evals;
+    double evals{};
+    double evalIncrement{};
     double maxEvals;
     int maxExecTime; // unit seconds
 };
@@ -80,7 +81,7 @@ inline int Case::get_customer_demand(int customer) const {
 
 inline double Case::get_distance(int from, int to) {
     // Partial distance evaluations are counted against the same budget as before.
-    evals += (1.0 / actualProblemSize);
+    evals += evalIncrement;
     return distances[from][to];
 }
 

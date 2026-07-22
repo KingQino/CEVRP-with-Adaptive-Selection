@@ -2,6 +2,8 @@
 #define LEADER_HPP
 
 #include <random>
+#include <utility>
+#include <vector>
 
 class Case;
 class Individual;
@@ -20,6 +22,11 @@ struct LocalSearchResult {
     double evalsUsed{};
     double relativeUpperImprovement{};
     bool reachedLocalOptimum{};
+};
+
+struct LocalSearchWorkspace {
+    std::vector<int> routeOrder;
+    std::vector<std::pair<int, int>> routePairs;
 };
 
 class Leader {
@@ -46,6 +53,12 @@ public:
         Case& instance,
         std::mt19937& randomEngine,
         LocalSearchIntensity intensity);
+    static LocalSearchResult improve_with_seven_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine,
+        LocalSearchIntensity intensity,
+        LocalSearchWorkspace& workspace);
 };
 
 #endif

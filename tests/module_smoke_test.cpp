@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -221,6 +222,17 @@ int main(int argc, char* argv[]) {
     const std::string instancePath = std::string(TEST_DATA_DIRECTORY) + "/" + instanceName;
     Case instance(instancePath, 1);
     std::mt19937 randomEngine(1);
+    const double evalsBeforeDistanceLookup = instance.get_evals();
+    const double depotSelfDistance = instance.get_distance(
+        instance.depot,
+        instance.depot);
+    assert(std::fabs(depotSelfDistance) <= 1e-12);
+    assert(std::fabs(
+        instance.get_evals() - evalsBeforeDistanceLookup - instance.evalIncrement)
+        <= 1e-12);
+    assert(std::fabs(
+        instance.evalIncrement
+        - 1.0 / static_cast<double>(instance.actualProblemSize)) <= 1e-12);
     assert_inter_route_relocate_removes_empty_route(instance);
     assert_refinement_handles_boundary_cases();
 
@@ -230,6 +242,28 @@ int main(int argc, char* argv[]) {
     assert_routes_cover_customers(clusteredRoutes, instance);
     assert_routes_cover_customers(splitRoutes, instance);
     assert_routes_cover_customers(directRoutes, instance);
+
+    SplitWorkspace splitWorkspace;
+    std::mt19937 firstSplitEngine(23);
+    std::mt19937 secondSplitEngine(23);
+    const auto independentlySplitRoutes = Initializer::build_with_random_split(
+        instance,
+        firstSplitEngine);
+    const auto workspaceSplitRoutes = Initializer::build_with_random_split(
+        instance,
+        secondSplitEngine,
+        splitWorkspace);
+    assert(independentlySplitRoutes == workspaceSplitRoutes);
+    const int* predecessorBuffer = splitWorkspace.predecessors.data();
+    const double* costBuffer = splitWorkspace.costs.data();
+    const int* giantTourBuffer = splitWorkspace.giantTour.data();
+    Initializer::build_with_random_split(
+        instance,
+        secondSplitEngine,
+        splitWorkspace);
+    assert(splitWorkspace.predecessors.data() == predecessorBuffer);
+    assert(splitWorkspace.costs.data() == costBuffer);
+    assert(splitWorkspace.giantTour.data() == giantTourBuffer);
 
     Individual individual(
         instance.vehicleNumber * 3,
@@ -373,19 +407,32 @@ int main(int argc, char* argv[]) {
     const int routesBeforeOneMoveSearch = sevenNeighborhoodOneMove.route_num;
     std::mt19937 firstOneMoveEngine(17);
     std::mt19937 secondOneMoveEngine(17);
+    LocalSearchWorkspace reusedWorkspace;
+    reusedWorkspace.routeOrder.assign(32, -1);
+    reusedWorkspace.routePairs.assign(64, {-1, -1});
     const LocalSearchResult strongSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
-        sevenNeighborhoodOneMove,
-        instance,
-        firstOneMoveEngine,
-        LocalSearchIntensity::Strong);
-    Leader::improve_with_seven_neighborhood_rvnd_one_move(
-        repeatedSevenNeighborhoodOneMove,
-        instance,
-        secondOneMoveEngine);
+            sevenNeighborhoodOneMove,
+            instance,
+            firstOneMoveEngine,
+            LocalSearchIntensity::Strong,
+            reusedWorkspace);
+    const LocalSearchResult repeatedStrongSearchResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            repeatedSevenNeighborhoodOneMove,
+            instance,
+            secondOneMoveEngine,
+            LocalSearchIntensity::Strong);
     assert(strongSearchResult.moveLimit == -1);
     assert(strongSearchResult.reachedLocalOptimum);
     assert(strongSearchResult.neighborhoodCalls >= strongSearchResult.acceptedMoves);
+    assert(strongSearchResult.acceptedMoves
+           == repeatedStrongSearchResult.acceptedMoves);
+    assert(strongSearchResult.neighborhoodCalls
+           == repeatedStrongSearchResult.neighborhoodCalls);
+    assert(std::fabs(
+        strongSearchResult.evalsUsed
+        - repeatedStrongSearchResult.evalsUsed) <= 1e-8);
     assert(sevenNeighborhoodOneMove.get_upper_cost()
            <= upperCostBeforeOneMoveSearch + 1e-8);
     assert(sevenNeighborhoodOneMove.route_num <= routesBeforeOneMoveSearch);
@@ -413,8 +460,33 @@ int main(int argc, char* argv[]) {
            == sevenNeighborhoodOneMove.get_routes());
     assert_individual_is_consistent(exhaustedOneMoveSearch, instance);
 
-    Follower::optimize_charging(sevenNeighborhoodOneMove, instance);
+    Individual repeatedChargingEvaluation(sevenNeighborhoodOneMove);
+    FollowerWorkspace followerWorkspace;
+    const double evalsBeforeFirstChargingEvaluation = instance.get_evals();
+    Follower::optimize_charging(
+        sevenNeighborhoodOneMove,
+        instance,
+        followerWorkspace);
+    const double firstChargingEvals =
+        instance.get_evals() - evalsBeforeFirstChargingEvaluation;
     assert(std::isfinite(sevenNeighborhoodOneMove.get_lower_cost()));
+    assert(sevenNeighborhoodOneMove.get_tour().second == 0);
+    const double* cumulativeDistanceBuffer =
+        followerWorkspace.cumulativeDistance.data();
+    const double evalsBeforeSecondChargingEvaluation = instance.get_evals();
+    Follower::optimize_charging(
+        repeatedChargingEvaluation,
+        instance,
+        followerWorkspace);
+    const double secondChargingEvals =
+        instance.get_evals() - evalsBeforeSecondChargingEvaluation;
+    assert(std::fabs(
+        repeatedChargingEvaluation.get_lower_cost()
+        - sevenNeighborhoodOneMove.get_lower_cost()) <= 1e-8);
+    assert(repeatedChargingEvaluation.get_tour().second == 0);
+    assert(std::fabs(firstChargingEvals - secondChargingEvals) <= 1e-8);
+    assert(followerWorkspace.cumulativeDistance.data()
+           == cumulativeDistanceBuffer);
     if (instance.customerNumber <= 30) {
         Follower::refine_charging_by_enumeration(sevenNeighborhoodOneMove, instance);
         assert(std::isfinite(sevenNeighborhoodOneMove.get_lower_cost()));
@@ -451,6 +523,67 @@ int main(int argc, char* argv[]) {
     assert_is_customer_permutation(firstChild, instance);
     assert_is_customer_permutation(secondChild, instance);
 
+    std::vector<int> firstParent = instance.customers;
+    std::vector<int> secondParent(instance.customers.rbegin(), instance.customers.rend());
+    std::vector<int> workspaceFirstParent = firstParent;
+    std::vector<int> workspaceSecondParent = secondParent;
+    std::mt19937 firstCrossoverEngine(31);
+    std::mt19937 secondCrossoverEngine(31);
+    Reproduction::partially_matched_crossover(
+        firstParent,
+        secondParent,
+        firstCrossoverEngine);
+    ReproductionWorkspace reproductionWorkspace;
+    Reproduction::partially_matched_crossover(
+        workspaceFirstParent,
+        workspaceSecondParent,
+        secondCrossoverEngine,
+        reproductionWorkspace);
+    assert(firstParent == workspaceFirstParent);
+    assert(secondParent == workspaceSecondParent);
+    const int* firstMappingBuffer = reproductionWorkspace.firstMapping.data();
+    workspaceFirstParent.assign(instance.customers.begin(), instance.customers.end());
+    workspaceSecondParent.assign(instance.customers.rbegin(), instance.customers.rend());
+    Reproduction::partially_matched_crossover(
+        workspaceFirstParent,
+        workspaceSecondParent,
+        secondCrossoverEngine,
+        reproductionWorkspace);
+    assert(reproductionWorkspace.firstMapping.data() == firstMappingBuffer);
+
+    std::mt19937 firstOffspringEngine(37);
+    std::mt19937 secondOffspringEngine(37);
+    std::uniform_real_distribution<double> firstProbabilityDistribution(0.0, 1.0);
+    std::uniform_real_distribution<double> secondProbabilityDistribution(0.0, 1.0);
+    const auto independentlyCreatedOffspring = Reproduction::create_offspring(
+        parentPool,
+        rankedSolutions.front().get(),
+        true,
+        instance.customers,
+        10,
+        std::min<int>(2, parentPool.size()),
+        0.5,
+        0.1,
+        0.2,
+        0.2,
+        firstOffspringEngine,
+        firstProbabilityDistribution);
+    const auto workspaceCreatedOffspring = Reproduction::create_offspring(
+        parentPool,
+        rankedSolutions.front().get(),
+        true,
+        instance.customers,
+        10,
+        std::min<int>(2, parentPool.size()),
+        0.5,
+        0.1,
+        0.2,
+        0.2,
+        secondOffspringEngine,
+        secondProbabilityDistribution,
+        reproductionWorkspace);
+    assert(independentlyCreatedOffspring == workspaceCreatedOffspring);
+
     Parameters algorithmParameters;
     algorithmParameters.seed = 1;
     algorithmParameters.stopCriteria = 1;
@@ -462,8 +595,38 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(algorithm.mutationProb - 0.35) <= 1e-12);
     assert(std::fabs(algorithm.mutationIndProb - 0.07) <= 1e-12);
     algorithm.initialize_search();
+    std::set<const Individual*> initialPopulationAddresses;
+    std::vector<std::pair<const Individual*, std::set<int*>>> initialRouteBuffers;
+    for (const auto& individual : algorithm.population) {
+        initialPopulationAddresses.insert(individual.get());
+        std::set<int*> routeBuffers;
+        for (int routeIndex = 0;
+             routeIndex < individual->route_cap;
+             ++routeIndex) {
+            routeBuffers.insert(individual->routes[routeIndex]);
+        }
+        initialRouteBuffers.emplace_back(individual.get(), std::move(routeBuffers));
+    }
+    const Individual* verifiedBestAddress = algorithm.verifiedBest.get();
     algorithm.run_generation();
     assert(algorithm.population.size() == 10);
+    std::set<const Individual*> reusedPopulationAddresses;
+    for (const auto& individual : algorithm.population) {
+        reusedPopulationAddresses.insert(individual.get());
+        const auto originalBuffer = std::find_if(
+            initialRouteBuffers.begin(),
+            initialRouteBuffers.end(),
+            [&](const auto& entry) {
+                return entry.first == individual.get();
+            });
+        assert(originalBuffer != initialRouteBuffers.end());
+        const std::set<int*> currentRouteBuffers(
+            individual->routes,
+            individual->routes + individual->route_cap);
+        assert(originalBuffer->second == currentRouteBuffers);
+    }
+    assert(reusedPopulationAddresses == initialPopulationAddresses);
+    assert(algorithm.verifiedBest.get() == verifiedBestAddress);
     assert(algorithm.verifiedBest != nullptr);
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
     int finiteLowerCostCount = 0;
@@ -516,6 +679,12 @@ int main(int argc, char* argv[]) {
     algorithm.localSearchIntensity = LocalSearchIntensity::Weak;
     algorithm.globalBestUpperCost = 0.0;
     algorithm.run_generation();
+    reusedPopulationAddresses.clear();
+    for (const auto& individual : algorithm.population) {
+        reusedPopulationAddresses.insert(individual.get());
+    }
+    assert(reusedPopulationAddresses == initialPopulationAddresses);
+    assert(algorithm.verifiedBest.get() == verifiedBestAddress);
     assert(std::fabs(
         algorithm.verifiedBest->get_lower_cost() - archivedLowerCost) <= 1e-8);
     finiteLowerCostCount = 0;

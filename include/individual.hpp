@@ -42,6 +42,11 @@ public:
     void set_lower_cost(double cost);
     void set_upper_locally_optimal(bool locally_optimal);
     void invalidate_lower_cost();
+    void load_upper_solution(
+        const std::vector<std::vector<int>>& routes,
+        double cost,
+        const std::vector<int>& route_demand_sum);
+    void copy_from(const Individual& other);
     void set_routes(const std::vector<std::vector<int>>& _routes);
     std::pair<int*, int> get_tour();
     void set_tour(const std::vector<std::vector<int>>& repaired_routes);

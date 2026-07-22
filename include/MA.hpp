@@ -10,8 +10,11 @@
 #include "case.hpp"
 #include "stats.hpp"
 #include "individual.hpp"
+#include "follower.hpp"
+#include "initializer.hpp"
 #include "leader.hpp"
 #include "parameters.hpp"
+#include "reproduction.hpp"
 
 class MA : public StatsInterface{
 public:
@@ -49,8 +52,13 @@ public:
     std::mt19937 localSearchEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
+    std::vector<std::shared_ptr<Individual>> populationBuffer;
     std::unique_ptr<Individual> verifiedBest;
     std::shared_ptr<Individual> retainedLowerElite;
+    FollowerWorkspace followerWorkspace;
+    SplitWorkspace splitWorkspace;
+    ReproductionWorkspace reproductionWorkspace;
+    LocalSearchWorkspace localSearchWorkspace;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;

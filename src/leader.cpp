@@ -840,15 +840,10 @@ bool improve_with_two_opt_star_head_to_tail(
     return improved;
 }
 
-struct OneMoveWorkspace {
-    std::vector<int> routeOrder;
-    std::vector<std::pair<int, int>> routePairs;
-};
-
 const std::vector<int>& shuffled_route_order(
     int routeCount,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     auto& routeOrder = workspace.routeOrder;
     routeOrder.resize(routeCount);
     std::iota(routeOrder.begin(), routeOrder.end(), 0);
@@ -860,7 +855,7 @@ const std::vector<std::pair<int, int>>& shuffled_route_pairs(
     int routeCount,
     bool directed,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     auto& routePairs = workspace.routePairs;
     routePairs.clear();
     const int pairCount = directed
@@ -886,7 +881,7 @@ bool improve_with_node_shift_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
@@ -939,7 +934,7 @@ bool improve_with_inter_route_relocate_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
     }
@@ -1003,7 +998,7 @@ bool improve_with_intra_route_swap_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
@@ -1047,7 +1042,7 @@ bool improve_with_inter_route_swap_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
     }
@@ -1123,7 +1118,7 @@ bool improve_with_two_opt_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
@@ -1159,7 +1154,7 @@ bool improve_with_two_opt_star_head_to_head_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
     }
@@ -1256,7 +1251,7 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     if (individual.route_num <= 1) {
         return false;
     }
@@ -1354,7 +1349,7 @@ bool improve_with_neighborhood_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
-    OneMoveWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
     switch (neighborhood) {
         case Neighborhood::TwoOpt:
             return improve_with_two_opt_one_move(
@@ -1463,7 +1458,8 @@ LocalSearchResult improve_with_rvnd_one_move(
     Case& instance,
     std::mt19937& randomEngine,
     const std::array<Neighborhood, NeighborhoodCount>& neighborhoods,
-    int moveLimit) {
+    int moveLimit,
+    LocalSearchWorkspace& workspace) {
     const double upperCostBefore = individual.get_upper_cost();
     const double evalsBefore = instance.get_evals();
     LocalSearchResult result;
@@ -1475,7 +1471,6 @@ LocalSearchResult improve_with_rvnd_one_move(
     std::vector<Neighborhood> activeNeighborhoods(
         neighborhoods.begin(),
         neighborhoods.end());
-    OneMoveWorkspace workspace;
 
     while (!activeNeighborhoods.empty()) {
         if (moveLimit >= 0 && result.acceptedMoves >= moveLimit) {
@@ -1576,12 +1571,14 @@ void Leader::improve_with_seven_neighborhood_rvnd_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine) {
+    LocalSearchWorkspace workspace;
     improve_with_rvnd_one_move(
         individual,
         instance,
         randomEngine,
         kSevenNeighborhoods,
-        -1);
+        -1,
+        workspace);
 }
 
 LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
@@ -1589,10 +1586,26 @@ LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
     Case& instance,
     std::mt19937& randomEngine,
     LocalSearchIntensity intensity) {
+    LocalSearchWorkspace workspace;
+    return improve_with_seven_neighborhood_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        intensity,
+        workspace);
+}
+
+LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchIntensity intensity,
+    LocalSearchWorkspace& workspace) {
     return improve_with_rvnd_one_move(
         individual,
         instance,
         randomEngine,
         kSevenNeighborhoods,
-        move_limit_for_intensity(individual, instance, intensity));
+        move_limit_for_intensity(individual, instance, intensity),
+        workspace);
 }
