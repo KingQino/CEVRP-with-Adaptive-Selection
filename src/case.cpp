@@ -212,8 +212,11 @@ void Case::read_problem(const string& filepath) {
 
     this->distances = generate_2D_matrix_double(actualProblemSize, actualProblemSize);
     for (int i = 0; i < actualProblemSize; i++) {
-        for (int j = 0; j < actualProblemSize; j++) {
-            distances[i][j] = euclidean_distance(i, j);
+        distances[i][i] = 0.0;
+        for (int j = i + 1; j < actualProblemSize; j++) {
+            const double distance = euclidean_distance(i, j);
+            distances[i][j] = distance;
+            distances[j][i] = distance;
         }
     }
 
@@ -296,29 +299,7 @@ double **Case::generate_2D_matrix_double(int n, int m) {
     for (int i = 0; i < n; i++) {
         matrix[i] = new double[m];
     }
-    //initialize the 2-d array
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < m; j++) {
-            matrix[i][j] = 0.0;
-        }
-    }
     return matrix;
-}
-
-int Case::get_customer_demand(int customer) const {
-    return demand[customer];
-}
-
-double Case::get_distance(int from, int to) {
-    //adds partial evaluation to the overall fitness evaluation count
-    //It can be used when local search is used and a whole evaluation is not necessary
-    evals += (1.0 / actualProblemSize);
-
-    return distances[from][to];
-}
-
-double Case::get_evals() const {
-    return evals;
 }
 
 double Case::fitness_evaluation(const vector<vector<int>>& routes) {
@@ -377,13 +358,16 @@ int Case::find_best_station_feasible(int from, int to, double max_dis) const {
     double bigDis = DBL_MAX;
 
     for (int station : stations) {
-        if (distances[from][station] < max_dis &&
-            bigDis > distances[from][station] + distances[to][station] &&
+        const double fromToStation = distances[from][station];
+        const double stationToTarget = distances[station][to];
+        const double detour = fromToStation + stationToTarget;
+        if (fromToStation < max_dis &&
+            bigDis > detour &&
             from != station && to != station &&
-            distances[station][to] < maxDis) {
+            stationToTarget < maxDis) {
 
             theStation = station;
-            bigDis = distances[from][station] + distances[to][station];
+            bigDis = detour;
         }
     }
 
@@ -404,8 +388,4 @@ int Case::find_nearest_station_to_y_feasible(int x, int y, double max_dis) {
     }
 
     return targetedStation;
-}
-
-bool Case::is_charging_station(int node) const {
-    return node == depot || stationSet.count(node) > 0;
 }

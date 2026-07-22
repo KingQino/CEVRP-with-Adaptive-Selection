@@ -20,6 +20,8 @@ set(CORE_SOURCES
 )
 
 find_package(Threads REQUIRED)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
 
 add_library(cevrp_core STATIC ${CORE_SOURCES})
 target_include_directories(cevrp_core PUBLIC include)
@@ -27,6 +29,10 @@ target_link_libraries(cevrp_core PUBLIC Threads::Threads)
 
 add_executable(Run main.cpp)
 target_link_libraries(Run PRIVATE cevrp_core)
+
+if(IPO_SUPPORTED)
+    set_target_properties(cevrp_core Run PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

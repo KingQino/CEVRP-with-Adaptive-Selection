@@ -4,6 +4,8 @@
 
 #include "individual.hpp"
 
+#include <algorithm>
+
 using namespace std;
 
 const int Individual::TOUR_SIZE = 1500;
@@ -18,15 +20,19 @@ Individual::Individual(const Individual& ind) {
     this->routes = new int *[ind.route_cap];
     for (int i = 0; i < ind.route_cap; ++i) {
         this->routes[i] = new int[ind.node_cap];
-        memcpy(this->routes[i], ind.routes[i], sizeof(int) * ind.node_cap);
     }
-    this->node_num = new int[ind.route_cap];
-    memcpy(this->node_num, ind.node_num, sizeof(int) * ind.route_cap);
-    this->demand_sum = new int[ind.route_cap];
-    memcpy(this->demand_sum, ind.demand_sum, sizeof(int) * ind.route_cap);
+    this->node_num = new int[ind.route_cap]();
+    this->demand_sum = new int[ind.route_cap]();
+    for (int i = 0; i < ind.route_num; ++i) {
+        this->node_num[i] = ind.node_num[i];
+        this->demand_sum[i] = ind.demand_sum[i];
+        memcpy(this->routes[i], ind.routes[i], sizeof(int) * ind.node_num[i]);
+    }
     this->tour = new int [TOUR_SIZE];
-    memcpy(this->tour, ind.tour, sizeof(int) * (ind.steps));
     this->steps = ind.steps;
+    if (this->steps > 0) {
+        memcpy(this->tour, ind.tour, sizeof(int) * this->steps);
+    }
 }
 
 Individual::Individual(int route_cap, int node_cap) {
@@ -35,18 +41,14 @@ Individual::Individual(int route_cap, int node_cap) {
     this->routes = new int *[route_cap];
     for (int i = 0; i < route_cap; ++i) {
         this->routes[i] = new int[node_cap];
-        memset(this->routes[i], 0, sizeof(int) * node_cap);
     }
     this->route_num = 0;
-    this->node_num = new int[route_cap];
-    memset(this->node_num, 0, sizeof(int) * route_cap);
-    this->demand_sum = new int [route_cap];
-    memset(this->demand_sum, 0, sizeof(int) * route_cap);
+    this->node_num = new int[route_cap]();
+    this->demand_sum = new int [route_cap]();
     this->upper_cost = 0.0;
     this->lower_cost = std::numeric_limits<double>::infinity();
     this->upper_locally_optimal = false;
     this->tour = new int[TOUR_SIZE];
-    memset(this->tour, 0, sizeof(int) * TOUR_SIZE);
     this->steps = 0;
 }
 
@@ -103,6 +105,11 @@ vector<vector<int>> Individual::get_routes() const {
 
 vector<int> Individual::get_chromosome() const {
     vector<int> chromosome; // num of customers
+    int chromosomeSize = 0;
+    for (int i = 0; i < route_num; ++i) {
+        chromosomeSize += std::max(0, node_num[i] - 2);
+    }
+    chromosome.reserve(chromosomeSize);
     for (int i = 0; i < route_num; ++i) {
         for (int j = 1; j < node_num[i] - 1; ++j) {
             chromosome.push_back(routes[i][j]);
@@ -190,9 +197,9 @@ std::ostream& operator<<(std::ostream& os, const Individual& individual) {
     }
     os << "\n";
 
-    for (int i = 0; i < individual.route_cap; ++i) {
+    for (int i = 0; i < individual.route_num; ++i) {
         os << "Route " << i + 1 << ": ";
-        for (int j = 0; j < individual.node_cap; ++j) {
+        for (int j = 0; j < individual.node_num[i]; ++j) {
             os << individual.routes[i][j] << " ";
         }
         os << "\n";

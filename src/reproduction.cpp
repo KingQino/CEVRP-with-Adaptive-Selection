@@ -4,7 +4,6 @@
 #include <cmath>
 #include <limits>
 #include <set>
-#include <unordered_map>
 
 #include "individual.hpp"
 
@@ -220,25 +219,40 @@ void Reproduction::partially_matched_crossover(
         std::swap(firstCut, secondCut);
     }
 
-    std::vector<int> firstChild(firstParent.begin() + firstCut, firstParent.begin() + secondCut);
-    std::vector<int> secondChild(secondParent.begin() + firstCut, secondParent.begin() + secondCut);
-    std::unordered_map<int, int> firstMapping;
-    std::unordered_map<int, int> secondMapping;
+    std::vector<int> firstChild;
+    std::vector<int> secondChild;
+    firstChild.reserve(chromosomeSize);
+    secondChild.reserve(chromosomeSize);
+    firstChild.insert(
+        firstChild.end(),
+        firstParent.begin() + firstCut,
+        firstParent.begin() + secondCut);
+    secondChild.insert(
+        secondChild.end(),
+        secondParent.begin() + firstCut,
+        secondParent.begin() + secondCut);
+
+    const int maxGene = std::max(
+        *std::max_element(firstParent.begin(), firstParent.end()),
+        *std::max_element(secondParent.begin(), secondParent.end()));
+    std::vector<int> firstMapping(static_cast<std::size_t>(maxGene + 1), -1);
+    std::vector<int> secondMapping(static_cast<std::size_t>(maxGene + 1), -1);
     for (int i = 0; i < secondCut - firstCut; ++i) {
         firstMapping[secondChild[i]] = firstChild[i];
         secondMapping[firstChild[i]] = secondChild[i];
     }
 
+    auto resolveGene = [](int gene, const std::vector<int>& mapping) {
+        while (mapping[gene] != -1) {
+            gene = mapping[gene];
+        }
+        return gene;
+    };
+
     for (int i = 0; i < chromosomeSize; ++i) {
         if (i < firstCut || i >= secondCut) {
-            int firstGene = firstParent[i];
-            int secondGene = secondParent[i];
-            while (firstMapping.find(firstGene) != firstMapping.end()) {
-                firstGene = firstMapping[firstGene];
-            }
-            while (secondMapping.find(secondGene) != secondMapping.end()) {
-                secondGene = secondMapping[secondGene];
-            }
+            const int firstGene = resolveGene(firstParent[i], firstMapping);
+            const int secondGene = resolveGene(secondParent[i], secondMapping);
             firstChild.push_back(secondGene);
             secondChild.push_back(firstGene);
         }
@@ -294,7 +308,7 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
 
     auto appendChild = [&](std::vector<int>& child, int phaseTarget) {
         if (static_cast<int>(offspring.size()) < phaseTarget) {
-            offspring.push_back(child);
+            offspring.push_back(std::move(child));
         }
     };
 

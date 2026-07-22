@@ -74,5 +74,23 @@ public:
     int maxExecTime; // unit seconds
 };
 
+inline int Case::get_customer_demand(int customer) const {
+    return demand[customer];
+}
+
+inline double Case::get_distance(int from, int to) {
+    // Partial distance evaluations are counted against the same budget as before.
+    evals += (1.0 / actualProblemSize);
+    return distances[from][to];
+}
+
+inline double Case::get_evals() const {
+    return evals;
+}
+
+inline bool Case::is_charging_station(int node) const {
+    return node == depot || stationSet.count(node) > 0;
+}
+
 
 #endif //CEVRP_YINGHAO_CASE_HPP
