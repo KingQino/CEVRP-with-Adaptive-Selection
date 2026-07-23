@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <numeric>
 #include <unordered_set>
 #include <utility>
@@ -20,6 +21,7 @@ enum class Neighborhood {
     NodeShift,
     InterRouteRelocate,
     InterRouteSwap,
+    SwapStar,
     IntraRouteSwap,
     TwoOptStarHeadToHead,
     TwoOptStarHeadToTail,
@@ -48,6 +50,17 @@ constexpr std::array<Neighborhood, 7> kSevenNeighborhoods = {
     Neighborhood::InterRouteRelocate,
     Neighborhood::IntraRouteSwap,
     Neighborhood::InterRouteSwap,
+    Neighborhood::TwoOpt,
+    Neighborhood::TwoOptStarHeadToHead,
+    Neighborhood::TwoOptStarHeadToTail,
+};
+
+constexpr std::array<Neighborhood, 8> kEightNeighborhoods = {
+    Neighborhood::NodeShift,
+    Neighborhood::InterRouteRelocate,
+    Neighborhood::IntraRouteSwap,
+    Neighborhood::InterRouteSwap,
+    Neighborhood::SwapStar,
     Neighborhood::TwoOpt,
     Neighborhood::TwoOptStarHeadToHead,
     Neighborhood::TwoOptStarHeadToTail,
@@ -1114,6 +1127,198 @@ bool improve_with_inter_route_swap_one_move(
     return false;
 }
 
+struct BestInsertionAfterRemoval {
+    double cost = std::numeric_limits<double>::infinity();
+    int insertionIndex = -1;
+};
+
+BestInsertionAfterRemoval best_insertion_after_removal(
+    const int* route,
+    int length,
+    int removedIndex,
+    int customer,
+    Case& instance) {
+    BestInsertionAfterRemoval best;
+    const int reducedLength = length - 1;
+    for (int insertionIndex = 1;
+         insertionIndex < reducedLength;
+         ++insertionIndex) {
+        const int fromIndex = insertionIndex - 1 < removedIndex
+            ? insertionIndex - 1
+            : insertionIndex;
+        const int toIndex = insertionIndex < removedIndex
+            ? insertionIndex
+            : insertionIndex + 1;
+        const int from = route[fromIndex];
+        const int to = route[toIndex];
+        const double insertionCost =
+            instance.get_distance(from, customer)
+            + instance.get_distance(customer, to)
+            - instance.get_distance(from, to);
+        if (insertionCost < best.cost) {
+            best.cost = insertionCost;
+            best.insertionIndex = insertionIndex;
+        }
+    }
+    return best;
+}
+
+void build_route_after_swap_star(
+    const int* route,
+    int length,
+    int removedIndex,
+    int insertedCustomer,
+    int insertionIndex,
+    std::vector<int>& result) {
+    result.clear();
+    result.reserve(static_cast<std::size_t>(length));
+    for (int nodeIndex = 0; nodeIndex < length; ++nodeIndex) {
+        if (nodeIndex != removedIndex) {
+            result.push_back(route[nodeIndex]);
+        }
+    }
+    result.insert(result.begin() + insertionIndex, insertedCustomer);
+}
+
+bool improve_with_swap_star_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchWorkspace& workspace) {
+    if (individual.route_num <= 1) {
+        return false;
+    }
+
+    const auto& routePairs = shuffled_route_pairs(
+        individual.route_num,
+        false,
+        randomEngine,
+        workspace);
+    for (const auto& [firstRoute, secondRoute] : routePairs) {
+        const int firstLength = individual.node_num[firstRoute];
+        const int secondLength = individual.node_num[secondRoute];
+        double bestImprovement = 0.0;
+        int bestFirstNode = -1;
+        int bestSecondNode = -1;
+        int bestFirstInsertion = -1;
+        int bestSecondInsertion = -1;
+
+        for (int firstNode = 1; firstNode < firstLength - 1; ++firstNode) {
+            const int firstCustomer = individual.routes[firstRoute][firstNode];
+            const int firstDemand = instance.get_customer_demand(firstCustomer);
+            const double firstRemovalCost =
+                instance.get_distance(
+                    individual.routes[firstRoute][firstNode - 1],
+                    individual.routes[firstRoute][firstNode + 1])
+                - instance.get_distance(
+                    individual.routes[firstRoute][firstNode - 1],
+                    firstCustomer)
+                - instance.get_distance(
+                    firstCustomer,
+                    individual.routes[firstRoute][firstNode + 1]);
+
+            for (int secondNode = 1;
+                 secondNode < secondLength - 1;
+                 ++secondNode) {
+                const int secondCustomer =
+                    individual.routes[secondRoute][secondNode];
+                const int secondDemand =
+                    instance.get_customer_demand(secondCustomer);
+                const int firstNewDemand =
+                    individual.demand_sum[firstRoute] - firstDemand + secondDemand;
+                const int secondNewDemand =
+                    individual.demand_sum[secondRoute] - secondDemand + firstDemand;
+                if (firstNewDemand > instance.maxC
+                    || secondNewDemand > instance.maxC) {
+                    continue;
+                }
+
+                const double secondRemovalCost =
+                    instance.get_distance(
+                        individual.routes[secondRoute][secondNode - 1],
+                        individual.routes[secondRoute][secondNode + 1])
+                    - instance.get_distance(
+                        individual.routes[secondRoute][secondNode - 1],
+                        secondCustomer)
+                    - instance.get_distance(
+                        secondCustomer,
+                        individual.routes[secondRoute][secondNode + 1]);
+                const BestInsertionAfterRemoval secondIntoFirst =
+                    best_insertion_after_removal(
+                        individual.routes[firstRoute],
+                        firstLength,
+                        firstNode,
+                        secondCustomer,
+                        instance);
+                const BestInsertionAfterRemoval firstIntoSecond =
+                    best_insertion_after_removal(
+                        individual.routes[secondRoute],
+                        secondLength,
+                        secondNode,
+                        firstCustomer,
+                        instance);
+                const double improvement = -(
+                    firstRemovalCost
+                    + secondIntoFirst.cost
+                    + secondRemovalCost
+                    + firstIntoSecond.cost);
+                if (improvement > bestImprovement + kImprovementTolerance) {
+                    bestImprovement = improvement;
+                    bestFirstNode = firstNode;
+                    bestSecondNode = secondNode;
+                    bestFirstInsertion = secondIntoFirst.insertionIndex;
+                    bestSecondInsertion = firstIntoSecond.insertionIndex;
+                }
+            }
+        }
+
+        if (bestImprovement <= kImprovementTolerance) {
+            continue;
+        }
+
+        const int firstCustomer =
+            individual.routes[firstRoute][bestFirstNode];
+        const int secondCustomer =
+            individual.routes[secondRoute][bestSecondNode];
+        const int firstNewDemand =
+            individual.demand_sum[firstRoute]
+            - instance.get_customer_demand(firstCustomer)
+            + instance.get_customer_demand(secondCustomer);
+        const int secondNewDemand =
+            individual.demand_sum[secondRoute]
+            - instance.get_customer_demand(secondCustomer)
+            + instance.get_customer_demand(firstCustomer);
+        build_route_after_swap_star(
+            individual.routes[firstRoute],
+            firstLength,
+            bestFirstNode,
+            secondCustomer,
+            bestFirstInsertion,
+            workspace.firstRouteBuffer);
+        build_route_after_swap_star(
+            individual.routes[secondRoute],
+            secondLength,
+            bestSecondNode,
+            firstCustomer,
+            bestSecondInsertion,
+            workspace.secondRouteBuffer);
+        replace_route(
+            individual,
+            firstRoute,
+            workspace.firstRouteBuffer,
+            firstNewDemand);
+        replace_route(
+            individual,
+            secondRoute,
+            workspace.secondRouteBuffer,
+            secondNewDemand);
+        individual.set_upper_cost(
+            individual.get_upper_cost() - bestImprovement);
+        return true;
+    }
+    return false;
+}
+
 bool improve_with_two_opt_one_move(
     Individual& individual,
     Case& instance,
@@ -1375,6 +1580,12 @@ bool improve_with_neighborhood_one_move(
                 instance,
                 randomEngine,
                 workspace);
+        case Neighborhood::SwapStar:
+            return improve_with_swap_star_one_move(
+                individual,
+                instance,
+                randomEngine,
+                workspace);
         case Neighborhood::IntraRouteSwap:
             return improve_with_intra_route_swap_one_move(
                 individual,
@@ -1414,6 +1625,8 @@ bool improve_with_neighborhood(
             return improve_with_inter_route_relocate(individual, instance);
         case Neighborhood::InterRouteSwap:
             return improve_with_inter_route_swap(individual, instance);
+        case Neighborhood::SwapStar:
+            return false;
         case Neighborhood::IntraRouteSwap:
             return improve_with_intra_route_swap(individual, instance);
         case Neighborhood::TwoOptStarHeadToHead:
@@ -1606,6 +1819,49 @@ LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
         instance,
         randomEngine,
         kSevenNeighborhoods,
+        move_limit_for_intensity(individual, instance, intensity),
+        workspace);
+}
+
+void Leader::improve_with_eight_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine) {
+    LocalSearchWorkspace workspace;
+    improve_with_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        kEightNeighborhoods,
+        -1,
+        workspace);
+}
+
+LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchIntensity intensity) {
+    LocalSearchWorkspace workspace;
+    return improve_with_eight_neighborhood_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        intensity,
+        workspace);
+}
+
+LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchIntensity intensity,
+    LocalSearchWorkspace& workspace) {
+    return improve_with_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        kEightNeighborhoods,
         move_limit_for_intensity(individual, instance, intensity),
         workspace);
 }

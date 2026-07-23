@@ -292,7 +292,7 @@ void MA::run_generation() {
             && individual->get_lower_cost() < INFEASIBLE_COST;
         if (!enableLogging) {
             if (!canReuseLowerElite) {
-                Leader::improve_with_seven_neighborhood_rvnd_one_move(
+                Leader::improve_with_eight_neighborhood_rvnd_one_move(
                     *individual,
                     *instance,
                     localSearchEngine,
@@ -321,7 +321,7 @@ void MA::run_generation() {
             result.moveLimit = -1;
             result.reachedLocalOptimum = true;
         } else {
-            result = Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            result = Leader::improve_with_eight_neighborhood_rvnd_one_move(
                 *individual,
                 *instance,
                 localSearchEngine,

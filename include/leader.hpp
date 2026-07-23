@@ -27,6 +27,8 @@ struct LocalSearchResult {
 struct LocalSearchWorkspace {
     std::vector<int> routeOrder;
     std::vector<std::pair<int, int>> routePairs;
+    std::vector<int> firstRouteBuffer;
+    std::vector<int> secondRouteBuffer;
 };
 
 class Leader {
@@ -54,6 +56,21 @@ public:
         std::mt19937& randomEngine,
         LocalSearchIntensity intensity);
     static LocalSearchResult improve_with_seven_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine,
+        LocalSearchIntensity intensity,
+        LocalSearchWorkspace& workspace);
+    static void improve_with_eight_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine);
+    static LocalSearchResult improve_with_eight_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine,
+        LocalSearchIntensity intensity);
+    static LocalSearchResult improve_with_eight_neighborhood_rvnd_one_move(
         Individual& individual,
         Case& instance,
         std::mt19937& randomEngine,

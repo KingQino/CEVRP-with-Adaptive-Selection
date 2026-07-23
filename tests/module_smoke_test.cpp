@@ -215,6 +215,86 @@ void assert_refinement_handles_boundary_cases() {
     assert(expandedTour[expandedSteps - 1] == 0);
 }
 
+void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
+    const std::string instancePath =
+        std::string(TEST_DATA_DIRECTORY) + "/E-n22-k4.evrp";
+    Case instance(instancePath, 10);
+    std::mt19937 initializationEngine(5);
+    const auto routes = Initializer::build_with_clustering(
+        instance,
+        initializationEngine);
+    Individual sevenNeighborhoodLocalOptimum(
+        instance.vehicleNumber * 3,
+        instance.customerNumber + 2,
+        routes,
+        instance.fitness_evaluation(routes),
+        instance.compute_demand_sum(routes));
+
+    std::mt19937 sevenEngine(17);
+    const LocalSearchResult sevenResult =
+        Leader::improve_with_seven_neighborhood_rvnd_one_move(
+            sevenNeighborhoodLocalOptimum,
+            instance,
+            sevenEngine,
+            LocalSearchIntensity::Strong);
+    assert(sevenResult.reachedLocalOptimum);
+
+    Individual repeatedEightNeighborhoodSearch(
+        sevenNeighborhoodLocalOptimum);
+    const double sevenNeighborhoodCost =
+        sevenNeighborhoodLocalOptimum.get_upper_cost();
+    std::mt19937 firstEightEngine(31);
+    std::mt19937 secondEightEngine(31);
+    LocalSearchWorkspace workspace;
+    workspace.firstRouteBuffer.assign(32, -1);
+    workspace.secondRouteBuffer.assign(32, -1);
+    const LocalSearchResult firstEightResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            sevenNeighborhoodLocalOptimum,
+            instance,
+            firstEightEngine,
+            LocalSearchIntensity::Strong,
+            workspace);
+    const LocalSearchResult secondEightResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            repeatedEightNeighborhoodSearch,
+            instance,
+            secondEightEngine,
+            LocalSearchIntensity::Strong);
+
+    assert(firstEightResult.acceptedMoves > 0);
+    assert(firstEightResult.reachedLocalOptimum);
+    assert(firstEightResult.acceptedMoves == secondEightResult.acceptedMoves);
+    assert(firstEightResult.neighborhoodCalls
+           == secondEightResult.neighborhoodCalls);
+    assert(std::fabs(
+        firstEightResult.evalsUsed - secondEightResult.evalsUsed) <= 1e-8);
+    assert(sevenNeighborhoodLocalOptimum.get_upper_cost()
+           < sevenNeighborhoodCost - 1e-8);
+    assert(std::fabs(
+        sevenNeighborhoodLocalOptimum.get_upper_cost()
+        - repeatedEightNeighborhoodSearch.get_upper_cost()) <= 1e-8);
+    assert(sevenNeighborhoodLocalOptimum.get_routes()
+           == repeatedEightNeighborhoodSearch.get_routes());
+    assert_individual_is_consistent(
+        sevenNeighborhoodLocalOptimum,
+        instance);
+
+    std::mt19937 exhaustedEightEngine(37);
+    const LocalSearchResult exhaustedEightResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            sevenNeighborhoodLocalOptimum,
+            instance,
+            exhaustedEightEngine,
+            LocalSearchIntensity::Strong,
+            workspace);
+    assert(exhaustedEightResult.acceptedMoves == 0);
+    assert(exhaustedEightResult.reachedLocalOptimum);
+    assert_individual_is_consistent(
+        sevenNeighborhoodLocalOptimum,
+        instance);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -235,6 +315,7 @@ int main(int argc, char* argv[]) {
         - 1.0 / static_cast<double>(instance.actualProblemSize)) <= 1e-12);
     assert_inter_route_relocate_removes_empty_route(instance);
     assert_refinement_handles_boundary_cases();
+    assert_swap_star_improves_a_seven_neighborhood_local_optimum();
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
     auto splitRoutes = Initializer::build_with_random_split(instance, randomEngine);
