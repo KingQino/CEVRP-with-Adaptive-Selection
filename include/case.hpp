@@ -5,6 +5,7 @@
 #ifndef CEVRP_YINGHAO_CASE_HPP
 #define CEVRP_YINGHAO_CASE_HPP
 
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -35,6 +36,10 @@ public:
     [[nodiscard]] int get_customer_demand(int customer) const;				//returns the customer demand
     [[nodiscard]] inline double get_distance(int from, int to);	//returns the distance
     [[nodiscard]] double get_evals() const;									//returns the number of evaluations
+    [[nodiscard]] std::uint64_t get_distance_calls() const;
+    [[nodiscard]] double distance_calls_to_evals(
+        std::uint64_t distanceCalls) const;
+    [[nodiscard]] std::uint64_t get_evaluation_limit_distance_calls() const;
     double fitness_evaluation(const std::vector<std::vector<int>>& routes); // customized fitness function
     [[nodiscard]] double fitness_evaluation(const std::vector<int>& route) const; // used for testing TODO: DELETE on Release
     std::vector<int> compute_demand_sum(const std::vector<std::vector<int>>& routes); // compute the demand sum of all customers for each route.
@@ -69,9 +74,8 @@ public:
     std::unordered_map<int, std::vector<int>> customerClustersMap; // For Hien's clustering usage only. For each customer, a list of customer nodes from near to far, e.g., {1: [5,3,2,6], 2: [], ...}
     std::unordered_map<int, std::pair<int, double>> customerNearestStationMap; // for each customer, find the nearest station and store the corresponding distance
     std::unordered_set<int> stationSet;
-    double evals{};
-    double evalIncrement{};
-    double maxEvals;
+    std::uint64_t distanceCalls{};
+    std::uint64_t maxEvals{};
     int maxExecTime; // unit seconds
 };
 
@@ -80,13 +84,28 @@ inline int Case::get_customer_demand(int customer) const {
 }
 
 inline double Case::get_distance(int from, int to) {
-    // Partial distance evaluations are counted against the same budget as before.
-    evals += evalIncrement;
+    ++distanceCalls;
     return distances[from][to];
 }
 
 inline double Case::get_evals() const {
-    return evals;
+    return distance_calls_to_evals(distanceCalls);
+}
+
+inline std::uint64_t Case::get_distance_calls() const {
+    return distanceCalls;
+}
+
+inline double Case::distance_calls_to_evals(
+    std::uint64_t calls) const {
+    return actualProblemSize > 0
+        ? static_cast<double>(calls)
+            / static_cast<double>(actualProblemSize)
+        : 0.0;
+}
+
+inline std::uint64_t Case::get_evaluation_limit_distance_calls() const {
+    return maxEvals * static_cast<std::uint64_t>(actualProblemSize);
 }
 
 inline bool Case::is_charging_station(int node) const {

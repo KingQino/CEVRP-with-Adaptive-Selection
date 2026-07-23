@@ -136,13 +136,8 @@ void MA::run() {
 
 // stop criterion: max evals
 bool MA::reached_evaluation_limit() const {
-    bool flag;
-    if (instance->get_evals() >= instance->maxEvals)
-        flag = true;
-    else
-        flag = false;
-
-    return flag;
+    return instance->get_distance_calls()
+        >= instance->get_evaluation_limit_distance_calls();
 }
 
 // stop criterion: max execute time
@@ -349,7 +344,8 @@ void MA::run_generation() {
                 result.operatorStats[operatorIndex];
             generationStats.calls += individualStats.calls;
             generationStats.accepts += individualStats.accepts;
-            generationStats.evals += individualStats.evals;
+            generationStats.distanceCalls +=
+                individualStats.distanceCalls;
             generationStats.upperGain += individualStats.upperGain;
             generationStats.gammaCrosses +=
                 individualStats.gammaCrosses;
@@ -466,7 +462,8 @@ void MA::run_generation() {
                             << record.result.moveLimit << "\t"
                             << record.result.acceptedMoves << "\t"
                             << record.result.neighborhoodCalls << "\t"
-                            << record.result.evalsUsed << "\t"
+                            << instance->distance_calls_to_evals(
+                                record.result.distanceCallsUsed) << "\t"
                             << record.result.relativeUpperImprovement << "\t"
                             << record.result.reachedLocalOptimum << "\t"
                             << record.crossedGamma << "\t"
@@ -486,7 +483,8 @@ void MA::run_generation() {
                 << Leader::operator_name(localSearchOperator) << "\t"
                 << operatorStats.calls << "\t"
                 << operatorStats.accepts << "\t"
-                << operatorStats.evals << "\t"
+                << instance->distance_calls_to_evals(
+                    operatorStats.distanceCalls) << "\t"
                 << operatorStats.upperGain << "\t"
                 << operatorStats.gammaCrosses << "\n";
         }

@@ -29,7 +29,7 @@ constexpr std::size_t LOCAL_SEARCH_OPERATOR_COUNT =
 struct LocalSearchOperatorStats {
     int calls{};
     int accepts{};
-    double evals{};
+    std::uint64_t distanceCalls{};
     double upperGain{};
     int gammaCrosses{};
 };
@@ -45,7 +45,7 @@ struct LocalSearchResult {
     int moveLimit{};
     int acceptedMoves{};
     int neighborhoodCalls{};
-    double evalsUsed{};
+    std::uint64_t distanceCallsUsed{};
     double relativeUpperImprovement{};
     bool reachedLocalOptimum{};
     std::array<LocalSearchOperatorStats, LOCAL_SEARCH_OPERATOR_COUNT>

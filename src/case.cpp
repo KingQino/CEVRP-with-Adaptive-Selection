@@ -184,9 +184,6 @@ void Case::read_problem(const string& filepath) {
     stationNodes.erase(unique(stationNodes.begin(), stationNodes.end()), stationNodes.end());
 
     this->actualProblemSize = maxNodeId + 1;
-    this->evalIncrement = actualProblemSize > 0
-        ? 1.0 / static_cast<double>(actualProblemSize)
-        : 0.0;
     this->positions.assign(actualProblemSize, make_pair(0.0, 0.0));
     this->demand.assign(actualProblemSize, 0);
     this->depot = depotNodes.front();
@@ -242,8 +239,10 @@ void Case::read_problem(const string& filepath) {
     init_customer_clusters_map();
     init_customer_nearest_station_map();
 
-    this->evals = 0.0;
-    this->maxEvals = actualProblemSize * MAX_EVALUATION_FACTOR;
+    this->distanceCalls = 0;
+    this->maxEvals =
+        static_cast<std::uint64_t>(actualProblemSize)
+        * static_cast<std::uint64_t>(MAX_EVALUATION_FACTOR);
     if (customerNumber <= 100) {
         maxExecTime = int (1 * (actualProblemSize / 100.0) * 60 * 60);
     } else if (customerNumber <= 915) {
@@ -313,7 +312,7 @@ double Case::fitness_evaluation(const vector<vector<int>>& routes) {
         }
     }
 
-    evals++;
+    distanceCalls += static_cast<std::uint64_t>(actualProblemSize);
 
     return tour_length;
 }

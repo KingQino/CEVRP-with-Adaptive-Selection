@@ -1873,6 +1873,75 @@ bool improve_with_two_opt_one_move(
     return false;
 }
 
+void build_two_opt_star_head_to_head_routes(
+    const int* firstRoute,
+    int firstLength,
+    int firstNode,
+    const int* secondRoute,
+    int secondLength,
+    int secondNode,
+    std::vector<int>& firstResult,
+    std::vector<int>& secondResult) {
+    firstResult.clear();
+    firstResult.reserve(
+        static_cast<std::size_t>(firstNode + secondNode + 2));
+    firstResult.insert(
+        firstResult.end(),
+        firstRoute,
+        firstRoute + firstNode + 1);
+    for (int node = secondNode; node >= 0; --node) {
+        firstResult.push_back(secondRoute[node]);
+    }
+
+    secondResult.clear();
+    secondResult.reserve(static_cast<std::size_t>(
+        firstLength - firstNode - 1
+        + secondLength - secondNode - 1));
+    for (int node = firstLength - 1; node >= firstNode + 1; --node) {
+        secondResult.push_back(firstRoute[node]);
+    }
+    secondResult.insert(
+        secondResult.end(),
+        secondRoute + secondNode + 1,
+        secondRoute + secondLength);
+}
+
+void build_two_opt_star_head_to_tail_routes(
+    const int* firstRoute,
+    int firstLength,
+    int firstNode,
+    const int* secondRoute,
+    int secondLength,
+    int secondNode,
+    std::vector<int>& firstResult,
+    std::vector<int>& secondResult) {
+    firstResult.clear();
+    firstResult.reserve(static_cast<std::size_t>(
+        firstNode + 1
+        + secondLength - secondNode - 1));
+    firstResult.insert(
+        firstResult.end(),
+        firstRoute,
+        firstRoute + firstNode + 1);
+    firstResult.insert(
+        firstResult.end(),
+        secondRoute + secondNode + 1,
+        secondRoute + secondLength);
+
+    secondResult.clear();
+    secondResult.reserve(static_cast<std::size_t>(
+        secondNode + 1
+        + firstLength - firstNode - 1));
+    secondResult.insert(
+        secondResult.end(),
+        secondRoute,
+        secondRoute + secondNode + 1);
+    secondResult.insert(
+        secondResult.end(),
+        firstRoute + firstNode + 1,
+        firstRoute + firstLength);
+}
+
 bool improve_with_two_opt_star_head_to_head_one_move(
     Individual& individual,
     Case& instance,
@@ -1941,30 +2010,25 @@ bool improve_with_two_opt_star_head_to_head_one_move(
                     continue;
                 }
 
-                const std::vector<int> firstOriginal(
+                build_two_opt_star_head_to_head_routes(
                     individual.routes[firstRoute],
-                    individual.routes[firstRoute] + firstLength);
-                const std::vector<int> secondOriginal(
+                    firstLength,
+                    firstNode,
                     individual.routes[secondRoute],
-                    individual.routes[secondRoute] + secondLength);
-                std::vector<int> firstNew(
-                    firstOriginal.begin(),
-                    firstOriginal.begin() + firstNode + 1);
-                for (int node = secondNode; node >= 0; --node) {
-                    firstNew.push_back(secondOriginal[node]);
-                }
-                std::vector<int> secondNew;
-                secondNew.reserve(firstLength + secondLength);
-                for (int node = firstLength - 1; node >= firstNode + 1; --node) {
-                    secondNew.push_back(firstOriginal[node]);
-                }
-                secondNew.insert(
-                    secondNew.end(),
-                    secondOriginal.begin() + secondNode + 1,
-                    secondOriginal.end());
-
-                replace_route(individual, firstRoute, firstNew, firstNewDemand);
-                replace_route(individual, secondRoute, secondNew, secondNewDemand);
+                    secondLength,
+                    secondNode,
+                    workspace.firstRouteBuffer,
+                    workspace.secondRouteBuffer);
+                replace_route(
+                    individual,
+                    firstRoute,
+                    workspace.firstRouteBuffer,
+                    firstNewDemand);
+                replace_route(
+                    individual,
+                    secondRoute,
+                    workspace.secondRouteBuffer,
+                    secondNewDemand);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 if (individual.node_num[firstRoute] == 2) {
                     remove_empty_route(individual, firstRoute);
@@ -2058,29 +2122,25 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
                     continue;
                 }
 
-                const std::vector<int> firstOriginal(
+                build_two_opt_star_head_to_tail_routes(
                     individual.routes[firstRoute],
-                    individual.routes[firstRoute] + firstLength);
-                const std::vector<int> secondOriginal(
+                    firstLength,
+                    firstNode,
                     individual.routes[secondRoute],
-                    individual.routes[secondRoute] + secondLength);
-                std::vector<int> firstNew(
-                    firstOriginal.begin(),
-                    firstOriginal.begin() + firstNode + 1);
-                firstNew.insert(
-                    firstNew.end(),
-                    secondOriginal.begin() + secondNode + 1,
-                    secondOriginal.end());
-                std::vector<int> secondNew(
-                    secondOriginal.begin(),
-                    secondOriginal.begin() + secondNode + 1);
-                secondNew.insert(
-                    secondNew.end(),
-                    firstOriginal.begin() + firstNode + 1,
-                    firstOriginal.end());
-
-                replace_route(individual, firstRoute, firstNew, firstNewDemand);
-                replace_route(individual, secondRoute, secondNew, secondNewDemand);
+                    secondLength,
+                    secondNode,
+                    workspace.firstRouteBuffer,
+                    workspace.secondRouteBuffer);
+                replace_route(
+                    individual,
+                    firstRoute,
+                    workspace.firstRouteBuffer,
+                    firstNewDemand);
+                replace_route(
+                    individual,
+                    secondRoute,
+                    workspace.secondRouteBuffer,
+                    secondNewDemand);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 if (individual.node_num[firstRoute] == 2) {
                     remove_empty_route(individual, firstRoute);
@@ -2231,7 +2291,8 @@ LocalSearchResult improve_with_rvnd_one_move(
     LocalSearchWorkspace& workspace,
     double gammaUpperBound) {
     const double upperCostBefore = individual.get_upper_cost();
-    const double evalsBefore = instance.get_evals();
+    const std::uint64_t distanceCallsBefore =
+        instance.get_distance_calls();
     LocalSearchResult result;
     result.moveLimit = moveLimit;
     if (moveLimit == 0) {
@@ -2262,7 +2323,8 @@ LocalSearchResult improve_with_rvnd_one_move(
             static_cast<std::size_t>(selectedOperator);
         LocalSearchOperatorStats& operatorStats =
             result.operatorStats[operatorIndex];
-        const double operatorEvalsBefore = instance.get_evals();
+        const std::uint64_t operatorDistanceCallsBefore =
+            instance.get_distance_calls();
         const double operatorUpperCostBefore = individual.get_upper_cost();
         const bool outsideGammaBefore =
             operatorUpperCostBefore > gammaUpperBound;
@@ -2276,8 +2338,9 @@ LocalSearchResult improve_with_rvnd_one_move(
             instance,
             randomEngine,
             workspace);
-        operatorStats.evals +=
-            instance.get_evals() - operatorEvalsBefore;
+        operatorStats.distanceCalls +=
+            instance.get_distance_calls()
+            - operatorDistanceCallsBefore;
 
         if (improved) {
             invalidate_failure_cache_after_move(
@@ -2297,7 +2360,8 @@ LocalSearchResult improve_with_rvnd_one_move(
         }
     }
 
-    result.evalsUsed = instance.get_evals() - evalsBefore;
+    result.distanceCallsUsed =
+        instance.get_distance_calls() - distanceCallsBefore;
     result.relativeUpperImprovement = upperCostBefore > 0.0
         ? (upperCostBefore - individual.get_upper_cost()) / upperCostBefore
         : 0.0;

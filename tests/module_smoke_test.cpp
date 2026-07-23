@@ -265,26 +265,27 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
 
     assert(firstEightResult.acceptedMoves == 3);
     assert(firstEightResult.reachedLocalOptimum);
-    assert(firstEightResult.evalsUsed < 260.0);
+    assert(firstEightResult.distanceCallsUsed
+           < 260U * static_cast<std::uint64_t>(
+               instance.actualProblemSize));
     int operatorCalls = 0;
     int operatorAccepts = 0;
     int operatorGammaCrosses = 0;
-    double operatorEvals = 0.0;
+    std::uint64_t operatorDistanceCalls = 0;
     double operatorUpperGain = 0.0;
     for (const auto& operatorStats : firstEightResult.operatorStats) {
         assert(operatorStats.calls >= operatorStats.accepts);
         assert(operatorStats.accepts >= operatorStats.gammaCrosses);
-        assert(operatorStats.evals >= 0.0);
         assert(operatorStats.upperGain >= 0.0);
         operatorCalls += operatorStats.calls;
         operatorAccepts += operatorStats.accepts;
-        operatorEvals += operatorStats.evals;
+        operatorDistanceCalls += operatorStats.distanceCalls;
         operatorUpperGain += operatorStats.upperGain;
         operatorGammaCrosses += operatorStats.gammaCrosses;
     }
     assert(operatorCalls == firstEightResult.neighborhoodCalls);
     assert(operatorAccepts == firstEightResult.acceptedMoves);
-    assert(std::fabs(operatorEvals - firstEightResult.evalsUsed) <= 1e-8);
+    assert(operatorDistanceCalls == firstEightResult.distanceCallsUsed);
     assert(std::fabs(
         operatorUpperGain
         - (sevenNeighborhoodCost
@@ -293,8 +294,8 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
     assert(firstEightResult.acceptedMoves == secondEightResult.acceptedMoves);
     assert(firstEightResult.neighborhoodCalls
            == secondEightResult.neighborhoodCalls);
-    assert(std::fabs(
-        firstEightResult.evalsUsed - secondEightResult.evalsUsed) <= 1e-8);
+    assert(firstEightResult.distanceCallsUsed
+           == secondEightResult.distanceCallsUsed);
     assert(sevenNeighborhoodLocalOptimum.get_upper_cost()
            < sevenNeighborhoodCost - 1e-8);
     assert(std::fabs(
@@ -331,17 +332,32 @@ int main(int argc, char* argv[]) {
     const std::string instancePath = std::string(TEST_DATA_DIRECTORY) + "/" + instanceName;
     Case instance(instancePath, 1);
     std::mt19937 randomEngine(1);
+    const std::uint64_t callsBeforeDistanceLookup =
+        instance.get_distance_calls();
     const double evalsBeforeDistanceLookup = instance.get_evals();
     const double depotSelfDistance = instance.get_distance(
         instance.depot,
         instance.depot);
     assert(std::fabs(depotSelfDistance) <= 1e-12);
+    assert(instance.get_distance_calls()
+           == callsBeforeDistanceLookup + 1);
     assert(std::fabs(
-        instance.get_evals() - evalsBeforeDistanceLookup - instance.evalIncrement)
+        instance.get_evals() - evalsBeforeDistanceLookup
+        - 1.0 / static_cast<double>(instance.actualProblemSize))
         <= 1e-12);
-    assert(std::fabs(
-        instance.evalIncrement
-        - 1.0 / static_cast<double>(instance.actualProblemSize)) <= 1e-12);
+    const std::uint64_t callsBeforeFullEvaluation =
+        instance.get_distance_calls();
+    const std::vector<std::vector<int>> depotOnlyRoutes = {
+        {instance.depot, instance.depot},
+    };
+    instance.fitness_evaluation(depotOnlyRoutes);
+    assert(instance.get_distance_calls() - callsBeforeFullEvaluation
+           == static_cast<std::uint64_t>(
+               instance.actualProblemSize));
+    assert(instance.get_evaluation_limit_distance_calls()
+           == instance.maxEvals
+               * static_cast<std::uint64_t>(
+                   instance.actualProblemSize));
     assert_inter_route_relocate_removes_empty_route(instance);
     assert_refinement_handles_boundary_cases();
     assert_swap_star_improves_a_seven_neighborhood_local_optimum();
@@ -402,7 +418,8 @@ int main(int argc, char* argv[]) {
         skippedSevenNeighborhoodSearch.get_upper_cost();
     const bool locallyOptimalBeforeSkip =
         skippedSevenNeighborhoodSearch.is_upper_locally_optimal();
-    const double evalsBeforeSkip = instance.get_evals();
+    const std::uint64_t callsBeforeSkip =
+        instance.get_distance_calls();
     std::mt19937 skipSearchEngine(12);
     const LocalSearchResult skipSearchResult =
         Leader::improve_with_seven_neighborhood_rvnd_one_move(
@@ -413,12 +430,12 @@ int main(int argc, char* argv[]) {
     assert(skipSearchResult.moveLimit == 0);
     assert(skipSearchResult.acceptedMoves == 0);
     assert(skipSearchResult.neighborhoodCalls == 0);
-    assert(std::fabs(skipSearchResult.evalsUsed) <= 1e-12);
+    assert(skipSearchResult.distanceCallsUsed == 0);
     assert(std::fabs(skipSearchResult.relativeUpperImprovement) <= 1e-12);
     assert(!skipSearchResult.reachedLocalOptimum);
     assert(skippedSevenNeighborhoodSearch.is_upper_locally_optimal()
            == locallyOptimalBeforeSkip);
-    assert(std::fabs(instance.get_evals() - evalsBeforeSkip) <= 1e-12);
+    assert(instance.get_distance_calls() == callsBeforeSkip);
     assert(std::fabs(
         skippedSevenNeighborhoodSearch.get_upper_cost()
         - upperCostBeforeSkip) <= 1e-12);
@@ -460,7 +477,6 @@ int main(int argc, char* argv[]) {
            == std::max(1, static_cast<int>(std::ceil(0.02 * weakSolutionScale))));
     assert(weakSearchResult.acceptedMoves <= weakSearchResult.moveLimit);
     assert(weakSearchResult.neighborhoodCalls >= weakSearchResult.acceptedMoves);
-    assert(weakSearchResult.evalsUsed >= 0.0);
     if (weakSearchResult.acceptedMoves < weakSearchResult.moveLimit) {
         assert(weakSearchResult.reachedLocalOptimum);
     }
@@ -544,9 +560,8 @@ int main(int argc, char* argv[]) {
            == repeatedStrongSearchResult.acceptedMoves);
     assert(strongSearchResult.neighborhoodCalls
            == repeatedStrongSearchResult.neighborhoodCalls);
-    assert(std::fabs(
-        strongSearchResult.evalsUsed
-        - repeatedStrongSearchResult.evalsUsed) <= 1e-8);
+    assert(strongSearchResult.distanceCallsUsed
+           == repeatedStrongSearchResult.distanceCallsUsed);
     assert(sevenNeighborhoodOneMove.get_upper_cost()
            <= upperCostBeforeOneMoveSearch + 1e-8);
     assert(sevenNeighborhoodOneMove.route_num <= routesBeforeOneMoveSearch);
@@ -576,29 +591,33 @@ int main(int argc, char* argv[]) {
 
     Individual repeatedChargingEvaluation(sevenNeighborhoodOneMove);
     FollowerWorkspace followerWorkspace;
-    const double evalsBeforeFirstChargingEvaluation = instance.get_evals();
+    const std::uint64_t callsBeforeFirstChargingEvaluation =
+        instance.get_distance_calls();
     Follower::optimize_charging(
         sevenNeighborhoodOneMove,
         instance,
         followerWorkspace);
-    const double firstChargingEvals =
-        instance.get_evals() - evalsBeforeFirstChargingEvaluation;
+    const std::uint64_t firstChargingDistanceCalls =
+        instance.get_distance_calls()
+        - callsBeforeFirstChargingEvaluation;
     assert(std::isfinite(sevenNeighborhoodOneMove.get_lower_cost()));
     assert(sevenNeighborhoodOneMove.get_tour().second == 0);
     const double* cumulativeDistanceBuffer =
         followerWorkspace.cumulativeDistance.data();
-    const double evalsBeforeSecondChargingEvaluation = instance.get_evals();
+    const std::uint64_t callsBeforeSecondChargingEvaluation =
+        instance.get_distance_calls();
     Follower::optimize_charging(
         repeatedChargingEvaluation,
         instance,
         followerWorkspace);
-    const double secondChargingEvals =
-        instance.get_evals() - evalsBeforeSecondChargingEvaluation;
+    const std::uint64_t secondChargingDistanceCalls =
+        instance.get_distance_calls()
+        - callsBeforeSecondChargingEvaluation;
     assert(std::fabs(
         repeatedChargingEvaluation.get_lower_cost()
         - sevenNeighborhoodOneMove.get_lower_cost()) <= 1e-8);
     assert(repeatedChargingEvaluation.get_tour().second == 0);
-    assert(std::fabs(firstChargingEvals - secondChargingEvals) <= 1e-8);
+    assert(firstChargingDistanceCalls == secondChargingDistanceCalls);
     assert(followerWorkspace.cumulativeDistance.data()
            == cumulativeDistanceBuffer);
     if (instance.customerNumber <= 30) {
@@ -958,13 +977,14 @@ int main(int argc, char* argv[]) {
         retainedEliteAlgorithm.retainedLowerElite->get_upper_cost();
     const double retainedLowerCost =
         retainedEliteAlgorithm.retainedLowerElite->get_lower_cost();
-    const double evalsBeforeReuse = retainedEliteInstance.get_evals();
+    const std::uint64_t callsBeforeReuse =
+        retainedEliteInstance.get_distance_calls();
     retainedEliteAlgorithm.localSearchRows.str("");
     retainedEliteAlgorithm.localSearchRows.clear();
 
     retainedEliteAlgorithm.run_generation();
 
-    assert(std::fabs(retainedEliteInstance.get_evals() - evalsBeforeReuse) <= 1e-12);
+    assert(retainedEliteInstance.get_distance_calls() == callsBeforeReuse);
     assert(retainedEliteAlgorithm.population.size() == 1);
     assert(retainedEliteAlgorithm.population.front()
            == retainedEliteAlgorithm.retainedLowerElite);
