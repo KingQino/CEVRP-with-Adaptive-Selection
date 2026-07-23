@@ -219,7 +219,7 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
     const std::string instancePath =
         std::string(TEST_DATA_DIRECTORY) + "/E-n22-k4.evrp";
     Case instance(instancePath, 10);
-    std::mt19937 initializationEngine(3);
+    std::mt19937 initializationEngine(6);
     const auto routes = Initializer::build_with_clustering(
         instance,
         initializationEngine);
@@ -299,7 +299,7 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
            < sevenNeighborhoodCost - 1e-8);
     assert(std::fabs(
         sevenNeighborhoodLocalOptimum.get_upper_cost()
-        - 383.516830253604) <= 1e-8);
+        - 375.279787148012) <= 1e-8);
     assert(std::fabs(
         sevenNeighborhoodLocalOptimum.get_upper_cost()
         - repeatedEightNeighborhoodSearch.get_upper_cost()) <= 1e-8);

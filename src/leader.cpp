@@ -265,11 +265,10 @@ void reactivate_incident_route_pairs(
     }
 }
 
-LocalSearchWorkspace::ActiveRoutePairPool& shuffled_active_route_pairs(
+LocalSearchWorkspace::ActiveRoutePairPool& synchronize_active_route_pairs(
     LocalSearchOperator localSearchOperator,
     int routeCount,
     bool directed,
-    std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
     auto& routePairPool =
         workspace.activeRoutePairPools[operator_index(localSearchOperator)];
@@ -298,11 +297,17 @@ LocalSearchWorkspace::ActiveRoutePairPool& shuffled_active_route_pairs(
                 workspace.routeVersions[versionIndex];
         }
     }
-    std::shuffle(
-        routePairPool.pairs.begin(),
-        routePairPool.pairs.end(),
-        randomEngine);
     return routePairPool;
+}
+
+std::size_t select_random_active_route_pair(
+    const LocalSearchWorkspace::ActiveRoutePairPool& routePairPool,
+    std::mt19937& randomEngine) {
+    // Removing failed samples makes this a lazy random permutation prefix.
+    std::uniform_int_distribution<std::size_t> selectPair(
+        0,
+        routePairPool.pairs.size() - 1);
+    return selectPair(randomEngine);
 }
 
 void discard_active_route_pair(
@@ -317,7 +322,6 @@ void discard_active_route_pair(
             secondRoute,
             workspace)] = 0;
     if (pairIndex + 1 != routePairPool.pairs.size()) {
-        // The caller keeps this index and examines the swapped-in pair next.
         routePairPool.pairs[pairIndex] =
             routePairPool.pairs.back();
     }
@@ -1267,14 +1271,16 @@ bool improve_with_inter_route_relocate_one_move(
 
     constexpr LocalSearchOperator localSearchOperator =
         LocalSearchOperator::InterRouteRelocate;
-    auto& routePairPool = shuffled_active_route_pairs(
+    auto& routePairPool = synchronize_active_route_pairs(
         localSearchOperator,
         individual.route_num,
         true,
-        randomEngine,
         workspace);
-    std::size_t pairIndex = 0;
-    while (pairIndex < routePairPool.pairs.size()) {
+    while (!routePairPool.pairs.empty()) {
+        const std::size_t pairIndex =
+            select_random_active_route_pair(
+                routePairPool,
+                randomEngine);
         const auto [sourceRoute, targetRoute] =
             routePairPool.pairs[pairIndex];
         const int sourceLength = individual.node_num[sourceRoute];
@@ -1408,14 +1414,16 @@ bool improve_with_inter_route_swap_one_move(
 
     constexpr LocalSearchOperator localSearchOperator =
         LocalSearchOperator::InterRouteSwap;
-    auto& routePairPool = shuffled_active_route_pairs(
+    auto& routePairPool = synchronize_active_route_pairs(
         localSearchOperator,
         individual.route_num,
         false,
-        randomEngine,
         workspace);
-    std::size_t pairIndex = 0;
-    while (pairIndex < routePairPool.pairs.size()) {
+    while (!routePairPool.pairs.empty()) {
+        const std::size_t pairIndex =
+            select_random_active_route_pair(
+                routePairPool,
+                randomEngine);
         const auto [firstRoute, secondRoute] =
             routePairPool.pairs[pairIndex];
         for (int firstNode = 1;
@@ -1659,14 +1667,16 @@ bool improve_with_swap_star_one_move(
 
     constexpr LocalSearchOperator localSearchOperator =
         LocalSearchOperator::SwapStar;
-    auto& routePairPool = shuffled_active_route_pairs(
+    auto& routePairPool = synchronize_active_route_pairs(
         localSearchOperator,
         individual.route_num,
         false,
-        randomEngine,
         workspace);
-    std::size_t pairIndex = 0;
-    while (pairIndex < routePairPool.pairs.size()) {
+    while (!routePairPool.pairs.empty()) {
+        const std::size_t pairIndex =
+            select_random_active_route_pair(
+                routePairPool,
+                randomEngine);
         const auto [firstRoute, secondRoute] =
             routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
@@ -1874,14 +1884,16 @@ bool improve_with_two_opt_star_head_to_head_one_move(
 
     constexpr LocalSearchOperator localSearchOperator =
         LocalSearchOperator::TwoOptStarHeadToHead;
-    auto& routePairPool = shuffled_active_route_pairs(
+    auto& routePairPool = synchronize_active_route_pairs(
         localSearchOperator,
         individual.route_num,
         false,
-        randomEngine,
         workspace);
-    std::size_t pairIndex = 0;
-    while (pairIndex < routePairPool.pairs.size()) {
+    while (!routePairPool.pairs.empty()) {
+        const std::size_t pairIndex =
+            select_random_active_route_pair(
+                routePairPool,
+                randomEngine);
         const auto [firstRoute, secondRoute] =
             routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
@@ -1988,14 +2000,16 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
 
     constexpr LocalSearchOperator localSearchOperator =
         LocalSearchOperator::TwoOptStarHeadToTail;
-    auto& routePairPool = shuffled_active_route_pairs(
+    auto& routePairPool = synchronize_active_route_pairs(
         localSearchOperator,
         individual.route_num,
         false,
-        randomEngine,
         workspace);
-    std::size_t pairIndex = 0;
-    while (pairIndex < routePairPool.pairs.size()) {
+    while (!routePairPool.pairs.empty()) {
+        const std::size_t pairIndex =
+            select_random_active_route_pair(
+                routePairPool,
+                randomEngine);
         const auto [firstRoute, secondRoute] =
             routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
