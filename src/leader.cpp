@@ -6,6 +6,7 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -65,6 +66,30 @@ constexpr std::array<Neighborhood, 8> kEightNeighborhoods = {
     Neighborhood::TwoOptStarHeadToHead,
     Neighborhood::TwoOptStarHeadToTail,
 };
+
+LocalSearchOperator local_search_operator(Neighborhood neighborhood) {
+    switch (neighborhood) {
+        case Neighborhood::NodeShift:
+            return LocalSearchOperator::NodeShift;
+        case Neighborhood::InterRouteRelocate:
+            return LocalSearchOperator::InterRouteRelocate;
+        case Neighborhood::IntraRouteSwap:
+            return LocalSearchOperator::IntraRouteSwap;
+        case Neighborhood::InterRouteSwap:
+            return LocalSearchOperator::InterRouteSwap;
+        case Neighborhood::SwapStar:
+            return LocalSearchOperator::SwapStar;
+        case Neighborhood::TwoOpt:
+            return LocalSearchOperator::TwoOpt;
+        case Neighborhood::TwoOptStarHeadToHead:
+            return LocalSearchOperator::TwoOptStarHeadToHead;
+        case Neighborhood::TwoOptStarHeadToTail:
+            return LocalSearchOperator::TwoOptStarHeadToTail;
+        case Neighborhood::TwoOptStar:
+            return LocalSearchOperator::Count;
+    }
+    return LocalSearchOperator::Count;
+}
 
 struct RoutePairHash {
     std::size_t operator()(const std::pair<int, int>& routePair) const {
@@ -1793,7 +1818,8 @@ LocalSearchResult improve_with_rvnd_one_move(
     std::mt19937& randomEngine,
     const std::array<Neighborhood, NeighborhoodCount>& neighborhoods,
     int moveLimit,
-    LocalSearchWorkspace& workspace) {
+    LocalSearchWorkspace& workspace,
+    double gammaUpperBound) {
     const double upperCostBefore = individual.get_upper_cost();
     const double evalsBefore = instance.get_evals();
     LocalSearchResult result;
@@ -1815,16 +1841,41 @@ LocalSearchResult improve_with_rvnd_one_move(
             0,
             activeNeighborhoods.size() - 1);
         const std::size_t selectedIndex = selectNeighborhood(randomEngine);
+        const LocalSearchOperator selectedOperator =
+            local_search_operator(activeNeighborhoods[selectedIndex]);
+        if (selectedOperator == LocalSearchOperator::Count) {
+            throw std::logic_error(
+                "RVND OneMove selected an untracked neighborhood");
+        }
+        const std::size_t operatorIndex =
+            static_cast<std::size_t>(selectedOperator);
+        LocalSearchOperatorStats& operatorStats =
+            result.operatorStats[operatorIndex];
+        const double operatorEvalsBefore = instance.get_evals();
+        const double operatorUpperCostBefore = individual.get_upper_cost();
+        const bool outsideGammaBefore =
+            operatorUpperCostBefore > gammaUpperBound;
+
         ++result.neighborhoodCalls;
+        ++operatorStats.calls;
         const bool improved = improve_with_neighborhood_one_move(
             activeNeighborhoods[selectedIndex],
             individual,
             instance,
             randomEngine,
             workspace);
+        operatorStats.evals +=
+            instance.get_evals() - operatorEvalsBefore;
 
         if (improved) {
             ++result.acceptedMoves;
+            ++operatorStats.accepts;
+            operatorStats.upperGain +=
+                operatorUpperCostBefore - individual.get_upper_cost();
+            if (outsideGammaBefore
+                && individual.get_upper_cost() <= gammaUpperBound) {
+                ++operatorStats.gammaCrosses;
+            }
             activeNeighborhoods.assign(neighborhoods.begin(), neighborhoods.end());
         } else {
             activeNeighborhoods.erase(activeNeighborhoods.begin() + selectedIndex);
@@ -1863,6 +1914,31 @@ int move_limit_for_intensity(
 }
 
 }  // namespace
+
+const char* Leader::operator_name(
+    LocalSearchOperator localSearchOperator) {
+    switch (localSearchOperator) {
+        case LocalSearchOperator::NodeShift:
+            return "node_shift";
+        case LocalSearchOperator::InterRouteRelocate:
+            return "inter_route_relocate";
+        case LocalSearchOperator::IntraRouteSwap:
+            return "intra_route_swap";
+        case LocalSearchOperator::InterRouteSwap:
+            return "inter_route_swap";
+        case LocalSearchOperator::SwapStar:
+            return "swap_star";
+        case LocalSearchOperator::TwoOpt:
+            return "two_opt";
+        case LocalSearchOperator::TwoOptStarHeadToHead:
+            return "two_opt_star_head_to_head";
+        case LocalSearchOperator::TwoOptStarHeadToTail:
+            return "two_opt_star_head_to_tail";
+        case LocalSearchOperator::Count:
+            return "unknown";
+    }
+    return "unknown";
+}
 
 void Leader::improve_with_three_neighborhood_vnd(Individual& individual, Case& instance) {
     bool improvedInRound;
@@ -1912,7 +1988,8 @@ void Leader::improve_with_seven_neighborhood_rvnd_one_move(
         randomEngine,
         kSevenNeighborhoods,
         -1,
-        workspace);
+        workspace,
+        std::numeric_limits<double>::infinity());
 }
 
 LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
@@ -1941,7 +2018,8 @@ LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
         randomEngine,
         kSevenNeighborhoods,
         move_limit_for_intensity(individual, instance, intensity),
-        workspace);
+        workspace,
+        std::numeric_limits<double>::infinity());
 }
 
 void Leader::improve_with_eight_neighborhood_rvnd_one_move(
@@ -1955,7 +2033,8 @@ void Leader::improve_with_eight_neighborhood_rvnd_one_move(
         randomEngine,
         kEightNeighborhoods,
         -1,
-        workspace);
+        workspace,
+        std::numeric_limits<double>::infinity());
 }
 
 LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
@@ -1978,11 +2057,28 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
     std::mt19937& randomEngine,
     LocalSearchIntensity intensity,
     LocalSearchWorkspace& workspace) {
+    return improve_with_eight_neighborhood_rvnd_one_move(
+        individual,
+        instance,
+        randomEngine,
+        intensity,
+        workspace,
+        std::numeric_limits<double>::infinity());
+}
+
+LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchIntensity intensity,
+    LocalSearchWorkspace& workspace,
+    double gammaUpperBound) {
     return improve_with_rvnd_one_move(
         individual,
         instance,
         randomEngine,
         kEightNeighborhoods,
         move_limit_for_intensity(individual, instance, intensity),
-        workspace);
+        workspace,
+        gammaUpperBound);
 }

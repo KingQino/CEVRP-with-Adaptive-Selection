@@ -217,20 +217,28 @@ void MA::open_log_for_local_search() {
 
     logLocalSearch.open(directoryPath / "local-search.tsv");
     logLocalSearch << LOCAL_SEARCH_LOG_HEADER << "\n";
+    logLocalSearchOperators.open(
+        directoryPath / "local-search-operators.tsv");
+    logLocalSearchOperators << LOCAL_SEARCH_OPERATOR_LOG_HEADER << "\n";
 }
 
 void MA::flush_local_search_log() {
-    if (!logLocalSearch.is_open()) {
-        return;
+    if (logLocalSearch.is_open()) {
+        logLocalSearch << localSearchRows.str();
+        localSearchRows.str("");
+        localSearchRows.clear();
     }
-    logLocalSearch << localSearchRows.str();
-    localSearchRows.str("");
-    localSearchRows.clear();
+    if (logLocalSearchOperators.is_open()) {
+        logLocalSearchOperators << localSearchOperatorRows.str();
+        localSearchOperatorRows.str("");
+        localSearchOperatorRows.clear();
+    }
 }
 
 void MA::close_log_for_local_search() {
     flush_local_search_log();
     logLocalSearch.close();
+    logLocalSearchOperators.close();
 }
 
 void MA::save_log_for_solution() {
@@ -276,6 +284,9 @@ void MA::run_generation() {
 
     shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     vector<LocalSearchLogRecord> localSearchRecords;
+    std::array<
+        LocalSearchOperatorStats,
+        LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     ParentCandidate localSearchBestReference;
     if (enableLogging) {
@@ -326,7 +337,22 @@ void MA::run_generation() {
                 *instance,
                 localSearchEngine,
                 localSearchIntensity,
-                localSearchWorkspace);
+                localSearchWorkspace,
+                triggerUpperBoundBefore);
+        }
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            auto& generationStats =
+                generationOperatorStats[operatorIndex];
+            const auto& individualStats =
+                result.operatorStats[operatorIndex];
+            generationStats.calls += individualStats.calls;
+            generationStats.accepts += individualStats.accepts;
+            generationStats.evals += individualStats.evals;
+            generationStats.upperGain += individualStats.upperGain;
+            generationStats.gammaCrosses +=
+                individualStats.gammaCrosses;
         }
         const ParentCandidate afterCandidate =
             Reproduction::make_parent_candidate(*individual);
@@ -446,6 +472,23 @@ void MA::run_generation() {
                             << record.crossedGamma << "\t"
                             << record.lowerEvaluated << "\t"
                             << record.verifiedLowerImprovement << "\n";
+        }
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            const auto localSearchOperator =
+                static_cast<LocalSearchOperator>(operatorIndex);
+            const auto& operatorStats =
+                generationOperatorStats[operatorIndex];
+            localSearchOperatorRows
+                << setprecision(12)
+                << generation << "\t"
+                << Leader::operator_name(localSearchOperator) << "\t"
+                << operatorStats.calls << "\t"
+                << operatorStats.accepts << "\t"
+                << operatorStats.evals << "\t"
+                << operatorStats.upperGain << "\t"
+                << operatorStats.gammaCrosses << "\n";
         }
         flush_local_search_log();
     }

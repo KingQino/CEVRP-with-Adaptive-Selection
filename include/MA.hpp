@@ -25,6 +25,8 @@ public:
         "accepted_moves\tneighborhood_calls\tls_evals\trelative_upper_improvement\t"
         "reached_local_optimum\tcrossed_gamma\tlower_evaluated\t"
         "verified_lower_improvement";
+    static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
+        "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -46,7 +48,9 @@ public:
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchRows;
+    std::ostringstream localSearchOperatorRows;
     std::ofstream logLocalSearch;
+    std::ofstream logLocalSearchOperators;
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;

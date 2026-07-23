@@ -109,6 +109,6 @@ cannot exceed the resulting parent-pool size.
 - Skip performs no upper-level local search, weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`, and strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - Every generation applies the selected local-search intensity to the complete upper-level population; no confidence filter is used.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
-- Each trial writes per-call local-search feedback to `local-search.tsv` in its stats directory.
+- Each trial writes per-call local-search feedback to `local-search.tsv` and per-generation operator totals (`calls`, `accepts`, `evals`, `upper_gain`, and `gamma_crosses`) to `local-search-operators.tsv`.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - With `popSize=100`, `Reproduction` builds the next generation from one lower-level elite, 84 upper-parent offspring, 5 verified-best/immigrant offspring, and 10 pure immigrants.

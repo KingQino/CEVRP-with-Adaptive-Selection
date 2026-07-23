@@ -2,12 +2,36 @@
 #define LEADER_HPP
 
 #include <array>
+#include <cstddef>
 #include <random>
 #include <utility>
 #include <vector>
 
 class Case;
 class Individual;
+
+enum class LocalSearchOperator {
+    NodeShift,
+    InterRouteRelocate,
+    IntraRouteSwap,
+    InterRouteSwap,
+    SwapStar,
+    TwoOpt,
+    TwoOptStarHeadToHead,
+    TwoOptStarHeadToTail,
+    Count,
+};
+
+constexpr std::size_t LOCAL_SEARCH_OPERATOR_COUNT =
+    static_cast<std::size_t>(LocalSearchOperator::Count);
+
+struct LocalSearchOperatorStats {
+    int calls{};
+    int accepts{};
+    double evals{};
+    double upperGain{};
+    int gammaCrosses{};
+};
 
 enum class LocalSearchIntensity {
     Skip,
@@ -23,6 +47,8 @@ struct LocalSearchResult {
     double evalsUsed{};
     double relativeUpperImprovement{};
     bool reachedLocalOptimum{};
+    std::array<LocalSearchOperatorStats, LOCAL_SEARCH_OPERATOR_COUNT>
+        operatorStats{};
 };
 
 struct LocalSearchWorkspace {
@@ -45,6 +71,7 @@ struct LocalSearchWorkspace {
 
 class Leader {
 public:
+    static const char* operator_name(LocalSearchOperator localSearchOperator);
     static void improve_with_three_neighborhood_vnd(Individual& individual, Case& instance);
     static void improve_with_three_neighborhood_rvnd(
         Individual& individual,
@@ -88,6 +115,13 @@ public:
         std::mt19937& randomEngine,
         LocalSearchIntensity intensity,
         LocalSearchWorkspace& workspace);
+    static LocalSearchResult improve_with_eight_neighborhood_rvnd_one_move(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine,
+        LocalSearchIntensity intensity,
+        LocalSearchWorkspace& workspace,
+        double gammaUpperBound);
 };
 
 #endif

@@ -254,7 +254,8 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
             instance,
             firstEightEngine,
             LocalSearchIntensity::Strong,
-            workspace);
+            workspace,
+            400.0);
     const LocalSearchResult secondEightResult =
         Leader::improve_with_eight_neighborhood_rvnd_one_move(
             repeatedEightNeighborhoodSearch,
@@ -265,6 +266,30 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
     assert(firstEightResult.acceptedMoves == 9);
     assert(firstEightResult.reachedLocalOptimum);
     assert(firstEightResult.evalsUsed < 500.0);
+    int operatorCalls = 0;
+    int operatorAccepts = 0;
+    int operatorGammaCrosses = 0;
+    double operatorEvals = 0.0;
+    double operatorUpperGain = 0.0;
+    for (const auto& operatorStats : firstEightResult.operatorStats) {
+        assert(operatorStats.calls >= operatorStats.accepts);
+        assert(operatorStats.accepts >= operatorStats.gammaCrosses);
+        assert(operatorStats.evals >= 0.0);
+        assert(operatorStats.upperGain >= 0.0);
+        operatorCalls += operatorStats.calls;
+        operatorAccepts += operatorStats.accepts;
+        operatorEvals += operatorStats.evals;
+        operatorUpperGain += operatorStats.upperGain;
+        operatorGammaCrosses += operatorStats.gammaCrosses;
+    }
+    assert(operatorCalls == firstEightResult.neighborhoodCalls);
+    assert(operatorAccepts == firstEightResult.acceptedMoves);
+    assert(std::fabs(operatorEvals - firstEightResult.evalsUsed) <= 1e-8);
+    assert(std::fabs(
+        operatorUpperGain
+        - (sevenNeighborhoodCost
+           - sevenNeighborhoodLocalOptimum.get_upper_cost())) <= 1e-8);
+    assert(operatorGammaCrosses == 1);
     assert(firstEightResult.acceptedMoves == secondEightResult.acceptedMoves);
     assert(firstEightResult.neighborhoodCalls
            == secondEightResult.neighborhoodCalls);
@@ -731,6 +756,10 @@ int main(int argc, char* argv[]) {
     std::istringstream localSearchStream(localSearchRows);
     std::string localSearchRow;
     int localSearchRowCount = 0;
+    int loggedLocalSearchCalls = 0;
+    int loggedLocalSearchAccepts = 0;
+    int loggedGammaCrosses = 0;
+    double loggedLocalSearchEvals = 0.0;
     while (std::getline(localSearchStream, localSearchRow)) {
         assert(std::count(localSearchRow.begin(), localSearchRow.end(), '\t') == 12);
         std::istringstream rowStream(localSearchRow);
@@ -753,9 +782,57 @@ int main(int argc, char* argv[]) {
         assert(columns[10] == "0" || columns[10] == "1");
         assert(columns[11] == "0" || columns[11] == "1");
         assert(std::stod(columns[12]) >= 0.0);
+        loggedLocalSearchAccepts += std::stoi(columns[5]);
+        loggedLocalSearchCalls += std::stoi(columns[6]);
+        loggedLocalSearchEvals += std::stod(columns[7]);
+        loggedGammaCrosses += std::stoi(columns[10]);
         ++localSearchRowCount;
     }
     assert(localSearchRowCount == 10);
+    assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
+           == "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses");
+    const std::string operatorRows = algorithm.localSearchOperatorRows.str();
+    std::istringstream operatorStream(operatorRows);
+    std::string operatorRow;
+    std::set<std::string> loggedOperators;
+    int operatorRowCount = 0;
+    int aggregateOperatorCalls = 0;
+    int aggregateOperatorAccepts = 0;
+    int aggregateOperatorGammaCrosses = 0;
+    double aggregateOperatorEvals = 0.0;
+    while (std::getline(operatorStream, operatorRow)) {
+        assert(std::count(operatorRow.begin(), operatorRow.end(), '\t') == 6);
+        std::istringstream rowStream(operatorRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 7);
+        assert(std::stoi(columns[0]) == 1);
+        assert(loggedOperators.insert(columns[1]).second);
+        const int calls = std::stoi(columns[2]);
+        const int accepts = std::stoi(columns[3]);
+        const double evals = std::stod(columns[4]);
+        const double upperGain = std::stod(columns[5]);
+        const int gammaCrosses = std::stoi(columns[6]);
+        assert(calls >= accepts);
+        assert(accepts >= gammaCrosses);
+        assert(evals >= 0.0);
+        assert(upperGain >= 0.0);
+        aggregateOperatorCalls += calls;
+        aggregateOperatorAccepts += accepts;
+        aggregateOperatorEvals += evals;
+        aggregateOperatorGammaCrosses += gammaCrosses;
+        ++operatorRowCount;
+    }
+    assert(operatorRowCount
+           == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
+    assert(aggregateOperatorCalls == loggedLocalSearchCalls);
+    assert(aggregateOperatorAccepts == loggedLocalSearchAccepts);
+    assert(std::fabs(
+        aggregateOperatorEvals - loggedLocalSearchEvals) <= 1e-7);
+    assert(aggregateOperatorGammaCrosses == loggedGammaCrosses);
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
