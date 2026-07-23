@@ -91,6 +91,303 @@ LocalSearchOperator local_search_operator(Neighborhood neighborhood) {
     return LocalSearchOperator::Count;
 }
 
+std::size_t operator_index(LocalSearchOperator localSearchOperator) {
+    return static_cast<std::size_t>(localSearchOperator);
+}
+
+void clear_failure_stamps(LocalSearchWorkspace& workspace) {
+    for (auto& failedVersions : workspace.failedRouteVersions) {
+        std::fill(failedVersions.begin(), failedVersions.end(), 0);
+    }
+    for (auto& routePairPool : workspace.activeRoutePairPools) {
+        routePairPool.topologyVersion = 0;
+    }
+    workspace.nextRouteVersion = 1;
+}
+
+void advance_route_topology_version(LocalSearchWorkspace& workspace) {
+    if (workspace.routeTopologyVersion
+        == std::numeric_limits<std::uint64_t>::max()) {
+        for (auto& routePairPool : workspace.activeRoutePairPools) {
+            routePairPool.topologyVersion = 0;
+        }
+        workspace.routeTopologyVersion = 1;
+        return;
+    }
+    ++workspace.routeTopologyVersion;
+}
+
+std::uint64_t next_route_version(LocalSearchWorkspace& workspace) {
+    if (workspace.nextRouteVersion
+        == std::numeric_limits<std::uint64_t>::max()) {
+        clear_failure_stamps(workspace);
+        advance_route_topology_version(workspace);
+    }
+    return workspace.nextRouteVersion++;
+}
+
+void begin_failure_cache_session(
+    int routeCount,
+    LocalSearchWorkspace& workspace) {
+    const std::size_t requiredStride =
+        static_cast<std::size_t>(routeCount);
+    if (workspace.routePairCacheStride < requiredStride) {
+        workspace.routePairCacheStride = requiredStride;
+    }
+
+    advance_route_topology_version(workspace);
+    workspace.routeVersions.resize(workspace.routePairCacheStride);
+    for (auto& failedVersions : workspace.failedRouteVersions) {
+        failedVersions.resize(workspace.routePairCacheStride, 0);
+    }
+    for (int routeIndex = 0; routeIndex < routeCount; ++routeIndex) {
+        workspace.routeVersions[static_cast<std::size_t>(routeIndex)] =
+            next_route_version(workspace);
+    }
+    workspace.changedRouteCount = 0;
+    workspace.allRoutesChanged = false;
+}
+
+bool route_failure_is_cached(
+    LocalSearchOperator localSearchOperator,
+    int routeIndex,
+    const LocalSearchWorkspace& workspace) {
+    const auto& failedVersions =
+        workspace.failedRouteVersions[operator_index(localSearchOperator)];
+    return failedVersions[static_cast<std::size_t>(routeIndex)]
+        == workspace.routeVersions[static_cast<std::size_t>(routeIndex)];
+}
+
+void cache_route_failure(
+    LocalSearchOperator localSearchOperator,
+    int routeIndex,
+    LocalSearchWorkspace& workspace) {
+    workspace.failedRouteVersions[operator_index(localSearchOperator)]
+        [static_cast<std::size_t>(routeIndex)] =
+            workspace.routeVersions[static_cast<std::size_t>(routeIndex)];
+}
+
+std::size_t route_pair_cache_index(
+    int firstRoute,
+    int secondRoute,
+    const LocalSearchWorkspace& workspace) {
+    return static_cast<std::size_t>(firstRoute)
+        * workspace.routePairCacheStride
+        + static_cast<std::size_t>(secondRoute);
+}
+
+void add_active_route_pair(
+    LocalSearchWorkspace::ActiveRoutePairPool& routePairPool,
+    int firstRoute,
+    int secondRoute,
+    const LocalSearchWorkspace& workspace) {
+    const std::size_t membershipIndex =
+        route_pair_cache_index(firstRoute, secondRoute, workspace);
+    if (routePairPool.membership[membershipIndex] != 0) {
+        return;
+    }
+    routePairPool.membership[membershipIndex] = 1;
+    routePairPool.pairs.emplace_back(firstRoute, secondRoute);
+}
+
+void initialize_active_route_pair_pool(
+    LocalSearchOperator localSearchOperator,
+    int routeCount,
+    bool directed,
+    LocalSearchWorkspace& workspace) {
+    auto& routePairPool =
+        workspace.activeRoutePairPools[operator_index(localSearchOperator)];
+    routePairPool.pairs.clear();
+    routePairPool.membership.assign(
+        workspace.routePairCacheStride * workspace.routePairCacheStride,
+        0);
+    const int pairCount = directed
+        ? routeCount * (routeCount - 1)
+        : routeCount * (routeCount - 1) / 2;
+    routePairPool.pairs.reserve(static_cast<std::size_t>(pairCount));
+
+    for (int firstRoute = 0; firstRoute < routeCount; ++firstRoute) {
+        const int secondRouteBegin = directed ? 0 : firstRoute + 1;
+        for (int secondRoute = secondRouteBegin;
+             secondRoute < routeCount;
+             ++secondRoute) {
+            if (firstRoute != secondRoute) {
+                add_active_route_pair(
+                    routePairPool,
+                    firstRoute,
+                    secondRoute,
+                    workspace);
+            }
+        }
+    }
+
+    routePairPool.observedRouteVersions.resize(
+        workspace.routePairCacheStride);
+    for (int routeIndex = 0; routeIndex < routeCount; ++routeIndex) {
+        routePairPool.observedRouteVersions[
+            static_cast<std::size_t>(routeIndex)] =
+            workspace.routeVersions[
+                static_cast<std::size_t>(routeIndex)];
+    }
+    routePairPool.topologyVersion = workspace.routeTopologyVersion;
+    routePairPool.routeCount = routeCount;
+    routePairPool.directed = directed;
+}
+
+void reactivate_incident_route_pairs(
+    LocalSearchWorkspace::ActiveRoutePairPool& routePairPool,
+    int changedRoute,
+    const LocalSearchWorkspace& workspace) {
+    for (int otherRoute = 0;
+         otherRoute < routePairPool.routeCount;
+         ++otherRoute) {
+        if (otherRoute == changedRoute) {
+            continue;
+        }
+        if (routePairPool.directed) {
+            add_active_route_pair(
+                routePairPool,
+                changedRoute,
+                otherRoute,
+                workspace);
+            add_active_route_pair(
+                routePairPool,
+                otherRoute,
+                changedRoute,
+                workspace);
+        } else {
+            add_active_route_pair(
+                routePairPool,
+                std::min(changedRoute, otherRoute),
+                std::max(changedRoute, otherRoute),
+                workspace);
+        }
+    }
+}
+
+LocalSearchWorkspace::ActiveRoutePairPool& shuffled_active_route_pairs(
+    LocalSearchOperator localSearchOperator,
+    int routeCount,
+    bool directed,
+    std::mt19937& randomEngine,
+    LocalSearchWorkspace& workspace) {
+    auto& routePairPool =
+        workspace.activeRoutePairPools[operator_index(localSearchOperator)];
+    if (routePairPool.topologyVersion
+            != workspace.routeTopologyVersion
+        || routePairPool.routeCount != routeCount
+        || routePairPool.directed != directed) {
+        initialize_active_route_pair_pool(
+            localSearchOperator,
+            routeCount,
+            directed,
+            workspace);
+    } else {
+        for (int routeIndex = 0; routeIndex < routeCount; ++routeIndex) {
+            const std::size_t versionIndex =
+                static_cast<std::size_t>(routeIndex);
+            if (routePairPool.observedRouteVersions[versionIndex]
+                == workspace.routeVersions[versionIndex]) {
+                continue;
+            }
+            reactivate_incident_route_pairs(
+                routePairPool,
+                routeIndex,
+                workspace);
+            routePairPool.observedRouteVersions[versionIndex] =
+                workspace.routeVersions[versionIndex];
+        }
+    }
+    std::shuffle(
+        routePairPool.pairs.begin(),
+        routePairPool.pairs.end(),
+        randomEngine);
+    return routePairPool;
+}
+
+void discard_active_route_pair(
+    LocalSearchWorkspace::ActiveRoutePairPool& routePairPool,
+    std::size_t pairIndex,
+    const LocalSearchWorkspace& workspace) {
+    const auto [firstRoute, secondRoute] =
+        routePairPool.pairs[pairIndex];
+    routePairPool.membership[
+        route_pair_cache_index(
+            firstRoute,
+            secondRoute,
+            workspace)] = 0;
+    if (pairIndex + 1 != routePairPool.pairs.size()) {
+        // The caller keeps this index and examines the swapped-in pair next.
+        routePairPool.pairs[pairIndex] =
+            routePairPool.pairs.back();
+    }
+    routePairPool.pairs.pop_back();
+}
+
+void reset_move_impact(LocalSearchWorkspace& workspace) {
+    workspace.changedRouteCount = 0;
+    workspace.changedRoutes = {-1, -1};
+    workspace.allRoutesChanged = false;
+}
+
+void record_changed_route(
+    int routeIndex,
+    LocalSearchWorkspace& workspace) {
+    for (int changedIndex = 0;
+         changedIndex < workspace.changedRouteCount;
+         ++changedIndex) {
+        if (workspace.changedRoutes[
+                static_cast<std::size_t>(changedIndex)] == routeIndex) {
+            return;
+        }
+    }
+    if (workspace.changedRouteCount
+        >= static_cast<int>(workspace.changedRoutes.size())) {
+        throw std::logic_error(
+            "local-search move changed more than two routes");
+    }
+    workspace.changedRoutes[
+        static_cast<std::size_t>(workspace.changedRouteCount++)] =
+            routeIndex;
+}
+
+void record_changed_route_pair(
+    int firstRoute,
+    int secondRoute,
+    LocalSearchWorkspace& workspace) {
+    record_changed_route(firstRoute, workspace);
+    record_changed_route(secondRoute, workspace);
+}
+
+void record_all_routes_changed(LocalSearchWorkspace& workspace) {
+    workspace.allRoutesChanged = true;
+}
+
+void invalidate_failure_cache_after_move(
+    int routeCount,
+    LocalSearchWorkspace& workspace) {
+    if (workspace.allRoutesChanged) {
+        advance_route_topology_version(workspace);
+        for (int routeIndex = 0; routeIndex < routeCount; ++routeIndex) {
+            workspace.routeVersions[static_cast<std::size_t>(routeIndex)] =
+                next_route_version(workspace);
+        }
+        return;
+    }
+    if (workspace.changedRouteCount == 0) {
+        throw std::logic_error(
+            "improving local-search move did not report changed routes");
+    }
+    for (int changedIndex = 0;
+         changedIndex < workspace.changedRouteCount;
+         ++changedIndex) {
+        const int routeIndex = workspace.changedRoutes[
+            static_cast<std::size_t>(changedIndex)];
+        workspace.routeVersions[static_cast<std::size_t>(routeIndex)] =
+            next_route_version(workspace);
+    }
+}
+
 struct RoutePairHash {
     std::size_t operator()(const std::pair<int, int>& routePair) const {
         return routePair.first * 256 + routePair.second;
@@ -889,45 +1186,31 @@ const std::vector<int>& shuffled_route_order(
     return routeOrder;
 }
 
-const std::vector<std::pair<int, int>>& shuffled_route_pairs(
-    int routeCount,
-    bool directed,
-    std::mt19937& randomEngine,
-    LocalSearchWorkspace& workspace) {
-    auto& routePairs = workspace.routePairs;
-    routePairs.clear();
-    const int pairCount = directed
-        ? routeCount * (routeCount - 1)
-        : routeCount * (routeCount - 1) / 2;
-    routePairs.reserve(pairCount);
-
-    for (int firstRoute = 0; firstRoute < routeCount; ++firstRoute) {
-        const int secondRouteBegin = directed ? 0 : firstRoute + 1;
-        for (int secondRoute = secondRouteBegin;
-             secondRoute < routeCount;
-             ++secondRoute) {
-            if (firstRoute != secondRoute) {
-                routePairs.emplace_back(firstRoute, secondRoute);
-            }
-        }
-    }
-    std::shuffle(routePairs.begin(), routePairs.end(), randomEngine);
-    return routePairs;
-}
-
 bool improve_with_node_shift_one_move(
     Individual& individual,
     Case& instance,
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::NodeShift;
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
         workspace);
     for (const int routeIndex : routeOrder) {
+        if (route_failure_is_cached(
+                localSearchOperator,
+                routeIndex,
+                workspace)) {
+            continue;
+        }
         int* route = individual.routes[routeIndex];
         const int length = individual.node_num[routeIndex];
         if (length <= 4) {
+            cache_route_failure(
+                localSearchOperator,
+                routeIndex,
+                workspace);
             continue;
         }
 
@@ -961,9 +1244,14 @@ bool improve_with_node_shift_one_move(
                 }
                 move_node(route, fromIndex, toIndex);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                record_changed_route(routeIndex, workspace);
                 return true;
             }
         }
+        cache_route_failure(
+            localSearchOperator,
+            routeIndex,
+            workspace);
     }
     return false;
 }
@@ -977,12 +1265,18 @@ bool improve_with_inter_route_relocate_one_move(
         return false;
     }
 
-    const auto& routePairs = shuffled_route_pairs(
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::InterRouteRelocate;
+    auto& routePairPool = shuffled_active_route_pairs(
+        localSearchOperator,
         individual.route_num,
         true,
         randomEngine,
         workspace);
-    for (const auto& [sourceRoute, targetRoute] : routePairs) {
+    std::size_t pairIndex = 0;
+    while (pairIndex < routePairPool.pairs.size()) {
+        const auto [sourceRoute, targetRoute] =
+            routePairPool.pairs[pairIndex];
         const int sourceLength = individual.node_num[sourceRoute];
         const int targetLength = individual.node_num[targetRoute];
         for (int sourceNode = 1; sourceNode < sourceLength - 1; ++sourceNode) {
@@ -1024,10 +1318,20 @@ bool improve_with_inter_route_relocate_one_move(
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 if (individual.node_num[sourceRoute] == 2) {
                     remove_empty_route(individual, sourceRoute);
+                    record_all_routes_changed(workspace);
+                } else {
+                    record_changed_route_pair(
+                        sourceRoute,
+                        targetRoute,
+                        workspace);
                 }
                 return true;
             }
         }
+        discard_active_route_pair(
+            routePairPool,
+            pairIndex,
+            workspace);
     }
     return false;
 }
@@ -1037,14 +1341,26 @@ bool improve_with_intra_route_swap_one_move(
     Case& instance,
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::IntraRouteSwap;
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
         workspace);
     for (const int routeIndex : routeOrder) {
+        if (route_failure_is_cached(
+                localSearchOperator,
+                routeIndex,
+                workspace)) {
+            continue;
+        }
         int* route = individual.routes[routeIndex];
         const int length = individual.node_num[routeIndex];
         if (length < 5) {
+            cache_route_failure(
+                localSearchOperator,
+                routeIndex,
+                workspace);
             continue;
         }
 
@@ -1069,9 +1385,14 @@ bool improve_with_intra_route_swap_one_move(
 
                 std::swap(route[firstNode], route[secondNode]);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                record_changed_route(routeIndex, workspace);
                 return true;
             }
         }
+        cache_route_failure(
+            localSearchOperator,
+            routeIndex,
+            workspace);
     }
     return false;
 }
@@ -1085,12 +1406,18 @@ bool improve_with_inter_route_swap_one_move(
         return false;
     }
 
-    const auto& routePairs = shuffled_route_pairs(
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::InterRouteSwap;
+    auto& routePairPool = shuffled_active_route_pairs(
+        localSearchOperator,
         individual.route_num,
         false,
         randomEngine,
         workspace);
-    for (const auto& [firstRoute, secondRoute] : routePairs) {
+    std::size_t pairIndex = 0;
+    while (pairIndex < routePairPool.pairs.size()) {
+        const auto [firstRoute, secondRoute] =
+            routePairPool.pairs[pairIndex];
         for (int firstNode = 1;
              firstNode < individual.node_num[firstRoute] - 1;
              ++firstNode) {
@@ -1145,9 +1472,17 @@ bool improve_with_inter_route_swap_one_move(
                 individual.demand_sum[secondRoute] =
                     individual.demand_sum[secondRoute] - secondDemand + firstDemand;
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                record_changed_route_pair(
+                    firstRoute,
+                    secondRoute,
+                    workspace);
                 return true;
             }
         }
+        discard_active_route_pair(
+            routePairPool,
+            pairIndex,
+            workspace);
     }
     return false;
 }
@@ -1322,12 +1657,18 @@ bool improve_with_swap_star_one_move(
         return false;
     }
 
-    const auto& routePairs = shuffled_route_pairs(
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::SwapStar;
+    auto& routePairPool = shuffled_active_route_pairs(
+        localSearchOperator,
         individual.route_num,
         false,
         randomEngine,
         workspace);
-    for (const auto& [firstRoute, secondRoute] : routePairs) {
+    std::size_t pairIndex = 0;
+    while (pairIndex < routePairPool.pairs.size()) {
+        const auto [firstRoute, secondRoute] =
+            routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
         const int secondLength = individual.node_num[secondRoute];
         cache_top_three_insertions(
@@ -1419,6 +1760,10 @@ bool improve_with_swap_star_one_move(
         }
 
         if (bestImprovement <= kImprovementTolerance) {
+            discard_active_route_pair(
+                routePairPool,
+                pairIndex,
+                workspace);
             continue;
         }
 
@@ -1460,6 +1805,10 @@ bool improve_with_swap_star_one_move(
             secondNewDemand);
         individual.set_upper_cost(
             individual.get_upper_cost() - bestImprovement);
+        record_changed_route_pair(
+            firstRoute,
+            secondRoute,
+            workspace);
         return true;
     }
     return false;
@@ -1470,11 +1819,19 @@ bool improve_with_two_opt_one_move(
     Case& instance,
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::TwoOpt;
     const auto& routeOrder = shuffled_route_order(
         individual.route_num,
         randomEngine,
         workspace);
     for (const int routeIndex : routeOrder) {
+        if (route_failure_is_cached(
+                localSearchOperator,
+                routeIndex,
+                workspace)) {
+            continue;
+        }
         int* route = individual.routes[routeIndex];
         const int length = individual.node_num[routeIndex];
         for (int firstNode = 1; firstNode < length - 2; ++firstNode) {
@@ -1494,9 +1851,14 @@ bool improve_with_two_opt_one_move(
 
                 std::reverse(route + firstNode, route + secondNode + 1);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
+                record_changed_route(routeIndex, workspace);
                 return true;
             }
         }
+        cache_route_failure(
+            localSearchOperator,
+            routeIndex,
+            workspace);
     }
     return false;
 }
@@ -1510,12 +1872,18 @@ bool improve_with_two_opt_star_head_to_head_one_move(
         return false;
     }
 
-    const auto& routePairs = shuffled_route_pairs(
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::TwoOptStarHeadToHead;
+    auto& routePairPool = shuffled_active_route_pairs(
+        localSearchOperator,
         individual.route_num,
         false,
         randomEngine,
         workspace);
-    for (const auto& [firstRoute, secondRoute] : routePairs) {
+    std::size_t pairIndex = 0;
+    while (pairIndex < routePairPool.pairs.size()) {
+        const auto [firstRoute, secondRoute] =
+            routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
         const int secondLength = individual.node_num[secondRoute];
         int firstPrefixDemand = 0;
@@ -1588,12 +1956,23 @@ bool improve_with_two_opt_star_head_to_head_one_move(
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 if (individual.node_num[firstRoute] == 2) {
                     remove_empty_route(individual, firstRoute);
+                    record_all_routes_changed(workspace);
                 } else if (individual.node_num[secondRoute] == 2) {
                     remove_empty_route(individual, secondRoute);
+                    record_all_routes_changed(workspace);
+                } else {
+                    record_changed_route_pair(
+                        firstRoute,
+                        secondRoute,
+                        workspace);
                 }
                 return true;
             }
         }
+        discard_active_route_pair(
+            routePairPool,
+            pairIndex,
+            workspace);
     }
     return false;
 }
@@ -1607,12 +1986,18 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
         return false;
     }
 
-    const auto& routePairs = shuffled_route_pairs(
+    constexpr LocalSearchOperator localSearchOperator =
+        LocalSearchOperator::TwoOptStarHeadToTail;
+    auto& routePairPool = shuffled_active_route_pairs(
+        localSearchOperator,
         individual.route_num,
         false,
         randomEngine,
         workspace);
-    for (const auto& [firstRoute, secondRoute] : routePairs) {
+    std::size_t pairIndex = 0;
+    while (pairIndex < routePairPool.pairs.size()) {
+        const auto [firstRoute, secondRoute] =
+            routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
         const int secondLength = individual.node_num[secondRoute];
         int firstPrefixDemand = 0;
@@ -1685,12 +2070,23 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 if (individual.node_num[firstRoute] == 2) {
                     remove_empty_route(individual, firstRoute);
+                    record_all_routes_changed(workspace);
                 } else if (individual.node_num[secondRoute] == 2) {
                     remove_empty_route(individual, secondRoute);
+                    record_all_routes_changed(workspace);
+                } else {
+                    record_changed_route_pair(
+                        firstRoute,
+                        secondRoute,
+                        workspace);
                 }
                 return true;
             }
         }
+        discard_active_route_pair(
+            routePairPool,
+            pairIndex,
+            workspace);
     }
     return false;
 }
@@ -1828,6 +2224,7 @@ LocalSearchResult improve_with_rvnd_one_move(
         return result;
     }
 
+    begin_failure_cache_session(individual.route_num, workspace);
     std::vector<Neighborhood> activeNeighborhoods(
         neighborhoods.begin(),
         neighborhoods.end());
@@ -1858,6 +2255,7 @@ LocalSearchResult improve_with_rvnd_one_move(
 
         ++result.neighborhoodCalls;
         ++operatorStats.calls;
+        reset_move_impact(workspace);
         const bool improved = improve_with_neighborhood_one_move(
             activeNeighborhoods[selectedIndex],
             individual,
@@ -1868,6 +2266,9 @@ LocalSearchResult improve_with_rvnd_one_move(
             instance.get_evals() - operatorEvalsBefore;
 
         if (improved) {
+            invalidate_failure_cache_after_move(
+                individual.route_num,
+                workspace);
             ++result.acceptedMoves;
             ++operatorStats.accepts;
             operatorStats.upperGain +=

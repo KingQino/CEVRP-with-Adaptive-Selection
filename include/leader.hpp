@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <random>
 #include <utility>
 #include <vector>
@@ -59,14 +60,35 @@ struct LocalSearchWorkspace {
 
     using TopThreeInsertions = std::array<InsertionCandidate, 3>;
 
+    struct ActiveRoutePairPool {
+        std::vector<std::pair<int, int>> pairs;
+        std::vector<unsigned char> membership;
+        std::vector<std::uint64_t> observedRouteVersions;
+        std::uint64_t topologyVersion{};
+        int routeCount{};
+        bool directed{};
+    };
+
     std::vector<int> routeOrder;
-    std::vector<std::pair<int, int>> routePairs;
     std::vector<int> firstRouteBuffer;
     std::vector<int> secondRouteBuffer;
     std::vector<TopThreeInsertions> firstCustomersIntoSecond;
     std::vector<TopThreeInsertions> secondCustomersIntoFirst;
     std::vector<double> firstRemovalCosts;
     std::vector<double> secondRemovalCosts;
+    // Failed route scans use versions; failed pair scans leave the active pool.
+    std::vector<std::uint64_t> routeVersions;
+    std::array<
+        std::vector<std::uint64_t>,
+        LOCAL_SEARCH_OPERATOR_COUNT> failedRouteVersions;
+    std::array<ActiveRoutePairPool, LOCAL_SEARCH_OPERATOR_COUNT>
+        activeRoutePairPools;
+    std::size_t routePairCacheStride{};
+    std::uint64_t nextRouteVersion{1};
+    std::uint64_t routeTopologyVersion{1};
+    std::array<int, 2> changedRoutes{-1, -1};
+    int changedRouteCount{};
+    bool allRoutesChanged{};
 };
 
 class Leader {
