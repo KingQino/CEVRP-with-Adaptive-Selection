@@ -105,6 +105,7 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "mutation_ind_prob",
         "tournament_size",
         "ls",
+        "ls_learning",
         "parent_pool_ratio",
         "quality_ratio",
         "verified_upper_ratio",
@@ -133,6 +134,9 @@ void CommandLine::parse_parameters(Parameters& params) const {
     params.tournamentSize = get_int("tournament_size", params.tournamentSize);
     params.localSearchIntensity = parse_local_search_intensity(
         get_string("ls", "strong"));
+    params.enableLocalSearchLearning = get_bool(
+        "ls_learning",
+        params.enableLocalSearchLearning);
     params.parentPoolRatio = get_double(
         "parent_pool_ratio",
         params.parentPoolRatio);
@@ -163,6 +167,7 @@ void CommandLine::display_help() {
         << "  -mutation_ind_prob <double>    Per-gene mutation probability (default: 0.2)\n"
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
         << "  -ls <skip|weak|medium|strong>   Local-search intensity (default: strong)\n"
+        << "  -ls_learning <0|1>             Learn LS intensity online (default: 0)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"

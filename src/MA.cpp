@@ -23,6 +23,8 @@ struct LocalSearchLogRecord {
     double distanceBefore{};
     double distanceAfter{};
     LocalSearchResult result;
+    LocalSearchIntensityDecision learningDecision;
+    bool hasLearningDecision{};
     bool crossedGamma{};
     bool lowerEvaluated{};
     double verifiedLowerImprovement{};
@@ -51,6 +53,11 @@ MA::MA(Case* instance, const Parameters& parameters) {
         static_cast<std::mt19937::result_type>(parameters.seed));
     std::seed_seq localSearchSeed{parameters.seed, 0x4C53, 0x52564E44};
     this->localSearchEngine.seed(localSearchSeed);
+    std::seed_seq localSearchLearningSeed{
+        parameters.seed,
+        0x4C53,
+        0x4C454152};
+    this->localSearchLearningEngine.seed(localSearchLearningSeed);
     this->seed = parameters.seed;
     this->isMaxEvals = parameters.stopCriteria;
     this->enableLogging = parameters.enableLogging;
@@ -65,6 +72,8 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->mutationIndProb = parameters.mutationIndProb;
     this->tournamentSize = parameters.tournamentSize;
     this->localSearchIntensity = parameters.localSearchIntensity;
+    this->enableLocalSearchLearning =
+        parameters.enableLocalSearchLearning;
     this->parentPoolRatio = parameters.parentPoolRatio;
     this->qualityRatio = parameters.qualityRatio;
     this->verifiedUpperRatio = parameters.verifiedUpperRatio;
@@ -215,6 +224,12 @@ void MA::open_log_for_local_search() {
     logLocalSearchOperators.open(
         directoryPath / "local-search-operators.tsv");
     logLocalSearchOperators << LOCAL_SEARCH_OPERATOR_LOG_HEADER << "\n";
+    if (enableLocalSearchLearning) {
+        logLocalSearchLearning.open(
+            directoryPath / "local-search-learning.tsv");
+        logLocalSearchLearning
+            << LOCAL_SEARCH_LEARNING_LOG_HEADER << "\n";
+    }
 }
 
 void MA::flush_local_search_log() {
@@ -228,12 +243,18 @@ void MA::flush_local_search_log() {
         localSearchOperatorRows.str("");
         localSearchOperatorRows.clear();
     }
+    if (logLocalSearchLearning.is_open()) {
+        logLocalSearchLearning << localSearchLearningRows.str();
+        localSearchLearningRows.str("");
+        localSearchLearningRows.clear();
+    }
 }
 
 void MA::close_log_for_local_search() {
     flush_local_search_log();
     logLocalSearch.close();
     logLocalSearchOperators.close();
+    logLocalSearchLearning.close();
 }
 
 void MA::save_log_for_solution() {
@@ -253,6 +274,7 @@ void MA::save_log_for_solution() {
 }
 
 void MA::initialize_search() {
+    localSearchIntensityLearner.reset();
     retainedLowerElite.reset();
     population.clear();
     populationBuffer.clear();
@@ -283,8 +305,10 @@ void MA::run_generation() {
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
+    const bool needsLocalSearchContext =
+        enableLogging || enableLocalSearchLearning;
     ParentCandidate localSearchBestReference;
-    if (enableLogging) {
+    if (needsLocalSearchContext) {
         localSearchBestReference =
             Reproduction::make_parent_candidate(*bestUpperCandidate);
     }
@@ -296,7 +320,7 @@ void MA::run_generation() {
         const bool canReuseLowerElite = individual == unchangedLowerElite
             && individual->is_upper_locally_optimal()
             && individual->get_lower_cost() < INFEASIBLE_COST;
-        if (!enableLogging) {
+        if (!needsLocalSearchContext) {
             if (!canReuseLowerElite) {
                 Leader::improve_with_eight_neighborhood_rvnd_one_move(
                     *individual,
@@ -322,6 +346,37 @@ void MA::run_generation() {
         const bool outsideGammaBefore =
             beforeCandidate.upperCost > triggerUpperBoundBefore;
 
+        LocalSearchIntensity selectedIntensity =
+            localSearchIntensity;
+        LocalSearchIntensityDecision learningDecision;
+        bool hasLearningDecision = false;
+        if (enableLocalSearchLearning && !canReuseLowerElite) {
+            const double budgetProgress =
+                instance->get_evaluation_limit_distance_calls() > 0
+                ? static_cast<double>(
+                    instance->get_distance_calls())
+                    / static_cast<double>(
+                        instance->get_evaluation_limit_distance_calls())
+                : 0.0;
+            const double gammaMargin =
+                triggerUpperBoundBefore > 0.0
+                ? (beforeCandidate.upperCost
+                   - triggerUpperBoundBefore)
+                    / triggerUpperBoundBefore
+                : 0.0;
+            learningDecision =
+                localSearchIntensityLearner.select(
+                    {
+                        qualityGap,
+                        distanceBefore,
+                        budgetProgress,
+                        gammaMargin,
+                    },
+                    localSearchLearningEngine);
+            selectedIntensity = learningDecision.intensity;
+            hasLearningDecision = true;
+        }
+
         LocalSearchResult result;
         if (canReuseLowerElite) {
             result.moveLimit = -1;
@@ -331,7 +386,7 @@ void MA::run_generation() {
                 *individual,
                 *instance,
                 localSearchEngine,
-                localSearchIntensity,
+                selectedIntensity,
                 localSearchWorkspace,
                 triggerUpperBoundBefore);
         }
@@ -361,6 +416,8 @@ void MA::run_generation() {
             afterCandidate,
             localSearchBestReference);
         record.result = result;
+        record.learningDecision = learningDecision;
+        record.hasLearningDecision = hasLearningDecision;
         record.crossedGamma = outsideGammaBefore
             && afterCandidate.upperCost <= triggerUpperBoundBefore;
         localSearchRecords.push_back(std::move(record));
@@ -437,7 +494,8 @@ void MA::run_generation() {
             lowerElite = bestEvaluatedComplete;
         }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
-            if (enableLogging && verifiedLowerCostBefore < INFEASIBLE_COST) {
+            if (needsLocalSearchContext
+                && verifiedLowerCostBefore < INFEASIBLE_COST) {
                 for (auto& record : localSearchRecords) {
                     if (record.individual == bestEvaluatedComplete) {
                         record.verifiedLowerImprovement =
@@ -451,6 +509,33 @@ void MA::run_generation() {
     }
     const bool retainVerifiedFallback =
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
+
+    vector<LocalSearchLearningOutcome> learningOutcomes;
+    if (enableLocalSearchLearning) {
+        learningOutcomes.reserve(localSearchRecords.size());
+        for (const auto& record : localSearchRecords) {
+            if (!record.hasLearningDecision) {
+                continue;
+            }
+            LocalSearchLearningOutcome outcome;
+            outcome.decision = record.learningDecision;
+            outcome.relativeUpperImprovement =
+                record.result.relativeUpperImprovement;
+            outcome.distanceCalls =
+                record.result.distanceCallsUsed;
+            outcome.evaluationLimitDistanceCalls =
+                instance->get_evaluation_limit_distance_calls();
+            outcome.crossedGamma = record.crossedGamma;
+            if (verifiedLowerCostBefore < INFEASIBLE_COST
+                && verifiedLowerCostBefore > 0.0
+                && record.verifiedLowerImprovement > 0.0) {
+                outcome.relativeVerifiedLowerImprovement =
+                    record.verifiedLowerImprovement
+                    / verifiedLowerCostBefore;
+            }
+            learningOutcomes.push_back(std::move(outcome));
+        }
+    }
 
     if (enableLogging) {
         for (const auto& record : localSearchRecords) {
@@ -488,9 +573,37 @@ void MA::run_generation() {
                 << operatorStats.upperGain << "\t"
                 << operatorStats.gammaCrosses << "\n";
         }
+        for (const auto& outcome : learningOutcomes) {
+            const double benefit =
+                LocalSearchIntensityLearner::observed_benefit(
+                    outcome);
+            const double cost =
+                LocalSearchIntensityLearner::observed_cost(
+                    outcome);
+            localSearchLearningRows
+                << setprecision(12)
+                << generation << "\t"
+                << outcome.decision.context.qualityGap << "\t"
+                << outcome.decision.context.adjacencyDistance << "\t"
+                << outcome.decision.context.budgetProgress << "\t"
+                << outcome.decision.context.gammaMargin << "\t"
+                << LocalSearchIntensityLearner::intensity_name(
+                    outcome.decision.intensity) << "\t"
+                << instance->distance_calls_to_evals(
+                    outcome.distanceCalls) << "\t"
+                << benefit << "\t"
+                << outcome.decision.budgetPrice << "\t"
+                << benefit
+                    - outcome.decision.budgetPrice * cost
+                << "\n";
+        }
         flush_local_search_log();
     }
 
+    if (enableLocalSearchLearning) {
+        localSearchIntensityLearner.update_batch(
+            learningOutcomes);
+    }
 
     const bool hasLowerElite = lowerElite != nullptr || retainVerifiedFallback;
     const int offspringTarget = popSize - (hasLowerElite ? 1 : 0);

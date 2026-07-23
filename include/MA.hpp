@@ -13,6 +13,7 @@
 #include "follower.hpp"
 #include "initializer.hpp"
 #include "leader.hpp"
+#include "local_search_intensity_learner.hpp"
 #include "parameters.hpp"
 #include "reproduction.hpp"
 
@@ -27,6 +28,9 @@ public:
         "verified_lower_improvement";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
         "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
+    static constexpr const char* LOCAL_SEARCH_LEARNING_LOG_HEADER =
+        "iter\tquality_gap\tdistance\tprogress\tgamma_margin\taction\t"
+        "ls_evals\tbenefit\tbudget_price\treward";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -49,11 +53,14 @@ public:
     std::ostringstream evolutionRows;
     std::ostringstream localSearchRows;
     std::ostringstream localSearchOperatorRows;
+    std::ostringstream localSearchLearningRows;
     std::ofstream logLocalSearch;
     std::ofstream logLocalSearchOperators;
+    std::ofstream logLocalSearchLearning;
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;
+    std::mt19937 localSearchLearningEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::vector<std::shared_ptr<Individual>> populationBuffer;
@@ -63,6 +70,7 @@ public:
     SplitWorkspace splitWorkspace;
     ReproductionWorkspace reproductionWorkspace;
     LocalSearchWorkspace localSearchWorkspace;
+    LocalSearchIntensityLearner localSearchIntensityLearner;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;
@@ -72,6 +80,7 @@ public:
     double mutationIndProb;
     int tournamentSize;
     LocalSearchIntensity localSearchIntensity;
+    bool enableLocalSearchLearning;
     double parentPoolRatio;
     double qualityRatio;
     double verifiedUpperRatio;

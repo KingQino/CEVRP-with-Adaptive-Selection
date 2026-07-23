@@ -21,6 +21,10 @@ void Parameters::validate() const {
     if (stopCriteria != 1 && stopCriteria != 2) {
         throw std::invalid_argument("stp must be 1 (max evals) or 2 (max time)");
     }
+    if (enableLocalSearchLearning && stopCriteria != 1) {
+        throw std::invalid_argument(
+            "ls_learning currently requires stp=1");
+    }
     if (seed < 0) {
         throw std::invalid_argument("seed must be non-negative");
     }

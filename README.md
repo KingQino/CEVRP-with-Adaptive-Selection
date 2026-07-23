@@ -48,6 +48,7 @@ For details, please refer to the following paper:
 | `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
 | `-tournament_size` | `2` | Upper-parent tournament size |
 | `-ls` | `strong` | `skip`, `weak`, `medium`, or `strong` local-search intensity |
+| `-ls_learning` | `0` | Learn `skip/weak/medium/strong` online when set to `1` |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
@@ -59,6 +60,16 @@ Invalid configurations exit with a non-zero status. Probabilities must be in
 `parent_pool_ratio * pop_size >= 5`, and
 `verified_upper_ratio + pure_immigrant_ratio <= 0.25`. The tournament size
 cannot exceed the resulting parent-pool size.
+
+The contextual intensity learner is an opt-in experiment:
+
+```shell
+./Run -ins E-n22-k4.evrp -seed 1 -stp 1 -mth 0 -log 1 -ls_learning 1
+```
+
+It requires `-stp 1`. The static baseline remains `-ls_learning 0 -ls strong`.
+With logging enabled, learner decisions and rewards are written to
+`local-search-learning.tsv`.
 
 
 
@@ -108,6 +119,7 @@ cannot exceed the resulting parent-pool size.
 - `Leader` retains the full-descent LS-3/5/7 and LS-7-RVND-OneMove variants as baselines. The main search uses LS-8-RVND-OneMove, adding SWAP* with exact top-3 insertion caches to evaluate best feasible reinsertion positions in quadratic time per route pair. It supports skip, weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
 - Skip performs no upper-level local search, weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`, and strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - Every generation applies the selected local-search intensity to the complete upper-level population; no confidence filter is used.
+- The optional contextual intensity learner selects `skip`, `weak`, `medium`, or `strong` from quality gap, adjacency distance, budget progress, and gamma margin. It does not change the eight RVND neighborhoods.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Each trial writes per-call local-search feedback to `local-search.tsv` and per-generation operator totals (`calls`, `accepts`, `evals`, `upper_gain`, and `gamma_crosses`) to `local-search-operators.tsv`.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.

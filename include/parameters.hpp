@@ -19,6 +19,7 @@ struct Parameters {
     double mutationIndProb = 0.2;
     int tournamentSize = 2;
     LocalSearchIntensity localSearchIntensity = LocalSearchIntensity::Strong;
+    bool enableLocalSearchLearning = false;
     double parentPoolRatio = 0.10;
     double qualityRatio = 0.50;
     double verifiedUpperRatio = 0.05;

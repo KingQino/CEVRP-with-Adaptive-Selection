@@ -42,6 +42,7 @@ int main() {
         "-mutation_ind_prob", "0.005",
         "-tournament_size", "3",
         "-ls", "medium",
+        "-ls_learning", "1",
         "-parent_pool_ratio", "0.15",
         "-quality_ratio", "0.4",
         "-verified_upper_ratio", "0.10",
@@ -61,6 +62,7 @@ int main() {
     assert(std::fabs(namedParameters.mutationIndProb - 0.005) <= 1e-12);
     assert(namedParameters.tournamentSize == 3);
     assert(namedParameters.localSearchIntensity == LocalSearchIntensity::Medium);
+    assert(namedParameters.enableLocalSearchLearning);
     assert(std::fabs(namedParameters.parentPoolRatio - 0.15) <= 1e-12);
     assert(std::fabs(namedParameters.qualityRatio - 0.4) <= 1e-12);
     assert(std::fabs(namedParameters.verifiedUpperRatio - 0.10) <= 1e-12);
@@ -90,6 +92,7 @@ int main() {
     Parameters skipParameters;
     skipCommandLine.parse_parameters(skipParameters);
     assert(skipParameters.localSearchIntensity == LocalSearchIntensity::Skip);
+    assert(!skipParameters.enableLocalSearchLearning);
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;
@@ -104,6 +107,11 @@ int main() {
     Parameters invalidQualityRatio;
     invalidQualityRatio.qualityRatio = 1.0;
     assert(validation_fails(invalidQualityRatio, "strictly between 0 and 1"));
+
+    Parameters timeBudgetLearning;
+    timeBudgetLearning.stopCriteria = 2;
+    timeBudgetLearning.enableLocalSearchLearning = true;
+    assert(validation_fails(timeBudgetLearning, "requires stp=1"));
 
     std::vector<std::string> invalidBooleanArguments = {
         "build/command_line_test",

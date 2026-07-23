@@ -12,6 +12,7 @@ set(CORE_SOURCES
         src/stats.cpp
         src/initializer.cpp
         src/leader.cpp
+        src/local_search_intensity_learner.cpp
         src/follower.cpp
         src/reproduction.cpp
         src/individual.cpp
@@ -45,6 +46,16 @@ if(BUILD_TESTING)
     add_executable(command_line_test tests/command_line_test.cpp)
     target_link_libraries(command_line_test PRIVATE cevrp_core)
     add_test(NAME command_line_test COMMAND command_line_test)
+
+    add_executable(
+            local_search_intensity_learner_test
+            tests/local_search_intensity_learner_test.cpp)
+    target_link_libraries(
+            local_search_intensity_learner_test
+            PRIVATE cevrp_core)
+    add_test(
+            NAME local_search_intensity_learner_test
+            COMMAND local_search_intensity_learner_test)
 endif()
 
 add_custom_target(valgrind

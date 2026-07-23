@@ -862,6 +862,77 @@ int main(int argc, char* argv[]) {
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
+    assert(!algorithm.enableLocalSearchLearning);
+    assert(algorithm.localSearchLearningRows.str().empty());
+    assert(std::string(MA::LOCAL_SEARCH_LEARNING_LOG_HEADER)
+           == "iter\tquality_gap\tdistance\tprogress\tgamma_margin\taction\t"
+              "ls_evals\tbenefit\tbudget_price\treward");
+
+    Case learningInstance(instancePath, 7);
+    Parameters learningParameters;
+    learningParameters.seed = 7;
+    learningParameters.popSize = 10;
+    learningParameters.enableLogging = true;
+    learningParameters.enableLocalSearchLearning = true;
+    MA learningAlgorithm(&learningInstance, learningParameters);
+    learningAlgorithm.initialize_search();
+    learningAlgorithm.run_generation();
+    assert(learningAlgorithm.localSearchIntensityLearner.budget_price() > 0.0);
+
+    std::istringstream learningRows(
+        learningAlgorithm.localSearchLearningRows.str());
+    std::set<std::string> learnedIntensityActions;
+    int learningRowCount = 0;
+    int skippedLearningRows = 0;
+    while (std::getline(learningRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 10);
+        assert(std::stoi(columns[0]) == 1);
+        assert(std::stod(columns[1]) >= -1e-12);
+        assert(std::stod(columns[2]) >= 0.0
+               && std::stod(columns[2]) <= 1.0);
+        assert(std::stod(columns[3]) >= 0.0
+               && std::stod(columns[3]) <= 1.0);
+        learnedIntensityActions.insert(columns[5]);
+        assert(std::stod(columns[6]) >= 0.0);
+        assert(std::stod(columns[7]) >= 0.0);
+        assert(std::stod(columns[8]) >= 0.0);
+        if (columns[5] == "skip") {
+            assert(std::fabs(std::stod(columns[6])) <= 1e-12);
+            ++skippedLearningRows;
+        }
+        ++learningRowCount;
+    }
+    assert(learningRowCount == learningParameters.popSize);
+    assert(skippedLearningRows >= 1);
+    assert(learnedIntensityActions
+           == std::set<std::string>({
+               "skip",
+               "weak",
+               "medium",
+               "strong",
+           }));
+
+    Case nonLoggingLearningInstance(instancePath, 8);
+    Parameters nonLoggingLearningParameters;
+    nonLoggingLearningParameters.seed = 8;
+    nonLoggingLearningParameters.popSize = 4;
+    nonLoggingLearningParameters.enableLocalSearchLearning = true;
+    MA nonLoggingLearningAlgorithm(
+        &nonLoggingLearningInstance,
+        nonLoggingLearningParameters);
+    nonLoggingLearningAlgorithm.initialize_search();
+    nonLoggingLearningAlgorithm.run_generation();
+    assert(nonLoggingLearningAlgorithm.localSearchRows.str().empty());
+    assert(nonLoggingLearningAlgorithm.localSearchLearningRows.str().empty());
+    assert(nonLoggingLearningAlgorithm
+               .localSearchIntensityLearner
+               .budget_price() > 0.0);
 
     const double archivedLowerCost = algorithm.verifiedBest->get_lower_cost();
     algorithm.localSearchIntensity = LocalSearchIntensity::Weak;
