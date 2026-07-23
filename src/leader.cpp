@@ -1132,34 +1132,142 @@ struct BestInsertionAfterRemoval {
     int insertionIndex = -1;
 };
 
-BestInsertionAfterRemoval best_insertion_after_removal(
+bool insertion_precedes(
+    double cost,
+    int insertionIndex,
+    const LocalSearchWorkspace::InsertionCandidate& candidate) {
+    return cost < candidate.cost
+        || (cost == candidate.cost
+            && insertionIndex < candidate.insertionIndex);
+}
+
+void insert_into_top_three(
+    double cost,
+    int insertionIndex,
+    LocalSearchWorkspace::TopThreeInsertions& topThree) {
+    for (std::size_t rank = 0; rank < topThree.size(); ++rank) {
+        if (!insertion_precedes(cost, insertionIndex, topThree[rank])) {
+            continue;
+        }
+
+        for (std::size_t shiftedRank = topThree.size() - 1;
+             shiftedRank > rank;
+             --shiftedRank) {
+            topThree[shiftedRank] = topThree[shiftedRank - 1];
+        }
+        topThree[rank] = {cost, insertionIndex};
+        return;
+    }
+}
+
+void cache_top_three_insertions(
+    const int* customerRoute,
+    int customerRouteLength,
+    const int* targetRoute,
+    int targetRouteLength,
+    Case& instance,
+    std::vector<LocalSearchWorkspace::TopThreeInsertions>& cache) {
+    const int customerCount = customerRouteLength - 2;
+    cache.resize(static_cast<std::size_t>(customerCount));
+    for (int customerIndex = 1;
+         customerIndex < customerRouteLength - 1;
+         ++customerIndex) {
+        auto& topThree = cache[static_cast<std::size_t>(customerIndex - 1)];
+        for (auto& candidate : topThree) {
+            candidate = {
+                std::numeric_limits<double>::infinity(),
+                -1};
+        }
+
+        const int customer = customerRoute[customerIndex];
+        for (int insertionIndex = 1;
+             insertionIndex < targetRouteLength;
+             ++insertionIndex) {
+            const int from = targetRoute[insertionIndex - 1];
+            const int to = targetRoute[insertionIndex];
+            const double insertionCost =
+                instance.get_distance(from, customer)
+                + instance.get_distance(customer, to)
+                - instance.get_distance(from, to);
+            insert_into_top_three(
+                insertionCost,
+                insertionIndex,
+                topThree);
+        }
+    }
+}
+
+void cache_removal_costs(
     const int* route,
     int length,
+    Case& instance,
+    std::vector<double>& removalCosts) {
+    removalCosts.resize(static_cast<std::size_t>(length - 2));
+    for (int removedIndex = 1;
+         removedIndex < length - 1;
+         ++removedIndex) {
+        const int customer = route[removedIndex];
+        removalCosts[static_cast<std::size_t>(removedIndex - 1)] =
+            instance.get_distance(
+                route[removedIndex - 1],
+                route[removedIndex + 1])
+            - instance.get_distance(
+                route[removedIndex - 1],
+                customer)
+            - instance.get_distance(
+                customer,
+                route[removedIndex + 1]);
+    }
+}
+
+void consider_insertion(
+    double cost,
+    int insertionIndex,
+    BestInsertionAfterRemoval& best) {
+    if (cost < best.cost
+        || (cost == best.cost
+            && insertionIndex < best.insertionIndex)) {
+        best.cost = cost;
+        best.insertionIndex = insertionIndex;
+    }
+}
+
+BestInsertionAfterRemoval best_insertion_after_removal(
+    const LocalSearchWorkspace::TopThreeInsertions& topThree,
+    const int* route,
     int removedIndex,
     int customer,
     Case& instance) {
     BestInsertionAfterRemoval best;
-    const int reducedLength = length - 1;
-    for (int insertionIndex = 1;
-         insertionIndex < reducedLength;
-         ++insertionIndex) {
-        const int fromIndex = insertionIndex - 1 < removedIndex
-            ? insertionIndex - 1
-            : insertionIndex;
-        const int toIndex = insertionIndex < removedIndex
-            ? insertionIndex
-            : insertionIndex + 1;
-        const int from = route[fromIndex];
-        const int to = route[toIndex];
-        const double insertionCost =
-            instance.get_distance(from, customer)
-            + instance.get_distance(customer, to)
-            - instance.get_distance(from, to);
-        if (insertionCost < best.cost) {
-            best.cost = insertionCost;
-            best.insertionIndex = insertionIndex;
+
+    // Removing one customer invalidates only its two incident insertion edges,
+    // so top-3 retains the best unaffected edge whenever one exists.
+    for (const auto& candidate : topThree) {
+        if (candidate.insertionIndex < 0
+            || candidate.insertionIndex == removedIndex
+            || candidate.insertionIndex == removedIndex + 1) {
+            continue;
         }
+        const int reducedInsertionIndex =
+            candidate.insertionIndex < removedIndex
+            ? candidate.insertionIndex
+            : candidate.insertionIndex - 1;
+        consider_insertion(
+            candidate.cost,
+            reducedInsertionIndex,
+            best);
     }
+
+    const int from = route[removedIndex - 1];
+    const int to = route[removedIndex + 1];
+    const double insertionCost =
+        instance.get_distance(from, customer)
+        + instance.get_distance(customer, to)
+        - instance.get_distance(from, to);
+    consider_insertion(
+        insertionCost,
+        removedIndex,
+        best);
     return best;
 }
 
@@ -1197,6 +1305,31 @@ bool improve_with_swap_star_one_move(
     for (const auto& [firstRoute, secondRoute] : routePairs) {
         const int firstLength = individual.node_num[firstRoute];
         const int secondLength = individual.node_num[secondRoute];
+        cache_top_three_insertions(
+            individual.routes[firstRoute],
+            firstLength,
+            individual.routes[secondRoute],
+            secondLength,
+            instance,
+            workspace.firstCustomersIntoSecond);
+        cache_top_three_insertions(
+            individual.routes[secondRoute],
+            secondLength,
+            individual.routes[firstRoute],
+            firstLength,
+            instance,
+            workspace.secondCustomersIntoFirst);
+        cache_removal_costs(
+            individual.routes[firstRoute],
+            firstLength,
+            instance,
+            workspace.firstRemovalCosts);
+        cache_removal_costs(
+            individual.routes[secondRoute],
+            secondLength,
+            instance,
+            workspace.secondRemovalCosts);
+
         double bestImprovement = 0.0;
         int bestFirstNode = -1;
         int bestSecondNode = -1;
@@ -1207,15 +1340,8 @@ bool improve_with_swap_star_one_move(
             const int firstCustomer = individual.routes[firstRoute][firstNode];
             const int firstDemand = instance.get_customer_demand(firstCustomer);
             const double firstRemovalCost =
-                instance.get_distance(
-                    individual.routes[firstRoute][firstNode - 1],
-                    individual.routes[firstRoute][firstNode + 1])
-                - instance.get_distance(
-                    individual.routes[firstRoute][firstNode - 1],
-                    firstCustomer)
-                - instance.get_distance(
-                    firstCustomer,
-                    individual.routes[firstRoute][firstNode + 1]);
+                workspace.firstRemovalCosts[
+                    static_cast<std::size_t>(firstNode - 1)];
 
             for (int secondNode = 1;
                  secondNode < secondLength - 1;
@@ -1234,26 +1360,21 @@ bool improve_with_swap_star_one_move(
                 }
 
                 const double secondRemovalCost =
-                    instance.get_distance(
-                        individual.routes[secondRoute][secondNode - 1],
-                        individual.routes[secondRoute][secondNode + 1])
-                    - instance.get_distance(
-                        individual.routes[secondRoute][secondNode - 1],
-                        secondCustomer)
-                    - instance.get_distance(
-                        secondCustomer,
-                        individual.routes[secondRoute][secondNode + 1]);
+                    workspace.secondRemovalCosts[
+                        static_cast<std::size_t>(secondNode - 1)];
                 const BestInsertionAfterRemoval secondIntoFirst =
                     best_insertion_after_removal(
+                        workspace.secondCustomersIntoFirst[
+                            static_cast<std::size_t>(secondNode - 1)],
                         individual.routes[firstRoute],
-                        firstLength,
                         firstNode,
                         secondCustomer,
                         instance);
                 const BestInsertionAfterRemoval firstIntoSecond =
                     best_insertion_after_removal(
+                        workspace.firstCustomersIntoSecond[
+                            static_cast<std::size_t>(firstNode - 1)],
                         individual.routes[secondRoute],
-                        secondLength,
                         secondNode,
                         firstCustomer,
                         instance);

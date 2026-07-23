@@ -1,6 +1,7 @@
 #ifndef LEADER_HPP
 #define LEADER_HPP
 
+#include <array>
 #include <random>
 #include <utility>
 #include <vector>
@@ -25,10 +26,21 @@ struct LocalSearchResult {
 };
 
 struct LocalSearchWorkspace {
+    struct InsertionCandidate {
+        double cost{};
+        int insertionIndex{-1};
+    };
+
+    using TopThreeInsertions = std::array<InsertionCandidate, 3>;
+
     std::vector<int> routeOrder;
     std::vector<std::pair<int, int>> routePairs;
     std::vector<int> firstRouteBuffer;
     std::vector<int> secondRouteBuffer;
+    std::vector<TopThreeInsertions> firstCustomersIntoSecond;
+    std::vector<TopThreeInsertions> secondCustomersIntoFirst;
+    std::vector<double> firstRemovalCosts;
+    std::vector<double> secondRemovalCosts;
 };
 
 class Leader {

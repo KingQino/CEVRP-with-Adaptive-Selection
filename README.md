@@ -105,7 +105,7 @@ cannot exceed the resulting parent-pool size.
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` retains the full-descent LS-3/5/7 and LS-7-RVND-OneMove variants as baselines. The main search uses LS-8-RVND-OneMove, adding SWAP* with best feasible reinsertion positions to the seven existing neighborhoods. It supports skip, weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
+- `Leader` retains the full-descent LS-3/5/7 and LS-7-RVND-OneMove variants as baselines. The main search uses LS-8-RVND-OneMove, adding SWAP* with exact top-3 insertion caches to evaluate best feasible reinsertion positions in quadratic time per route pair. It supports skip, weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
 - Skip performs no upper-level local search, weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`, and strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - Every generation applies the selected local-search intensity to the complete upper-level population; no confidence filter is used.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.

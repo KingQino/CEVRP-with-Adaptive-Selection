@@ -262,8 +262,9 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
             secondEightEngine,
             LocalSearchIntensity::Strong);
 
-    assert(firstEightResult.acceptedMoves > 0);
+    assert(firstEightResult.acceptedMoves == 9);
     assert(firstEightResult.reachedLocalOptimum);
+    assert(firstEightResult.evalsUsed < 500.0);
     assert(firstEightResult.acceptedMoves == secondEightResult.acceptedMoves);
     assert(firstEightResult.neighborhoodCalls
            == secondEightResult.neighborhoodCalls);
@@ -271,6 +272,9 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
         firstEightResult.evalsUsed - secondEightResult.evalsUsed) <= 1e-8);
     assert(sevenNeighborhoodLocalOptimum.get_upper_cost()
            < sevenNeighborhoodCost - 1e-8);
+    assert(std::fabs(
+        sevenNeighborhoodLocalOptimum.get_upper_cost()
+        - 386.916598791278) <= 1e-8);
     assert(std::fabs(
         sevenNeighborhoodLocalOptimum.get_upper_cost()
         - repeatedEightNeighborhoodSearch.get_upper_cost()) <= 1e-8);
