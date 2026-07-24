@@ -31,9 +31,11 @@ void Parameters::validate() const {
         throw std::invalid_argument("pop_size must be at least 2");
     }
     if (localSearchPolicy != LocalSearchPolicy::Static
-        && localSearchIntensity != LocalSearchIntensity::Strong) {
+        && localSearchIntensity != LocalSearchIntensity::Strong
+        && localSearchIntensity
+            != LocalSearchIntensity::BoundedStrong) {
         throw std::invalid_argument(
-            "random/online ls_policy requires -ls strong");
+            "random/online ls_policy requires -ls strong or bounded_strong");
     }
 
     require_probability(mutationProb, "mutation_prob");

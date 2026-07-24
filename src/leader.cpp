@@ -31,6 +31,8 @@ enum class Neighborhood {
 constexpr double kImprovementTolerance = 0.00000001;
 constexpr double kWeakMoveFraction = 0.02;
 constexpr double kMediumMoveFraction = 0.10;
+constexpr double kBoundedStrongMoveFraction = 0.30;
+constexpr std::uint64_t kBoundedStrongWeakCallMultiplier = 128;
 
 constexpr std::array<Neighborhood, 3> kThreeNeighborhoods = {
     Neighborhood::TwoOpt,
@@ -2411,6 +2413,11 @@ int scaled_move_limit_for_intensity(
             return std::max(
                 1,
                 static_cast<int>(std::ceil(kMediumMoveFraction * solutionScale)));
+        case LocalSearchIntensity::BoundedStrong:
+            return std::max(
+                1,
+                static_cast<int>(std::ceil(
+                    kBoundedStrongMoveFraction * solutionScale)));
         case LocalSearchIntensity::Strong:
             return -1;
     }
@@ -2590,6 +2597,60 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
         individual,
         session,
         workspace);
+    if (intensity == LocalSearchIntensity::BoundedStrong) {
+        const double upperCostBefore = individual.get_upper_cost();
+        const int weakMoveLimit = scaled_move_limit_for_intensity(
+            individual,
+            instance,
+            LocalSearchIntensity::Weak);
+        result =
+            continue_eight_neighborhood_rvnd_one_move_session(
+                individual,
+                instance,
+                randomEngine,
+                session,
+                weakMoveLimit,
+                workspace,
+                gammaUpperBound);
+        if (!result.reachedLocalOptimum) {
+            const LocalSearchResult continuation =
+                continue_eight_neighborhood_rvnd_one_move_session(
+                    individual,
+                    instance,
+                    randomEngine,
+                    session,
+                    moveLimit,
+                    workspace,
+                    gammaUpperBound,
+                    bounded_strong_distance_call_limit(
+                        result.distanceCallsUsed));
+            result.acceptedMoves += continuation.acceptedMoves;
+            result.neighborhoodCalls += continuation.neighborhoodCalls;
+            result.distanceCallsUsed += continuation.distanceCallsUsed;
+            result.reachedLocalOptimum =
+                continuation.reachedLocalOptimum;
+            for (std::size_t operatorIndex = 0;
+                 operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+                 ++operatorIndex) {
+                auto& totalStats = result.operatorStats[operatorIndex];
+                const auto& continuationStats =
+                    continuation.operatorStats[operatorIndex];
+                totalStats.calls += continuationStats.calls;
+                totalStats.accepts += continuationStats.accepts;
+                totalStats.distanceCalls +=
+                    continuationStats.distanceCalls;
+                totalStats.upperGain += continuationStats.upperGain;
+                totalStats.gammaCrosses +=
+                    continuationStats.gammaCrosses;
+            }
+        }
+        result.moveLimit = moveLimit;
+        result.relativeUpperImprovement = upperCostBefore > 0.0
+            ? (upperCostBefore - individual.get_upper_cost())
+                / upperCostBefore
+            : 0.0;
+        return result;
+    }
     return continue_eight_neighborhood_rvnd_one_move_session(
         individual,
         instance,
@@ -2608,6 +2669,7 @@ void Leader::begin_eight_neighborhood_rvnd_one_move_session(
     session.initialized = true;
     session.totalAcceptedMoves = 0;
     session.totalNeighborhoodCalls = 0;
+    session.totalDistanceCalls = 0;
     session.activeOperators.assign(
         kEightOperators.begin(),
         kEightOperators.end());
@@ -2620,7 +2682,8 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     LocalSearchSession& session,
     int cumulativeMoveLimit,
     LocalSearchWorkspace& workspace,
-    double gammaUpperBound) {
+    double gammaUpperBound,
+    std::uint64_t cumulativeDistanceCallLimit) {
     if (!session.initialized) {
         throw std::logic_error(
             "local-search session must be initialized before continuation");
@@ -2635,6 +2698,10 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     while (!session.activeOperators.empty()) {
         if (cumulativeMoveLimit >= 0
             && session.totalAcceptedMoves >= cumulativeMoveLimit) {
+            break;
+        }
+        if (session.totalDistanceCalls
+            >= cumulativeDistanceCallLimit) {
             break;
         }
 
@@ -2665,9 +2732,11 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
             instance,
             randomEngine,
             workspace);
-        operatorStats.distanceCalls +=
+        const std::uint64_t operatorDistanceCalls =
             instance.get_distance_calls()
             - operatorDistanceCallsBefore;
+        operatorStats.distanceCalls += operatorDistanceCalls;
+        session.totalDistanceCalls += operatorDistanceCalls;
 
         if (improved) {
             invalidate_failure_cache_after_move(
@@ -2710,4 +2779,16 @@ int Leader::move_limit_for_intensity(
         individual,
         instance,
         intensity);
+}
+
+std::uint64_t Leader::bounded_strong_distance_call_limit(
+    std::uint64_t weakDistanceCalls) {
+    const std::uint64_t baseCalls =
+        std::max<std::uint64_t>(weakDistanceCalls, 1);
+    if (baseCalls
+        > std::numeric_limits<std::uint64_t>::max()
+            / kBoundedStrongWeakCallMultiplier) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return baseCalls * kBoundedStrongWeakCallMultiplier;
 }

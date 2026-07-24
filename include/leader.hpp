@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <utility>
 #include <vector>
@@ -38,6 +39,7 @@ enum class LocalSearchIntensity {
     Skip,
     Weak,
     Medium,
+    BoundedStrong,
     Strong,
 };
 
@@ -56,6 +58,7 @@ struct LocalSearchSession {
     bool initialized{};
     int totalAcceptedMoves{};
     int totalNeighborhoodCalls{};
+    std::uint64_t totalDistanceCalls{};
     std::vector<LocalSearchOperator> activeOperators;
 };
 
@@ -162,11 +165,15 @@ public:
         LocalSearchSession& session,
         int cumulativeMoveLimit,
         LocalSearchWorkspace& workspace,
-        double gammaUpperBound);
+        double gammaUpperBound,
+        std::uint64_t cumulativeDistanceCallLimit =
+            std::numeric_limits<std::uint64_t>::max());
     static int move_limit_for_intensity(
         const Individual& individual,
         const Case& instance,
         LocalSearchIntensity intensity);
+    static std::uint64_t bounded_strong_distance_call_limit(
+        std::uint64_t weakDistanceCalls);
 };
 
 #endif

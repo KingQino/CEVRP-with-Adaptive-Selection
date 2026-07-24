@@ -44,11 +44,15 @@ LocalSearchIntensity parse_local_search_intensity(const std::string& value) {
     if (normalized == "medium") {
         return LocalSearchIntensity::Medium;
     }
+    if (normalized == "bounded_strong"
+        || normalized == "bounded-strong") {
+        return LocalSearchIntensity::BoundedStrong;
+    }
     if (normalized == "strong") {
         return LocalSearchIntensity::Strong;
     }
     throw std::invalid_argument(
-        "ls must be one of: skip, weak, medium, strong");
+        "ls must be one of: skip, weak, medium, bounded_strong, strong");
 }
 
 LocalSearchPolicy parse_local_search_policy(const std::string& value) {
@@ -81,7 +85,8 @@ CommandLine::CommandLine(int argc, char* argv[]) {
         legacyMode = true;
         if (argc < 4 || argc > 5) {
             throw std::invalid_argument(
-                "legacy usage: ./Run <instance> <stp> <mth> [skip|weak|medium|strong]");
+                "legacy usage: ./Run <instance> <stp> <mth> "
+                "[skip|weak|medium|bounded_strong|strong]");
         }
         arguments["ins"] = argv[1];
         arguments["stp"] = argv[2];
@@ -180,7 +185,8 @@ void CommandLine::display_help() {
         << "  -mutation_prob <double>        Offspring mutation probability (default: 0.5)\n"
         << "  -mutation_ind_prob <double>    Per-gene mutation probability (default: 0.2)\n"
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
-        << "  -ls <skip|weak|medium|strong>   Local-search intensity (default: strong)\n"
+        << "  -ls <skip|weak|medium|bounded_strong|strong>\n"
+        << "                                  Local-search intensity (default: strong)\n"
         << "  -ls_policy <static|random|online>\n"
         << "                                  static, fixed random mix, or online\n"
         << "                                  individual intensity allocation\n"
@@ -191,7 +197,8 @@ void CommandLine::display_help() {
         << "  -pure_immigrant_ratio <double> Pure immigrant share (default: 0.10)\n"
         << "  -gamma <double>                Follower trigger ratio (default: 1.02)\n"
         << "\nLegacy syntax remains accepted:\n"
-        << "  ./Run <instance> <stp> <mth> [skip|weak|medium|strong]\n";
+        << "  ./Run <instance> <stp> <mth> "
+           "[skip|weak|medium|bounded_strong|strong]\n";
 }
 
 int CommandLine::get_int(const std::string& key, int defaultValue) const {

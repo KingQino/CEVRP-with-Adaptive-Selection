@@ -263,11 +263,12 @@ void OnlineIntensityLearner::reset() {
 LocalSearchIntensityDecision OnlineIntensityLearner::select(
     const LocalSearchAllocationContext& context,
     int generation,
-    std::mt19937& randomEngine) const {
-    static constexpr std::array<LocalSearchIntensity, 3> intensities = {
+    std::mt19937& randomEngine,
+    LocalSearchIntensity deepestIntensity) const {
+    const std::array<LocalSearchIntensity, 3> intensities = {
         LocalSearchIntensity::Weak,
         LocalSearchIntensity::Medium,
-        LocalSearchIntensity::Strong,
+        deepestIntensity,
     };
     std::uniform_real_distribution<double> probability(0.0, 1.0);
     std::uniform_int_distribution<std::size_t> randomAction(
@@ -483,6 +484,7 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     Case& instance,
     int generation,
     LocalSearchPolicy policy,
+    LocalSearchIntensity deepestIntensity,
     const ParentCandidate& upperReference,
     double triggerUpperBound,
     double budgetProgress,
@@ -536,6 +538,11 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 searchCandidates[batchStart + localIndex];
             record.costBeforeWeak =
                 record.individual->get_upper_cost();
+            record.boundedStrongMoveLimit =
+                Leader::move_limit_for_intensity(
+                    *record.individual,
+                    instance,
+                    LocalSearchIntensity::BoundedStrong);
             Leader::begin_eight_neighborhood_rvnd_one_move_session(
                 *record.individual,
                 record.session,
@@ -556,6 +563,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     triggerUpperBound);
             record.costAfterWeak =
                 record.individual->get_upper_cost();
+            record.boundedStrongDistanceCallLimit =
+                Leader::bounded_strong_distance_call_limit(
+                    record.weakResult.distanceCallsUsed);
             record.costAfterTerminal = record.costAfterWeak;
             record.totalResult = record.weakResult;
             if (policy == LocalSearchPolicy::OnlineIndividual) {
@@ -593,7 +603,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     learner.select(
                         record.context,
                         generation,
-                        allocationEngine);
+                        allocationEngine,
+                        deepestIntensity);
                 record.terminalIntensity = decision.intensity;
                 record.selectionScore = decision.score;
                 record.exploratorySelection =
@@ -601,14 +612,19 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
 
                 if (decision.intensity
                     != LocalSearchIntensity::Weak) {
+                    const bool boundedStrong =
+                        decision.intensity
+                        == LocalSearchIntensity::BoundedStrong;
                     const int moveLimit =
                         decision.intensity
                             == LocalSearchIntensity::Strong
                         ? -1
-                        : Leader::move_limit_for_intensity(
-                            *record.individual,
-                            instance,
-                            LocalSearchIntensity::Medium);
+                        : boundedStrong
+                            ? record.boundedStrongMoveLimit
+                            : Leader::move_limit_for_intensity(
+                                *record.individual,
+                                instance,
+                                LocalSearchIntensity::Medium);
                     record.continuationResult =
                         Leader::continue_eight_neighborhood_rvnd_one_move_session(
                             *record.individual,
@@ -617,7 +633,11 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             record.session,
                             moveLimit,
                             workspaces[localIndex],
-                            triggerUpperBound);
+                            triggerUpperBound,
+                            boundedStrong
+                                ? record.boundedStrongDistanceCallLimit
+                                : std::numeric_limits<
+                                    std::uint64_t>::max());
                     record.totalResult = combine_results(
                         record.weakResult,
                         record.continuationResult,
@@ -650,6 +670,69 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 static_cast<double>(batchSize)
                 * kMediumSelectionRatio)));
         mediumEligible.resize(mediumTarget);
+
+        if (deepestIntensity
+            == LocalSearchIntensity::BoundedStrong) {
+            std::vector<std::size_t> boundedStrongSelected =
+                mediumEligible;
+            std::shuffle(
+                boundedStrongSelected.begin(),
+                boundedStrongSelected.end(),
+                allocationEngine);
+            const std::size_t boundedStrongTarget = std::min(
+                boundedStrongSelected.size(),
+                static_cast<std::size_t>(std::lround(
+                    static_cast<double>(batchSize)
+                    * kStrongSelectionRatio)));
+            boundedStrongSelected.resize(boundedStrongTarget);
+
+            for (const std::size_t recordIndex : mediumEligible) {
+                const std::size_t localIndex =
+                    recordIndex - recordStart;
+                auto& record = run.records[recordIndex];
+                const bool useBoundedStrong =
+                    std::find(
+                        boundedStrongSelected.begin(),
+                        boundedStrongSelected.end(),
+                        recordIndex)
+                    != boundedStrongSelected.end();
+                record.terminalIntensity = useBoundedStrong
+                    ? LocalSearchIntensity::BoundedStrong
+                    : LocalSearchIntensity::Medium;
+                const int moveLimit = useBoundedStrong
+                    ? record.boundedStrongMoveLimit
+                    : Leader::move_limit_for_intensity(
+                        *record.individual,
+                        instance,
+                        LocalSearchIntensity::Medium);
+                record.continuationResult =
+                    Leader::continue_eight_neighborhood_rvnd_one_move_session(
+                        *record.individual,
+                        instance,
+                        localSearchEngine,
+                        record.session,
+                        moveLimit,
+                        workspaces[localIndex],
+                        triggerUpperBound,
+                        useBoundedStrong
+                            ? record.boundedStrongDistanceCallLimit
+                            : std::numeric_limits<
+                                std::uint64_t>::max());
+                record.totalResult = combine_results(
+                    record.weakResult,
+                    record.continuationResult,
+                    record.costBeforeWeak,
+                    record.individual->get_upper_cost());
+            }
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                finish_record(
+                    run.records[recordStart + localIndex],
+                    triggerUpperBound);
+            }
+            continue;
+        }
 
         for (const std::size_t recordIndex : mediumEligible) {
             const std::size_t localIndex =
@@ -703,16 +786,24 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             const LocalSearchResult mediumResult =
                 record.continuationResult;
             record.terminalIntensity =
-                LocalSearchIntensity::Strong;
+                deepestIntensity;
+            const bool boundedStrong =
+                deepestIntensity
+                == LocalSearchIntensity::BoundedStrong;
             const LocalSearchResult strongResult =
                 Leader::continue_eight_neighborhood_rvnd_one_move_session(
                     *record.individual,
                     instance,
                     localSearchEngine,
                     record.session,
-                    -1,
+                    boundedStrong
+                        ? record.boundedStrongMoveLimit
+                        : -1,
                     workspaces[localIndex],
-                    triggerUpperBound);
+                    triggerUpperBound,
+                    boundedStrong
+                        ? record.boundedStrongDistanceCallLimit
+                        : std::numeric_limits<std::uint64_t>::max());
             record.continuationResult = combine_results(
                 mediumResult,
                 strongResult,
@@ -856,6 +947,7 @@ std::size_t LocalSearchAllocationRunner::intensity_index(
             return 0;
         case LocalSearchIntensity::Medium:
             return 1;
+        case LocalSearchIntensity::BoundedStrong:
         case LocalSearchIntensity::Strong:
             return 2;
         case LocalSearchIntensity::Skip:
@@ -874,6 +966,8 @@ const char* LocalSearchAllocationRunner::intensity_name(
             return "weak";
         case LocalSearchIntensity::Medium:
             return "medium";
+        case LocalSearchIntensity::BoundedStrong:
+            return "bounded_strong";
         case LocalSearchIntensity::Strong:
             return "strong";
     }

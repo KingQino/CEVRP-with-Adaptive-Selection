@@ -47,7 +47,7 @@ For details, please refer to the following paper:
 | `-mutation_prob` | `0.5` | Probability that an offspring enters mutation |
 | `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
 | `-tournament_size` | `2` | Upper-parent tournament size |
-| `-ls` | `strong` | `skip`, `weak`, `medium`, or `strong` local-search intensity |
+| `-ls` | `strong` | `skip`, `weak`, `medium`, `bounded_strong`, or `strong` local-search intensity |
 | `-ls_policy` | `static` | `static`, fixed-mix `random`, or individual `online` allocation |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
@@ -106,10 +106,10 @@ cannot exceed the resulting parent-pool size.
 
 - `MA` coordinates one generation and owns the population, stopping criteria, and logging.
 - `Initializer` builds capacity-feasible upper-level routes with clustering, random split, or direct encoding.
-- `Leader` retains the full-descent LS-3/5/7 and LS-7-RVND-OneMove variants as baselines. The main search uses LS-8-RVND-OneMove, adding SWAP* with exact top-3 insertion caches to evaluate best feasible reinsertion positions in quadratic time per route pair. It supports skip, weak, medium, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
-- Skip performs no upper-level local search, weak and medium cap accepted moves at 2% and 10% of `customer_count + route_count`, and strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
+- `Leader` retains the full-descent LS-3/5/7 and LS-7-RVND-OneMove variants as baselines. The main search uses LS-8-RVND-OneMove, adding SWAP* with exact top-3 insertion caches to evaluate best feasible reinsertion positions in quadratic time per route pair. It supports skip, weak, medium, bounded-strong, and strong intensities; each selected neighborhood accepts at most one improving move and no empty-route move is used. Strong remains the default.
+- Skip performs no upper-level local search, while weak and medium cap accepted moves at 2% and 10% of the initial `customer_count + route_count`. Bounded-strong first performs the weak probe in the same RVND session, then continues up to 30% of that initial scale and a soft cumulative limit of 128 times the weak probe's distance calls. Unlimited strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - The default `static` policy applies the selected intensity to the complete upper-level population. The `random` policy retains the fixed terminal mix of approximately 20% weak, 30% medium, and 50% strong as an ablation baseline.
-- The `online` policy gives every new individual a weak probe, then independently chooses whether it terminates at weak, medium, or strong. It has no fixed action quota. Context contains only changing search, individual, and probe feedback; instance size and route-count features are intentionally excluded because the model is reset for every run.
+- The `online` policy gives every new individual a weak probe, then independently chooses whether it terminates at weak, medium, or the deepest intensity selected by `-ls`. Use `-ls bounded_strong` to learn among weak/medium/bounded-strong, or `-ls strong` to retain weak/medium/unlimited-strong. It has no fixed action quota. Context contains only changing search, individual, and probe feedback; instance size and route-count features are intentionally excluded because the model is reset for every run.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online utility comes from actual reproduction parent usage and newly competitive complete solutions in a distinct top-10 lower archive, while action cost is learned from consumed LS evaluations.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.

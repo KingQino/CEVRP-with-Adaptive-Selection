@@ -106,6 +106,21 @@ int main() {
         onlineParameters.localSearchPolicy
         == LocalSearchPolicy::OnlineIndividual);
 
+    std::vector<std::string> boundedOnlineArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "online",
+    };
+    CommandLine boundedOnlineCommandLine = make_command_line(
+        boundedOnlineArguments);
+    Parameters boundedOnlineParameters;
+    boundedOnlineCommandLine.parse_parameters(
+        boundedOnlineParameters);
+    boundedOnlineParameters.validate();
+    assert(
+        boundedOnlineParameters.localSearchIntensity
+        == LocalSearchIntensity::BoundedStrong);
+
     Parameters invalidMixedIntensity;
     invalidMixedIntensity.localSearchPolicy =
         LocalSearchPolicy::RandomMixed;
@@ -113,7 +128,7 @@ int main() {
         LocalSearchIntensity::Medium;
     assert(validation_fails(
         invalidMixedIntensity,
-        "requires -ls strong"));
+        "requires -ls strong or bounded_strong"));
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;

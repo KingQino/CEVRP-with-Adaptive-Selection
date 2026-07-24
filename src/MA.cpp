@@ -467,6 +467,7 @@ void MA::run_generation() {
             *instance,
             generation,
             localSearchPolicy,
+            localSearchIntensity,
             frozenUpperReference,
             frozenTriggerUpperBound,
             budgetProgress,
@@ -649,12 +650,10 @@ void MA::run_generation() {
                 << operatorStats.gammaCrosses << "\n";
         }
         if (localSearchPolicy != LocalSearchPolicy::Static) {
-            static constexpr std::array<
-                LocalSearchIntensity,
-                3> intensities = {
+            const std::array<LocalSearchIntensity, 3> intensities = {
                     LocalSearchIntensity::Weak,
                     LocalSearchIntensity::Medium,
-                    LocalSearchIntensity::Strong,
+                    localSearchIntensity,
                 };
             for (const LocalSearchIntensity intensity
                  : intensities) {

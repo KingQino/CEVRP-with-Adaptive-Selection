@@ -88,7 +88,8 @@ public:
     [[nodiscard]] LocalSearchIntensityDecision select(
         const LocalSearchAllocationContext& context,
         int generation,
-        std::mt19937& randomEngine) const;
+        std::mt19937& randomEngine,
+        LocalSearchIntensity deepestIntensity) const;
     void update(
         const LocalSearchAllocationContext& context,
         LocalSearchIntensity intensity,
@@ -139,6 +140,8 @@ struct AllocatedLocalSearchRecord {
     LocalSearchResult weakResult;
     LocalSearchResult continuationResult;
     LocalSearchResult totalResult;
+    int boundedStrongMoveLimit{};
+    std::uint64_t boundedStrongDistanceCallLimit{};
     LocalSearchAllocationContext context;
     double costBeforeWeak{};
     double costAfterWeak{};
@@ -170,6 +173,7 @@ public:
         Case& instance,
         int generation,
         LocalSearchPolicy policy,
+        LocalSearchIntensity deepestIntensity,
         const ParentCandidate& upperReference,
         double triggerUpperBound,
         double budgetProgress,

@@ -595,6 +595,37 @@ int main(int argc, char* argv[]) {
     }
     assert_individual_is_consistent(mediumSevenNeighborhoodSearch, instance);
 
+    Individual boundedEightNeighborhoodSearch(vndBaseline);
+    const int boundedSolutionScale =
+        instance.customerNumber
+        + boundedEightNeighborhoodSearch.route_num;
+    std::mt19937 boundedSearchEngine(12);
+    LocalSearchWorkspace boundedWorkspace;
+    const LocalSearchResult boundedSearchResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            boundedEightNeighborhoodSearch,
+            instance,
+            boundedSearchEngine,
+            LocalSearchIntensity::BoundedStrong,
+            boundedWorkspace);
+    assert(
+        boundedSearchResult.moveLimit
+        == std::max(
+            1,
+            static_cast<int>(
+                std::ceil(0.30 * boundedSolutionScale))));
+    assert(
+        boundedSearchResult.acceptedMoves
+        <= boundedSearchResult.moveLimit);
+    assert(
+        Leader::bounded_strong_distance_call_limit(0) == 128);
+    assert(
+        Leader::bounded_strong_distance_call_limit(7)
+        == 896);
+    assert_individual_is_consistent(
+        boundedEightNeighborhoodSearch,
+        instance);
+
     Individual sevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
     Individual repeatedSevenNeighborhoodRvnd(fiveNeighborhoodRvnd);
     const double upperCostBeforeSevenNeighborhoodSearch =
@@ -1210,6 +1241,27 @@ int main(int argc, char* argv[]) {
         randomAllocationAlgorithm
             .upperBestIndividual->get_upper_cost()
         - randomAllocationAlgorithm.globalBestUpperCost) <= 1e-8);
+
+    Case boundedAllocationInstance(instancePath, 45);
+    Parameters boundedAllocationParameters =
+        randomAllocationParameters;
+    boundedAllocationParameters.seed = 45;
+    boundedAllocationParameters.localSearchIntensity =
+        LocalSearchIntensity::BoundedStrong;
+    MA boundedAllocationAlgorithm(
+        &boundedAllocationInstance,
+        boundedAllocationParameters);
+    boundedAllocationAlgorithm.initialize_search();
+    boundedAllocationAlgorithm.run_generation();
+    const std::string boundedAllocationRows =
+        boundedAllocationAlgorithm
+            .localSearchAllocationRows.str();
+    assert(
+        boundedAllocationRows.find("\tbounded_strong\t")
+        != std::string::npos);
+    assert(
+        boundedAllocationRows.find("\tstrong\t")
+        == std::string::npos);
 
     Case onlineAllocationInstance(instancePath, 47);
     Parameters onlineAllocationParameters =
