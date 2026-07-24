@@ -11,6 +11,8 @@
 #include "reproduction.hpp"
 
 #include <cfloat>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
@@ -27,6 +29,24 @@ struct LocalSearchLogRecord {
     bool lowerEvaluated{};
     double verifiedLowerImprovement{};
 };
+
+void add_operator_stats(
+    std::array<
+        LocalSearchOperatorStats,
+        LOCAL_SEARCH_OPERATOR_COUNT>& generationStats,
+    const LocalSearchResult& result) {
+    for (std::size_t operatorIndex = 0;
+         operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++operatorIndex) {
+        auto& destination = generationStats[operatorIndex];
+        const auto& source = result.operatorStats[operatorIndex];
+        destination.calls += source.calls;
+        destination.accepts += source.accepts;
+        destination.distanceCalls += source.distanceCalls;
+        destination.upperGain += source.upperGain;
+        destination.gammaCrosses += source.gammaCrosses;
+    }
+}
 
 }  // namespace
 
@@ -51,6 +71,8 @@ MA::MA(Case* instance, const Parameters& parameters) {
         static_cast<std::mt19937::result_type>(parameters.seed));
     std::seed_seq localSearchSeed{parameters.seed, 0x4C53, 0x52564E44};
     this->localSearchEngine.seed(localSearchSeed);
+    std::seed_seq allocationSeed{parameters.seed, 0x4C53, 0x414C4C4F};
+    this->localSearchAllocationEngine.seed(allocationSeed);
     this->seed = parameters.seed;
     this->isMaxEvals = parameters.stopCriteria;
     this->enableLogging = parameters.enableLogging;
@@ -65,6 +87,7 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->mutationIndProb = parameters.mutationIndProb;
     this->tournamentSize = parameters.tournamentSize;
     this->localSearchIntensity = parameters.localSearchIntensity;
+    this->localSearchPolicy = parameters.localSearchPolicy;
     this->parentPoolRatio = parameters.parentPoolRatio;
     this->qualityRatio = parameters.qualityRatio;
     this->verifiedUpperRatio = parameters.verifiedUpperRatio;
@@ -80,6 +103,7 @@ MA::MA(Case* instance, const Parameters& parameters) {
 
 MA::~MA() {
     verifiedBest.reset();
+    upperBestIndividual.reset();
     population.clear();
     populationBuffer.clear();
 }
@@ -111,13 +135,12 @@ void MA::run() {
 
     if (verifiedBest == nullptr
         || verifiedBest->get_lower_cost() >= INFEASIBLE_COST) {
-        const shared_ptr<Individual> bestUpperCandidate =
-            Reproduction::best_by_upper_cost(population);
-        if (bestUpperCandidate != nullptr) {
+        if (upperBestIndividual != nullptr) {
             if (verifiedBest == nullptr) {
-                verifiedBest = make_unique<Individual>(*bestUpperCandidate);
+                verifiedBest =
+                    make_unique<Individual>(*upperBestIndividual);
             } else {
-                verifiedBest->copy_from(*bestUpperCandidate);
+                verifiedBest->copy_from(*upperBestIndividual);
             }
         }
     }
@@ -215,6 +238,12 @@ void MA::open_log_for_local_search() {
     logLocalSearchOperators.open(
         directoryPath / "local-search-operators.tsv");
     logLocalSearchOperators << LOCAL_SEARCH_OPERATOR_LOG_HEADER << "\n";
+    if (localSearchPolicy != LocalSearchPolicy::Static) {
+        logLocalSearchAllocation.open(
+            directoryPath / "local-search-allocation.tsv");
+        logLocalSearchAllocation
+            << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
+    }
 }
 
 void MA::flush_local_search_log() {
@@ -228,12 +257,18 @@ void MA::flush_local_search_log() {
         localSearchOperatorRows.str("");
         localSearchOperatorRows.clear();
     }
+    if (logLocalSearchAllocation.is_open()) {
+        logLocalSearchAllocation << localSearchAllocationRows.str();
+        localSearchAllocationRows.str("");
+        localSearchAllocationRows.clear();
+    }
 }
 
 void MA::close_log_for_local_search() {
     flush_local_search_log();
     logLocalSearch.close();
     logLocalSearchOperators.close();
+    logLocalSearchAllocation.close();
 }
 
 void MA::save_log_for_solution() {
@@ -253,11 +288,14 @@ void MA::save_log_for_solution() {
 }
 
 void MA::initialize_search() {
+    localSearchAllocator.reset();
     retainedLowerElite.reset();
+    upperBestIndividual.reset();
     population.clear();
     populationBuffer.clear();
     population.reserve(static_cast<size_t>(popSize));
     populationBuffer.reserve(static_cast<size_t>(popSize));
+    mixedLocalSearchWorkspaces.clear();
     initialize_population_with_clustering();
     std::vector<std::vector<int>> emptyVector2D;
     std::vector<int> emptyVector1D;
@@ -268,7 +306,12 @@ void MA::initialize_search() {
         INFEASIBLE_COST,
         emptyVector1D);
     if (!population.empty()) {
-        globalBestUpperCost = Reproduction::best_by_upper_cost(population)->get_upper_cost();
+        const shared_ptr<Individual> initialBest =
+            Reproduction::best_by_upper_cost(population);
+        upperBestIndividual =
+            make_unique<Individual>(*initialBest);
+        globalBestUpperCost =
+            upperBestIndividual->get_upper_cost();
     } else {
         globalBestUpperCost = DBL_MAX;
     }
@@ -279,102 +322,125 @@ void MA::run_generation() {
 
     shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     vector<LocalSearchLogRecord> localSearchRecords;
+    LocalSearchAllocationRun mixedLocalSearch;
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
-    ParentCandidate localSearchBestReference;
-    if (enableLogging) {
-        localSearchBestReference =
-            Reproduction::make_parent_candidate(*bestUpperCandidate);
-    }
+    ParentCandidate localSearchBestReference =
+        Reproduction::make_parent_candidate(*bestUpperCandidate);
     double localSearchBestCost = std::min(
         globalBestUpperCost,
         bestUpperCandidate->get_upper_cost());
+    const ParentCandidate frozenUpperReference =
+        Reproduction::make_parent_candidate(*upperBestIndividual);
+    const double frozenReferenceCost =
+        frozenUpperReference.upperCost;
+    const double frozenTriggerUpperBound =
+        frozenReferenceCost * lowerLevelTriggerRatio;
+    const double budgetProgress =
+        instance->get_evaluation_limit_distance_calls() > 0
+        ? static_cast<double>(instance->get_distance_calls())
+            / static_cast<double>(
+                instance->get_evaluation_limit_distance_calls())
+        : 0.0;
 
-    auto applyLocalSearch = [&](const shared_ptr<Individual>& individual) {
-        const bool canReuseLowerElite = individual == unchangedLowerElite
-            && individual->is_upper_locally_optimal()
-            && individual->get_lower_cost() < INFEASIBLE_COST;
-        if (!enableLogging) {
-            if (!canReuseLowerElite) {
-                Leader::improve_with_eight_neighborhood_rvnd_one_move(
-                    *individual,
-                    *instance,
-                    localSearchEngine,
-                    localSearchIntensity,
-                    localSearchWorkspace);
+    if (localSearchPolicy == LocalSearchPolicy::Static) {
+        auto applyLocalSearch =
+            [&](const shared_ptr<Individual>& individual) {
+            const bool canReuseLowerElite =
+                individual == unchangedLowerElite
+                && individual->is_upper_locally_optimal()
+                && individual->get_lower_cost() < INFEASIBLE_COST;
+            if (!enableLogging) {
+                if (!canReuseLowerElite) {
+                    Leader::improve_with_eight_neighborhood_rvnd_one_move(
+                        *individual,
+                        *instance,
+                        localSearchEngine,
+                        localSearchIntensity,
+                        localSearchWorkspace);
+                }
+                return;
             }
-            return;
-        }
 
-        const ParentCandidate beforeCandidate =
-            Reproduction::make_parent_candidate(*individual);
-        const double referenceCost = localSearchBestReference.upperCost;
-        const double qualityGap = referenceCost > 0.0
-            ? (beforeCandidate.upperCost - referenceCost) / referenceCost
-            : 0.0;
-        const double distanceBefore = Reproduction::adjacency_distance(
-            beforeCandidate,
-            localSearchBestReference);
-        const double triggerUpperBoundBefore =
-            localSearchBestCost * lowerLevelTriggerRatio;
-        const bool outsideGammaBefore =
-            beforeCandidate.upperCost > triggerUpperBoundBefore;
+            const ParentCandidate beforeCandidate =
+                Reproduction::make_parent_candidate(*individual);
+            const double referenceCost =
+                localSearchBestReference.upperCost;
+            const double qualityGap = referenceCost > 0.0
+                ? (beforeCandidate.upperCost - referenceCost)
+                    / referenceCost
+                : 0.0;
+            const double distanceBefore =
+                Reproduction::adjacency_distance(
+                    beforeCandidate,
+                    localSearchBestReference);
+            const double triggerUpperBoundBefore =
+                localSearchBestCost * lowerLevelTriggerRatio;
+            const bool outsideGammaBefore =
+                beforeCandidate.upperCost > triggerUpperBoundBefore;
 
-        LocalSearchResult result;
-        if (canReuseLowerElite) {
-            result.moveLimit = -1;
-            result.reachedLocalOptimum = true;
-        } else {
-            result = Leader::improve_with_eight_neighborhood_rvnd_one_move(
-                *individual,
-                *instance,
-                localSearchEngine,
-                localSearchIntensity,
-                localSearchWorkspace,
-                triggerUpperBoundBefore);
-        }
-        for (std::size_t operatorIndex = 0;
-             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
-             ++operatorIndex) {
-            auto& generationStats =
-                generationOperatorStats[operatorIndex];
-            const auto& individualStats =
-                result.operatorStats[operatorIndex];
-            generationStats.calls += individualStats.calls;
-            generationStats.accepts += individualStats.accepts;
-            generationStats.distanceCalls +=
-                individualStats.distanceCalls;
-            generationStats.upperGain += individualStats.upperGain;
-            generationStats.gammaCrosses +=
-                individualStats.gammaCrosses;
-        }
-        const ParentCandidate afterCandidate =
-            Reproduction::make_parent_candidate(*individual);
+            LocalSearchResult result;
+            if (canReuseLowerElite) {
+                result.moveLimit = -1;
+                result.reachedLocalOptimum = true;
+            } else {
+                result =
+                    Leader::improve_with_eight_neighborhood_rvnd_one_move(
+                        *individual,
+                        *instance,
+                        localSearchEngine,
+                        localSearchIntensity,
+                        localSearchWorkspace,
+                        triggerUpperBoundBefore);
+            }
+            add_operator_stats(generationOperatorStats, result);
+            const ParentCandidate afterCandidate =
+                Reproduction::make_parent_candidate(*individual);
 
-        LocalSearchLogRecord record;
-        record.individual = individual;
-        record.qualityGap = qualityGap;
-        record.distanceBefore = distanceBefore;
-        record.distanceAfter = Reproduction::adjacency_distance(
-            afterCandidate,
-            localSearchBestReference);
-        record.result = result;
-        record.crossedGamma = outsideGammaBefore
-            && afterCandidate.upperCost <= triggerUpperBoundBefore;
-        localSearchRecords.push_back(std::move(record));
+            LocalSearchLogRecord record;
+            record.individual = individual;
+            record.qualityGap = qualityGap;
+            record.distanceBefore = distanceBefore;
+            record.distanceAfter =
+                Reproduction::adjacency_distance(
+                    afterCandidate,
+                    localSearchBestReference);
+            record.result = result;
+            record.crossedGamma = outsideGammaBefore
+                && afterCandidate.upperCost
+                    <= triggerUpperBoundBefore;
+            localSearchRecords.push_back(std::move(record));
 
-        if (afterCandidate.upperCost < localSearchBestReference.upperCost) {
-            localSearchBestReference = afterCandidate;
-        }
-        if (afterCandidate.upperCost < localSearchBestCost) {
-            localSearchBestCost = afterCandidate.upperCost;
-        }
-    };
+            if (afterCandidate.upperCost
+                < localSearchBestReference.upperCost) {
+                localSearchBestReference = afterCandidate;
+            }
+            if (afterCandidate.upperCost < localSearchBestCost) {
+                localSearchBestCost = afterCandidate.upperCost;
+            }
+        };
 
-    for (auto& individual : population) {
-        applyLocalSearch(individual);
+        for (auto& individual : population) {
+            applyLocalSearch(individual);
+        }
+    } else {
+        mixedLocalSearch = LocalSearchAllocationRunner::run(
+            population,
+            unchangedLowerElite,
+            *instance,
+            generation,
+            localSearchPolicy,
+            frozenUpperReference,
+            frozenTriggerUpperBound,
+            budgetProgress,
+            localSearchEngine,
+            localSearchAllocationEngine,
+            mixedLocalSearchWorkspaces,
+            localSearchAllocator);
+        generationOperatorStats =
+            mixedLocalSearch.operatorStats;
     }
 
     // Build the quality-diversity parent pool before follower evaluation, so
@@ -389,11 +455,18 @@ void MA::run_generation() {
         rankedUpperSolutions,
         targetParentPoolSize,
         qualityRatio);
+    if (localSearchPolicy != LocalSearchPolicy::Static) {
+        LocalSearchAllocationRunner::assign_parent_pool_feedback(
+            mixedLocalSearch,
+            parentPool);
+    }
 
     vector<shared_ptr<Individual>> followerCandidates;
     shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(population);
     if (generationBestUpper->get_upper_cost() < globalBestUpperCost) {
-        globalBestUpperCost = generationBestUpper->get_upper_cost();
+        upperBestIndividual->copy_from(*generationBestUpper);
+        globalBestUpperCost =
+            upperBestIndividual->get_upper_cost();
     }
 
     const double triggerUpperBound = globalBestUpperCost * lowerLevelTriggerRatio;
@@ -446,11 +519,26 @@ void MA::run_generation() {
                     }
                 }
             }
+            if (localSearchPolicy != LocalSearchPolicy::Static) {
+                LocalSearchAllocationRunner::assign_verified_feedback(
+                    mixedLocalSearch,
+                    bestEvaluatedComplete,
+                    verifiedLowerCostBefore,
+                    bestEvaluatedComplete->get_lower_cost());
+            }
             verifiedBest->copy_from(*bestEvaluatedComplete);
         }
     }
     const bool retainVerifiedFallback =
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
+
+    if (localSearchPolicy != LocalSearchPolicy::Static) {
+        LocalSearchAllocationRunner::finalize_feedback(
+            mixedLocalSearch,
+            frozenReferenceCost,
+            localSearchPolicy,
+            localSearchAllocator);
+    }
 
     if (enableLogging) {
         for (const auto& record : localSearchRecords) {
@@ -488,6 +576,40 @@ void MA::run_generation() {
                 << operatorStats.upperGain << "\t"
                 << operatorStats.gammaCrosses << "\n";
         }
+        if (localSearchPolicy != LocalSearchPolicy::Static) {
+            static constexpr std::array<
+                LocalSearchIntensity,
+                3> intensities = {
+                    LocalSearchIntensity::Weak,
+                    LocalSearchIntensity::Medium,
+                    LocalSearchIntensity::Strong,
+                };
+            for (const LocalSearchIntensity intensity
+                 : intensities) {
+                const auto& stats = mixedLocalSearch.stats[
+                    LocalSearchAllocationRunner::intensity_index(
+                        intensity)];
+                localSearchAllocationRows
+                    << setprecision(12)
+                    << generation << "\t"
+                    << local_search_policy_name(
+                        localSearchPolicy) << "\t"
+                    << LocalSearchAllocationRunner::intensity_name(
+                        intensity) << "\t"
+                    << stats.selections << "\t"
+                    << stats.terminalCount << "\t"
+                    << stats.acceptedMoves << "\t"
+                    << stats.neighborhoodCalls << "\t"
+                    << instance->distance_calls_to_evals(
+                        stats.distanceCalls) << "\t"
+                    << stats.upperGain << "\t"
+                    << stats.gammaCrosses << "\t"
+                    << stats.parentPoolHits << "\t"
+                    << stats.globalUpperUpdates << "\t"
+                    << stats.verifiedUpdates << "\t"
+                    << stats.reward << "\n";
+            }
+        }
         flush_local_search_log();
     }
 
@@ -516,6 +638,7 @@ void MA::run_generation() {
     followerCandidates.clear();
     rankedUpperSolutions.clear();
     localSearchRecords.clear();
+    mixedLocalSearch.records.clear();
     bestUpperCandidate.reset();
     generationBestUpper.reset();
     unchangedLowerElite.reset();

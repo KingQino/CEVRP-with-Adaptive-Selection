@@ -56,15 +56,15 @@ constexpr std::array<Neighborhood, 7> kSevenNeighborhoods = {
     Neighborhood::TwoOptStarHeadToTail,
 };
 
-constexpr std::array<Neighborhood, 8> kEightNeighborhoods = {
-    Neighborhood::NodeShift,
-    Neighborhood::InterRouteRelocate,
-    Neighborhood::IntraRouteSwap,
-    Neighborhood::InterRouteSwap,
-    Neighborhood::SwapStar,
-    Neighborhood::TwoOpt,
-    Neighborhood::TwoOptStarHeadToHead,
-    Neighborhood::TwoOptStarHeadToTail,
+constexpr std::array<LocalSearchOperator, 8> kEightOperators = {
+    LocalSearchOperator::NodeShift,
+    LocalSearchOperator::InterRouteRelocate,
+    LocalSearchOperator::IntraRouteSwap,
+    LocalSearchOperator::InterRouteSwap,
+    LocalSearchOperator::SwapStar,
+    LocalSearchOperator::TwoOpt,
+    LocalSearchOperator::TwoOptStarHeadToHead,
+    LocalSearchOperator::TwoOptStarHeadToTail,
 };
 
 LocalSearchOperator local_search_operator(Neighborhood neighborhood) {
@@ -89,6 +89,31 @@ LocalSearchOperator local_search_operator(Neighborhood neighborhood) {
             return LocalSearchOperator::Count;
     }
     return LocalSearchOperator::Count;
+}
+
+Neighborhood neighborhood_for_operator(
+    LocalSearchOperator localSearchOperator) {
+    switch (localSearchOperator) {
+        case LocalSearchOperator::NodeShift:
+            return Neighborhood::NodeShift;
+        case LocalSearchOperator::InterRouteRelocate:
+            return Neighborhood::InterRouteRelocate;
+        case LocalSearchOperator::IntraRouteSwap:
+            return Neighborhood::IntraRouteSwap;
+        case LocalSearchOperator::InterRouteSwap:
+            return Neighborhood::InterRouteSwap;
+        case LocalSearchOperator::SwapStar:
+            return Neighborhood::SwapStar;
+        case LocalSearchOperator::TwoOpt:
+            return Neighborhood::TwoOpt;
+        case LocalSearchOperator::TwoOptStarHeadToHead:
+            return Neighborhood::TwoOptStarHeadToHead;
+        case LocalSearchOperator::TwoOptStarHeadToTail:
+            return Neighborhood::TwoOptStarHeadToTail;
+        case LocalSearchOperator::Count:
+            break;
+    }
+    throw std::logic_error("unknown local-search operator");
 }
 
 std::size_t operator_index(LocalSearchOperator localSearchOperator) {
@@ -2370,7 +2395,7 @@ LocalSearchResult improve_with_rvnd_one_move(
     return result;
 }
 
-int move_limit_for_intensity(
+int scaled_move_limit_for_intensity(
     const Individual& individual,
     const Case& instance,
     LocalSearchIntensity intensity) {
@@ -2496,7 +2521,7 @@ LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
         instance,
         randomEngine,
         kSevenNeighborhoods,
-        move_limit_for_intensity(individual, instance, intensity),
+        scaled_move_limit_for_intensity(individual, instance, intensity),
         workspace,
         std::numeric_limits<double>::infinity());
 }
@@ -2506,14 +2531,12 @@ void Leader::improve_with_eight_neighborhood_rvnd_one_move(
     Case& instance,
     std::mt19937& randomEngine) {
     LocalSearchWorkspace workspace;
-    improve_with_rvnd_one_move(
+    improve_with_eight_neighborhood_rvnd_one_move(
         individual,
         instance,
         randomEngine,
-        kEightNeighborhoods,
-        -1,
-        workspace,
-        std::numeric_limits<double>::infinity());
+        LocalSearchIntensity::Strong,
+        workspace);
 }
 
 LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
@@ -2552,12 +2575,139 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
     LocalSearchIntensity intensity,
     LocalSearchWorkspace& workspace,
     double gammaUpperBound) {
-    return improve_with_rvnd_one_move(
+    const int moveLimit = scaled_move_limit_for_intensity(
+        individual,
+        instance,
+        intensity);
+    LocalSearchResult result;
+    result.moveLimit = moveLimit;
+    if (moveLimit == 0) {
+        return result;
+    }
+
+    LocalSearchSession session;
+    begin_eight_neighborhood_rvnd_one_move_session(
+        individual,
+        session,
+        workspace);
+    return continue_eight_neighborhood_rvnd_one_move_session(
         individual,
         instance,
         randomEngine,
-        kEightNeighborhoods,
-        move_limit_for_intensity(individual, instance, intensity),
+        session,
+        moveLimit,
         workspace,
         gammaUpperBound);
+}
+
+void Leader::begin_eight_neighborhood_rvnd_one_move_session(
+    Individual& individual,
+    LocalSearchSession& session,
+    LocalSearchWorkspace& workspace) {
+    begin_failure_cache_session(individual.route_num, workspace);
+    session.initialized = true;
+    session.totalAcceptedMoves = 0;
+    session.totalNeighborhoodCalls = 0;
+    session.activeOperators.assign(
+        kEightOperators.begin(),
+        kEightOperators.end());
+}
+
+LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
+    Individual& individual,
+    Case& instance,
+    std::mt19937& randomEngine,
+    LocalSearchSession& session,
+    int cumulativeMoveLimit,
+    LocalSearchWorkspace& workspace,
+    double gammaUpperBound) {
+    if (!session.initialized) {
+        throw std::logic_error(
+            "local-search session must be initialized before continuation");
+    }
+
+    const double upperCostBefore = individual.get_upper_cost();
+    const std::uint64_t distanceCallsBefore =
+        instance.get_distance_calls();
+    LocalSearchResult result;
+    result.moveLimit = cumulativeMoveLimit;
+
+    while (!session.activeOperators.empty()) {
+        if (cumulativeMoveLimit >= 0
+            && session.totalAcceptedMoves >= cumulativeMoveLimit) {
+            break;
+        }
+
+        std::uniform_int_distribution<std::size_t> selectOperator(
+            0,
+            session.activeOperators.size() - 1);
+        const std::size_t selectedIndex = selectOperator(randomEngine);
+        const LocalSearchOperator selectedOperator =
+            session.activeOperators[selectedIndex];
+        const Neighborhood selectedNeighborhood =
+            neighborhood_for_operator(selectedOperator);
+        LocalSearchOperatorStats& operatorStats =
+            result.operatorStats[operator_index(selectedOperator)];
+        const std::uint64_t operatorDistanceCallsBefore =
+            instance.get_distance_calls();
+        const double operatorUpperCostBefore =
+            individual.get_upper_cost();
+        const bool outsideGammaBefore =
+            operatorUpperCostBefore > gammaUpperBound;
+
+        ++result.neighborhoodCalls;
+        ++session.totalNeighborhoodCalls;
+        ++operatorStats.calls;
+        reset_move_impact(workspace);
+        const bool improved = improve_with_neighborhood_one_move(
+            selectedNeighborhood,
+            individual,
+            instance,
+            randomEngine,
+            workspace);
+        operatorStats.distanceCalls +=
+            instance.get_distance_calls()
+            - operatorDistanceCallsBefore;
+
+        if (improved) {
+            invalidate_failure_cache_after_move(
+                individual.route_num,
+                workspace);
+            ++result.acceptedMoves;
+            ++session.totalAcceptedMoves;
+            ++operatorStats.accepts;
+            operatorStats.upperGain +=
+                operatorUpperCostBefore - individual.get_upper_cost();
+            if (outsideGammaBefore
+                && individual.get_upper_cost() <= gammaUpperBound) {
+                ++operatorStats.gammaCrosses;
+            }
+            session.activeOperators.assign(
+                kEightOperators.begin(),
+                kEightOperators.end());
+        } else {
+            session.activeOperators.erase(
+                session.activeOperators.begin() + selectedIndex);
+        }
+    }
+
+    result.distanceCallsUsed =
+        instance.get_distance_calls() - distanceCallsBefore;
+    result.relativeUpperImprovement = upperCostBefore > 0.0
+        ? (upperCostBefore - individual.get_upper_cost())
+            / upperCostBefore
+        : 0.0;
+    result.reachedLocalOptimum = session.activeOperators.empty();
+    individual.set_upper_locally_optimal(result.reachedLocalOptimum);
+    return result;
+}
+
+int Leader::move_limit_for_intensity(
+    const Individual& individual,
+    const Case& instance,
+    LocalSearchIntensity intensity) {
+    return scaled_move_limit_for_intensity(
+        individual,
+        instance,
+        intensity);
 }

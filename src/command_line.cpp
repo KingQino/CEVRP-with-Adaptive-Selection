@@ -51,6 +51,21 @@ LocalSearchIntensity parse_local_search_intensity(const std::string& value) {
         "ls must be one of: skip, weak, medium, strong");
 }
 
+LocalSearchPolicy parse_local_search_policy(const std::string& value) {
+    const std::string normalized = lowercase(value);
+    if (normalized == "static") {
+        return LocalSearchPolicy::Static;
+    }
+    if (normalized == "random") {
+        return LocalSearchPolicy::RandomMixed;
+    }
+    if (normalized == "contextual") {
+        return LocalSearchPolicy::ContextualMixed;
+    }
+    throw std::invalid_argument(
+        "ls_policy must be one of: static, random, contextual");
+}
+
 }  // namespace
 
 CommandLine::CommandLine(int argc, char* argv[]) {
@@ -105,6 +120,7 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "mutation_ind_prob",
         "tournament_size",
         "ls",
+        "ls_policy",
         "parent_pool_ratio",
         "quality_ratio",
         "verified_upper_ratio",
@@ -133,6 +149,8 @@ void CommandLine::parse_parameters(Parameters& params) const {
     params.tournamentSize = get_int("tournament_size", params.tournamentSize);
     params.localSearchIntensity = parse_local_search_intensity(
         get_string("ls", "strong"));
+    params.localSearchPolicy = parse_local_search_policy(
+        get_string("ls_policy", "static"));
     params.parentPoolRatio = get_double(
         "parent_pool_ratio",
         params.parentPoolRatio);
@@ -163,6 +181,9 @@ void CommandLine::display_help() {
         << "  -mutation_ind_prob <double>    Per-gene mutation probability (default: 0.2)\n"
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
         << "  -ls <skip|weak|medium|strong>   Local-search intensity (default: strong)\n"
+        << "  -ls_policy <static|random|contextual>\n"
+        << "                                  static or fixed 20/30/50 mixed allocation\n"
+        << "                                  (default: static)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"

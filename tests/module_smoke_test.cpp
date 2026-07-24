@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <random>
 #include <set>
@@ -325,6 +326,97 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
         instance);
 }
 
+void assert_progressive_eight_neighborhood_session_matches_strong() {
+    const std::string instancePath =
+        std::string(TEST_DATA_DIRECTORY) + "/E-n22-k4.evrp";
+    Case instance(instancePath, 41);
+    std::mt19937 initializationEngine(19);
+    const auto routes = Initializer::build_with_clustering(
+        instance,
+        initializationEngine);
+    Individual direct(
+        instance.vehicleNumber * 3,
+        instance.customerNumber + 2,
+        routes,
+        instance.fitness_evaluation(routes),
+        instance.compute_demand_sum(routes));
+    Individual progressive(direct);
+
+    std::mt19937 directEngine(29);
+    std::mt19937 progressiveEngine(29);
+    LocalSearchWorkspace directWorkspace;
+    LocalSearchWorkspace progressiveWorkspace;
+    const LocalSearchResult directResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            direct,
+            instance,
+            directEngine,
+            LocalSearchIntensity::Strong,
+            directWorkspace);
+
+    LocalSearchSession session;
+    Leader::begin_eight_neighborhood_rvnd_one_move_session(
+        progressive,
+        session,
+        progressiveWorkspace);
+    const int weakLimit = Leader::move_limit_for_intensity(
+        progressive,
+        instance,
+        LocalSearchIntensity::Weak);
+    const LocalSearchResult weakResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            progressive,
+            instance,
+            progressiveEngine,
+            session,
+            weakLimit,
+            progressiveWorkspace,
+            std::numeric_limits<double>::infinity());
+    const int mediumLimit = Leader::move_limit_for_intensity(
+        progressive,
+        instance,
+        LocalSearchIntensity::Medium);
+    const LocalSearchResult mediumResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            progressive,
+            instance,
+            progressiveEngine,
+            session,
+            mediumLimit,
+            progressiveWorkspace,
+            std::numeric_limits<double>::infinity());
+    const LocalSearchResult strongResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            progressive,
+            instance,
+            progressiveEngine,
+            session,
+            -1,
+            progressiveWorkspace,
+            std::numeric_limits<double>::infinity());
+
+    assert(strongResult.reachedLocalOptimum);
+    assert(progressive.get_routes() == direct.get_routes());
+    assert(std::fabs(
+        progressive.get_upper_cost()
+        - direct.get_upper_cost()) <= 1e-8);
+    assert(
+        weakResult.acceptedMoves
+            + mediumResult.acceptedMoves
+            + strongResult.acceptedMoves
+        == directResult.acceptedMoves);
+    assert(
+        weakResult.neighborhoodCalls
+            + mediumResult.neighborhoodCalls
+            + strongResult.neighborhoodCalls
+        == directResult.neighborhoodCalls);
+    assert(
+        weakResult.distanceCallsUsed
+            + mediumResult.distanceCallsUsed
+            + strongResult.distanceCallsUsed
+        == directResult.distanceCallsUsed);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -361,6 +453,7 @@ int main(int argc, char* argv[]) {
     assert_inter_route_relocate_removes_empty_route(instance);
     assert_refinement_handles_boundary_cases();
     assert_swap_star_improves_a_seven_neighborhood_local_optimum();
+    assert_progressive_eight_neighborhood_session_matches_strong();
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
     auto splitRoutes = Initializer::build_with_random_split(instance, randomEngine);
@@ -728,6 +821,12 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(algorithm.mutationProb - 0.35) <= 1e-12);
     assert(std::fabs(algorithm.mutationIndProb - 0.07) <= 1e-12);
     algorithm.initialize_search();
+    assert(algorithm.upperBestIndividual != nullptr);
+    assert(std::fabs(
+        algorithm.upperBestIndividual->get_upper_cost()
+        - algorithm.globalBestUpperCost) <= 1e-8);
+    const double initialArchivedUpperCost =
+        algorithm.upperBestIndividual->get_upper_cost();
     std::set<const Individual*> initialPopulationAddresses;
     std::vector<std::pair<const Individual*, std::set<int*>>> initialRouteBuffers;
     for (const auto& individual : algorithm.population) {
@@ -762,6 +861,11 @@ int main(int argc, char* argv[]) {
     assert(algorithm.verifiedBest.get() == verifiedBestAddress);
     assert(algorithm.verifiedBest != nullptr);
     assert(std::isfinite(algorithm.verifiedBest->get_lower_cost()));
+    assert(algorithm.upperBestIndividual->get_upper_cost()
+           <= initialArchivedUpperCost + 1e-8);
+    assert(std::fabs(
+        algorithm.upperBestIndividual->get_upper_cost()
+        - algorithm.globalBestUpperCost) <= 1e-8);
     int finiteLowerCostCount = 0;
     for (const auto& individual : algorithm.population) {
         finiteLowerCostCount += std::isfinite(individual->get_lower_cost());
@@ -1015,5 +1119,63 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(std::stod(retainedEliteColumns[7])) <= 1e-12);
     assert(retainedEliteColumns[9] == "1");
     assert(retainedEliteColumns[11] == "0");
+
+    Case randomAllocationInstance(instancePath, 43);
+    Parameters randomAllocationParameters;
+    randomAllocationParameters.seed = 43;
+    randomAllocationParameters.popSize = 10;
+    randomAllocationParameters.enableLogging = true;
+    randomAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::RandomMixed;
+    MA randomAllocationAlgorithm(
+        &randomAllocationInstance,
+        randomAllocationParameters);
+    randomAllocationAlgorithm.initialize_search();
+    randomAllocationAlgorithm.run_generation();
+    assert(randomAllocationAlgorithm.localSearchRows.str().empty());
+    std::istringstream allocationRows(
+        randomAllocationAlgorithm
+            .localSearchAllocationRows.str());
+    int allocationRowCount = 0;
+    int terminalCount = 0;
+    while (std::getline(allocationRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 14);
+        assert(columns[1] == "random");
+        terminalCount += std::stoi(columns[4]);
+        ++allocationRowCount;
+    }
+    assert(allocationRowCount == 3);
+    assert(terminalCount == randomAllocationParameters.popSize);
+    assert(randomAllocationAlgorithm.upperBestIndividual != nullptr);
+    assert(std::fabs(
+        randomAllocationAlgorithm
+            .upperBestIndividual->get_upper_cost()
+        - randomAllocationAlgorithm.globalBestUpperCost) <= 1e-8);
+
+    Case contextualAllocationInstance(instancePath, 47);
+    Parameters contextualAllocationParameters =
+        randomAllocationParameters;
+    contextualAllocationParameters.seed = 47;
+    contextualAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::ContextualMixed;
+    MA contextualAllocationAlgorithm(
+        &contextualAllocationInstance,
+        contextualAllocationParameters);
+    contextualAllocationAlgorithm.initialize_search();
+    contextualAllocationAlgorithm.run_generation();
+    contextualAllocationAlgorithm.run_generation();
+    const std::string contextualAllocationRows =
+        contextualAllocationAlgorithm
+            .localSearchAllocationRows.str();
+    assert(std::count(
+        contextualAllocationRows.begin(),
+        contextualAllocationRows.end(),
+        '\n') == 6);
     return 0;
 }

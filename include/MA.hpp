@@ -13,6 +13,7 @@
 #include "follower.hpp"
 #include "initializer.hpp"
 #include "leader.hpp"
+#include "local_search_allocation.hpp"
 #include "parameters.hpp"
 #include "reproduction.hpp"
 
@@ -27,6 +28,10 @@ public:
         "verified_lower_improvement";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
         "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
+    static constexpr const char* LOCAL_SEARCH_ALLOCATION_LOG_HEADER =
+        "iter\tpolicy\taction\tselections\tterminal_count\taccepted_moves\t"
+        "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\t"
+        "parent_pool_hits\tglobal_upper_updates\tverified_updates\treward";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -49,20 +54,26 @@ public:
     std::ostringstream evolutionRows;
     std::ostringstream localSearchRows;
     std::ostringstream localSearchOperatorRows;
+    std::ostringstream localSearchAllocationRows;
     std::ofstream logLocalSearch;
     std::ofstream logLocalSearchOperators;
+    std::ofstream logLocalSearchAllocation;
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;
+    std::mt19937 localSearchAllocationEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::vector<std::shared_ptr<Individual>> populationBuffer;
     std::unique_ptr<Individual> verifiedBest;
+    std::unique_ptr<Individual> upperBestIndividual;
     std::shared_ptr<Individual> retainedLowerElite;
     FollowerWorkspace followerWorkspace;
     SplitWorkspace splitWorkspace;
     ReproductionWorkspace reproductionWorkspace;
     LocalSearchWorkspace localSearchWorkspace;
+    std::vector<LocalSearchWorkspace> mixedLocalSearchWorkspaces;
+    ContextualLocalSearchAllocator localSearchAllocator;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;
@@ -72,6 +83,7 @@ public:
     double mutationIndProb;
     int tournamentSize;
     LocalSearchIntensity localSearchIntensity;
+    LocalSearchPolicy localSearchPolicy;
     double parentPoolRatio;
     double qualityRatio;
     double verifiedUpperRatio;

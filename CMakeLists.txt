@@ -12,6 +12,7 @@ set(CORE_SOURCES
         src/stats.cpp
         src/initializer.cpp
         src/leader.cpp
+        src/local_search_allocation.cpp
         src/follower.cpp
         src/reproduction.cpp
         src/individual.cpp

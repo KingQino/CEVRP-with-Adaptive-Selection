@@ -52,6 +52,13 @@ struct LocalSearchResult {
         operatorStats{};
 };
 
+struct LocalSearchSession {
+    bool initialized{};
+    int totalAcceptedMoves{};
+    int totalNeighborhoodCalls{};
+    std::vector<LocalSearchOperator> activeOperators;
+};
+
 struct LocalSearchWorkspace {
     struct InsertionCandidate {
         double cost{};
@@ -144,6 +151,22 @@ public:
         LocalSearchIntensity intensity,
         LocalSearchWorkspace& workspace,
         double gammaUpperBound);
+    static void begin_eight_neighborhood_rvnd_one_move_session(
+        Individual& individual,
+        LocalSearchSession& session,
+        LocalSearchWorkspace& workspace);
+    static LocalSearchResult continue_eight_neighborhood_rvnd_one_move_session(
+        Individual& individual,
+        Case& instance,
+        std::mt19937& randomEngine,
+        LocalSearchSession& session,
+        int cumulativeMoveLimit,
+        LocalSearchWorkspace& workspace,
+        double gammaUpperBound);
+    static int move_limit_for_intensity(
+        const Individual& individual,
+        const Case& instance,
+        LocalSearchIntensity intensity);
 };
 
 #endif

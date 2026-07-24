@@ -42,6 +42,7 @@ int main() {
         "-mutation_ind_prob", "0.005",
         "-tournament_size", "3",
         "-ls", "medium",
+        "-ls_policy", "static",
         "-parent_pool_ratio", "0.15",
         "-quality_ratio", "0.4",
         "-verified_upper_ratio", "0.10",
@@ -61,6 +62,7 @@ int main() {
     assert(std::fabs(namedParameters.mutationIndProb - 0.005) <= 1e-12);
     assert(namedParameters.tournamentSize == 3);
     assert(namedParameters.localSearchIntensity == LocalSearchIntensity::Medium);
+    assert(namedParameters.localSearchPolicy == LocalSearchPolicy::Static);
     assert(std::fabs(namedParameters.parentPoolRatio - 0.15) <= 1e-12);
     assert(std::fabs(namedParameters.qualityRatio - 0.4) <= 1e-12);
     assert(std::fabs(namedParameters.verifiedUpperRatio - 0.10) <= 1e-12);
@@ -90,6 +92,28 @@ int main() {
     Parameters skipParameters;
     skipCommandLine.parse_parameters(skipParameters);
     assert(skipParameters.localSearchIntensity == LocalSearchIntensity::Skip);
+
+    std::vector<std::string> contextualArguments = {
+        "build/command_line_test",
+        "-ls_policy", "contextual",
+    };
+    CommandLine contextualCommandLine = make_command_line(
+        contextualArguments);
+    Parameters contextualParameters;
+    contextualCommandLine.parse_parameters(contextualParameters);
+    contextualParameters.validate();
+    assert(
+        contextualParameters.localSearchPolicy
+        == LocalSearchPolicy::ContextualMixed);
+
+    Parameters invalidMixedIntensity;
+    invalidMixedIntensity.localSearchPolicy =
+        LocalSearchPolicy::RandomMixed;
+    invalidMixedIntensity.localSearchIntensity =
+        LocalSearchIntensity::Medium;
+    assert(validation_fails(
+        invalidMixedIntensity,
+        "requires -ls strong"));
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;
