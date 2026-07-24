@@ -958,48 +958,7 @@ int main(int argc, char* argv[]) {
     assert(std::isfinite(algorithm.population.front()->get_lower_cost()));
     assert(std::string(MA::EVOLUTION_LOG_HEADER)
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
-    assert(std::string(MA::LOCAL_SEARCH_LOG_HEADER)
-           == "iter\tquality_gap\tdistance_before\tdistance_after\tmove_limit\t"
-              "accepted_moves\tneighborhood_calls\tls_evals\t"
-              "relative_upper_improvement\treached_local_optimum\tcrossed_gamma\t"
-              "lower_evaluated\tverified_lower_improvement");
-    const std::string localSearchRows = algorithm.localSearchRows.str();
-    std::istringstream localSearchStream(localSearchRows);
     std::string localSearchRow;
-    int localSearchRowCount = 0;
-    int loggedLocalSearchCalls = 0;
-    int loggedLocalSearchAccepts = 0;
-    int loggedGammaCrosses = 0;
-    double loggedLocalSearchEvals = 0.0;
-    while (std::getline(localSearchStream, localSearchRow)) {
-        assert(std::count(localSearchRow.begin(), localSearchRow.end(), '\t') == 12);
-        std::istringstream rowStream(localSearchRow);
-        std::vector<std::string> columns;
-        std::string column;
-        while (std::getline(rowStream, column, '\t')) {
-            columns.push_back(column);
-        }
-        assert(columns.size() == 13);
-        assert(std::stoi(columns[0]) == 1);
-        assert(std::stod(columns[1]) >= -1e-12);
-        assert(std::stod(columns[2]) >= 0.0 && std::stod(columns[2]) <= 1.0);
-        assert(std::stod(columns[3]) >= 0.0 && std::stod(columns[3]) <= 1.0);
-        assert(std::stoi(columns[4]) == -1);
-        assert(std::stoi(columns[5]) >= 0);
-        assert(std::stoi(columns[6]) >= std::stoi(columns[5]));
-        assert(std::stod(columns[7]) >= 0.0);
-        assert(std::stod(columns[8]) >= -1e-12);
-        assert(columns[9] == "1");
-        assert(columns[10] == "0" || columns[10] == "1");
-        assert(columns[11] == "0" || columns[11] == "1");
-        assert(std::stod(columns[12]) >= 0.0);
-        loggedLocalSearchAccepts += std::stoi(columns[5]);
-        loggedLocalSearchCalls += std::stoi(columns[6]);
-        loggedLocalSearchEvals += std::stod(columns[7]);
-        loggedGammaCrosses += std::stoi(columns[10]);
-        ++localSearchRowCount;
-    }
-    assert(localSearchRowCount == 10);
     assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
            == "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses");
     const std::string operatorRows = algorithm.localSearchOperatorRows.str();
@@ -1039,14 +998,10 @@ int main(int argc, char* argv[]) {
     }
     assert(operatorRowCount
            == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
-    assert(aggregateOperatorCalls == loggedLocalSearchCalls);
-    assert(aggregateOperatorAccepts == loggedLocalSearchAccepts);
-    const double loggedEvalsTolerance =
-        std::max(1e-7, loggedLocalSearchEvals * 1e-10);
-    assert(std::fabs(
-        aggregateOperatorEvals - loggedLocalSearchEvals)
-        <= loggedEvalsTolerance);
-    assert(aggregateOperatorGammaCrosses == loggedGammaCrosses);
+    assert(aggregateOperatorCalls > 0);
+    assert(aggregateOperatorAccepts > 0);
+    assert(aggregateOperatorEvals > 0.0);
+    assert(aggregateOperatorGammaCrosses >= 0);
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
@@ -1084,17 +1039,12 @@ int main(int argc, char* argv[]) {
     for (int iter = 0; iter < 31; ++iter) {
         fullPopulationAlgorithm.run_generation();
     }
-    std::vector<int> localSearchCallsPerIter(32, 0);
-    std::istringstream fullPopulationRows(fullPopulationAlgorithm.localSearchRows.str());
-    while (std::getline(fullPopulationRows, localSearchRow)) {
-        std::istringstream rowStream(localSearchRow);
-        std::string iterColumn;
-        std::getline(rowStream, iterColumn, '\t');
-        ++localSearchCallsPerIter[std::stoi(iterColumn)];
-    }
-    for (int iter = 1; iter <= 31; ++iter) {
-        assert(localSearchCallsPerIter[iter] == 4);
-    }
+    const std::string fullPopulationOperatorRows =
+        fullPopulationAlgorithm.localSearchOperatorRows.str();
+    assert(std::count(
+        fullPopulationOperatorRows.begin(),
+        fullPopulationOperatorRows.end(),
+        '\n') == 31 * static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
 
     Case gammaOnlyInstance(instancePath, 3);
     Parameters gammaOnlyParameters;
@@ -1110,20 +1060,12 @@ int main(int argc, char* argv[]) {
     for (const auto& individual : gammaOnlyAlgorithm.population) {
         assert(std::isinf(individual->get_lower_cost()));
     }
-    std::istringstream gammaOnlyRows(gammaOnlyAlgorithm.localSearchRows.str());
-    int gammaOnlyRowCount = 0;
-    while (std::getline(gammaOnlyRows, localSearchRow)) {
-        std::istringstream rowStream(localSearchRow);
-        std::vector<std::string> columns;
-        std::string column;
-        while (std::getline(rowStream, column, '\t')) {
-            columns.push_back(column);
-        }
-        assert(columns.size() == 13);
-        assert(columns[11] == "0");
-        ++gammaOnlyRowCount;
-    }
-    assert(gammaOnlyRowCount == 4);
+    const std::string gammaOnlyOperatorRows =
+        gammaOnlyAlgorithm.localSearchOperatorRows.str();
+    assert(std::count(
+        gammaOnlyOperatorRows.begin(),
+        gammaOnlyOperatorRows.end(),
+        '\n') == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
 
     Case skipFollowerInstance(instancePath, 5);
     Parameters skipFollowerParameters;
@@ -1134,7 +1076,6 @@ int main(int argc, char* argv[]) {
     skipFollowerAlgorithm.initialize_search();
     skipFollowerAlgorithm.run_generation();
     assert(std::isfinite(skipFollowerAlgorithm.verifiedBest->get_lower_cost()));
-    assert(skipFollowerAlgorithm.localSearchRows.str().empty());
 
     Case finalFallbackInstance(instancePath, 6);
     finalFallbackInstance.maxEvals = 0;
@@ -1167,8 +1108,8 @@ int main(int argc, char* argv[]) {
         retainedEliteAlgorithm.retainedLowerElite->get_lower_cost();
     const std::uint64_t callsBeforeReuse =
         retainedEliteInstance.get_distance_calls();
-    retainedEliteAlgorithm.localSearchRows.str("");
-    retainedEliteAlgorithm.localSearchRows.clear();
+    retainedEliteAlgorithm.localSearchOperatorRows.str("");
+    retainedEliteAlgorithm.localSearchOperatorRows.clear();
 
     retainedEliteAlgorithm.run_generation();
 
@@ -1184,25 +1125,28 @@ int main(int argc, char* argv[]) {
         retainedEliteAlgorithm.retainedLowerElite->get_lower_cost()
         - retainedLowerCost) <= 1e-8);
 
-    std::istringstream retainedEliteRows(
-        retainedEliteAlgorithm.localSearchRows.str());
-    assert(std::getline(retainedEliteRows, localSearchRow));
-    std::istringstream retainedEliteRowStream(localSearchRow);
-    std::vector<std::string> retainedEliteColumns;
-    std::string retainedEliteColumn;
+    std::istringstream retainedEliteOperatorRows(
+        retainedEliteAlgorithm.localSearchOperatorRows.str());
+    int retainedEliteOperatorRowCount = 0;
     while (std::getline(
-        retainedEliteRowStream,
-        retainedEliteColumn,
-        '\t')) {
-        retainedEliteColumns.push_back(retainedEliteColumn);
+        retainedEliteOperatorRows,
+        localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 7);
+        assert(std::stoi(columns[0]) == 2);
+        assert(std::stoi(columns[2]) == 0);
+        assert(std::stoi(columns[3]) == 0);
+        assert(std::fabs(std::stod(columns[4])) <= 1e-12);
+        ++retainedEliteOperatorRowCount;
     }
-    assert(retainedEliteColumns.size() == 13);
-    assert(std::stoi(retainedEliteColumns[0]) == 2);
-    assert(std::stoi(retainedEliteColumns[5]) == 0);
-    assert(std::stoi(retainedEliteColumns[6]) == 0);
-    assert(std::fabs(std::stod(retainedEliteColumns[7])) <= 1e-12);
-    assert(retainedEliteColumns[9] == "1");
-    assert(retainedEliteColumns[11] == "0");
+    assert(
+        retainedEliteOperatorRowCount
+        == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
 
     Case randomAllocationInstance(instancePath, 43);
     Parameters randomAllocationParameters;
@@ -1216,7 +1160,6 @@ int main(int argc, char* argv[]) {
         randomAllocationParameters);
     randomAllocationAlgorithm.initialize_search();
     randomAllocationAlgorithm.run_generation();
-    assert(randomAllocationAlgorithm.localSearchRows.str().empty());
     std::istringstream allocationRows(
         randomAllocationAlgorithm
             .localSearchAllocationRows.str());

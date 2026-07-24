@@ -31,7 +31,7 @@ For details, please refer to the following paper:
 
    The command prints only the final `lower_cost`, which can be consumed directly
    by IRACE. Set `-mth 1` to run ten trials in parallel and print their mean, or
-   `-log 1` to write evolution, local-search, solution, and aggregate logs.
+   `-log 1` to write evolution, solution, and aggregate local-search logs.
 
    The former positional syntax remains available:
 
@@ -113,6 +113,6 @@ cannot exceed the resulting parent-pool size.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online utility comes from actual reproduction parent usage and newly competitive complete solutions in a distinct top-10 lower archive, while action cost is learned from consumed LS evaluations.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
-- Static trials write per-call feedback to `local-search.tsv`. Allocated trials instead write three aggregate rows per generation to `local-search-allocation.tsv`; all policies retain per-generation operator totals in `local-search-operators.tsv`.
+- All policies write eight per-generation operator totals to `local-search-operators.tsv`. Random and online allocation additionally write three action totals per generation to `local-search-allocation.tsv`; per-individual local-search rows are intentionally omitted to keep long runs compact.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - With `popSize=100`, `Reproduction` builds the next generation from one lower-level elite, 84 upper-parent offspring, 5 `verifiedBest x P_upper` offspring, and 10 pure immigrants.

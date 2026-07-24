@@ -19,17 +19,6 @@
 
 namespace {
 
-struct LocalSearchLogRecord {
-    std::shared_ptr<Individual> individual;
-    double qualityGap{};
-    double distanceBefore{};
-    double distanceAfter{};
-    LocalSearchResult result;
-    bool crossedGamma{};
-    bool lowerEvaluated{};
-    double verifiedLowerImprovement{};
-};
-
 void add_operator_stats(
     std::array<
         LocalSearchOperatorStats,
@@ -236,8 +225,6 @@ void MA::open_log_for_local_search() {
         std::filesystem::path(statsDirectory) / instance->instanceName / to_string(seed);
     create_directories_if_not_exists(directoryPath.string());
 
-    logLocalSearch.open(directoryPath / "local-search.tsv");
-    logLocalSearch << LOCAL_SEARCH_LOG_HEADER << "\n";
     logLocalSearchOperators.open(
         directoryPath / "local-search-operators.tsv");
     logLocalSearchOperators << LOCAL_SEARCH_OPERATOR_LOG_HEADER << "\n";
@@ -250,11 +237,6 @@ void MA::open_log_for_local_search() {
 }
 
 void MA::flush_local_search_log() {
-    if (logLocalSearch.is_open()) {
-        logLocalSearch << localSearchRows.str();
-        localSearchRows.str("");
-        localSearchRows.clear();
-    }
     if (logLocalSearchOperators.is_open()) {
         logLocalSearchOperators << localSearchOperatorRows.str();
         localSearchOperatorRows.str("");
@@ -269,7 +251,6 @@ void MA::flush_local_search_log() {
 
 void MA::close_log_for_local_search() {
     flush_local_search_log();
-    logLocalSearch.close();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
 }
@@ -329,17 +310,11 @@ void MA::run_generation() {
     generation++;
 
     shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
-    vector<LocalSearchLogRecord> localSearchRecords;
     LocalSearchAllocationRun mixedLocalSearch;
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
-    ParentCandidate localSearchBestReference =
-        Reproduction::make_parent_candidate(*bestUpperCandidate);
-    double localSearchBestCost = std::min(
-        globalBestUpperCost,
-        bestUpperCandidate->get_upper_cost());
     const ParentCandidate frozenUpperReference =
         Reproduction::make_parent_candidate(*upperBestIndividual);
     const double frozenTriggerUpperBound =
@@ -387,73 +362,27 @@ void MA::run_generation() {
                 individual == unchangedLowerElite
                 && individual->is_upper_locally_optimal()
                 && individual->get_lower_cost() < INFEASIBLE_COST;
-            if (!enableLogging) {
-                if (!canReuseLowerElite) {
-                    Leader::improve_with_eight_neighborhood_rvnd_one_move(
-                        *individual,
-                        *instance,
-                        localSearchEngine,
-                        localSearchIntensity,
-                        localSearchWorkspace);
-                }
+            if (canReuseLowerElite) {
                 return;
             }
 
-            const ParentCandidate beforeCandidate =
-                Reproduction::make_parent_candidate(*individual);
-            const double referenceCost =
-                localSearchBestReference.upperCost;
-            const double qualityGap = referenceCost > 0.0
-                ? (beforeCandidate.upperCost - referenceCost)
-                    / referenceCost
-                : 0.0;
-            const double distanceBefore =
-                Reproduction::adjacency_distance(
-                    beforeCandidate,
-                    localSearchBestReference);
-            const double triggerUpperBoundBefore =
-                localSearchBestCost * lowerLevelTriggerRatio;
-            const bool outsideGammaBefore =
-                beforeCandidate.upperCost > triggerUpperBoundBefore;
-
-            LocalSearchResult result;
-            if (canReuseLowerElite) {
-                result.moveLimit = -1;
-                result.reachedLocalOptimum = true;
-            } else {
-                result =
+            if (enableLogging) {
+                const LocalSearchResult result =
                     Leader::improve_with_eight_neighborhood_rvnd_one_move(
                         *individual,
                         *instance,
                         localSearchEngine,
                         localSearchIntensity,
                         localSearchWorkspace,
-                        triggerUpperBoundBefore);
-            }
-            add_operator_stats(generationOperatorStats, result);
-            const ParentCandidate afterCandidate =
-                Reproduction::make_parent_candidate(*individual);
-
-            LocalSearchLogRecord record;
-            record.individual = individual;
-            record.qualityGap = qualityGap;
-            record.distanceBefore = distanceBefore;
-            record.distanceAfter =
-                Reproduction::adjacency_distance(
-                    afterCandidate,
-                    localSearchBestReference);
-            record.result = result;
-            record.crossedGamma = outsideGammaBefore
-                && afterCandidate.upperCost
-                    <= triggerUpperBoundBefore;
-            localSearchRecords.push_back(std::move(record));
-
-            if (afterCandidate.upperCost
-                < localSearchBestReference.upperCost) {
-                localSearchBestReference = afterCandidate;
-            }
-            if (afterCandidate.upperCost < localSearchBestCost) {
-                localSearchBestCost = afterCandidate.upperCost;
+                        frozenTriggerUpperBound);
+                add_operator_stats(generationOperatorStats, result);
+            } else {
+                Leader::improve_with_eight_neighborhood_rvnd_one_move(
+                    *individual,
+                    *instance,
+                    localSearchEngine,
+                    localSearchIntensity,
+                    localSearchWorkspace);
             }
         };
 
@@ -514,8 +443,6 @@ void MA::run_generation() {
     }
 
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
-    vector<shared_ptr<Individual>> followerEvaluatedSolutions;
-    const double verifiedLowerCostBefore = verifiedBest->get_lower_cost();
     for (auto& individual : followerCandidates) {
         const bool canReuseLowerElite = individual == unchangedLowerElite
             && individual->get_lower_cost() < INFEASIBLE_COST;
@@ -524,19 +451,8 @@ void MA::run_generation() {
                 *individual,
                 *instance,
                 followerWorkspace);
-            if (enableLogging) {
-                followerEvaluatedSolutions.push_back(individual);
-            }
         }
         evaluatedCompleteSolutions.push_back(individual);
-    }
-    if (enableLogging) {
-        for (auto& record : localSearchRecords) {
-            record.lowerEvaluated = std::find(
-                followerEvaluatedSolutions.begin(),
-                followerEvaluatedSolutions.end(),
-                record.individual) != followerEvaluatedSolutions.end();
-        }
     }
 
     shared_ptr<Individual> lowerElite;
@@ -547,15 +463,6 @@ void MA::run_generation() {
             lowerElite = bestEvaluatedComplete;
         }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
-            if (enableLogging && verifiedLowerCostBefore < INFEASIBLE_COST) {
-                for (auto& record : localSearchRecords) {
-                    if (record.individual == bestEvaluatedComplete) {
-                        record.verifiedLowerImprovement =
-                            verifiedLowerCostBefore - bestEvaluatedComplete->get_lower_cost();
-                        break;
-                    }
-                }
-            }
             verifiedBest->copy_from(*bestEvaluatedComplete);
             lastLowerImprovementDistanceCalls =
                 instance->get_distance_calls();
@@ -614,23 +521,6 @@ void MA::run_generation() {
     }
 
     if (enableLogging) {
-        for (const auto& record : localSearchRecords) {
-            localSearchRows << setprecision(12)
-                            << generation << "\t"
-                            << record.qualityGap << "\t"
-                            << record.distanceBefore << "\t"
-                            << record.distanceAfter << "\t"
-                            << record.result.moveLimit << "\t"
-                            << record.result.acceptedMoves << "\t"
-                            << record.result.neighborhoodCalls << "\t"
-                            << instance->distance_calls_to_evals(
-                                record.result.distanceCallsUsed) << "\t"
-                            << record.result.relativeUpperImprovement << "\t"
-                            << record.result.reachedLocalOptimum << "\t"
-                            << record.crossedGamma << "\t"
-                            << record.lowerEvaluated << "\t"
-                            << record.verifiedLowerImprovement << "\n";
-        }
         for (std::size_t operatorIndex = 0;
              operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
              ++operatorIndex) {
@@ -694,10 +584,8 @@ void MA::run_generation() {
 
     // All information needed from the old population is now materialized.
     evaluatedCompleteSolutions.clear();
-    followerEvaluatedSolutions.clear();
     followerCandidates.clear();
     rankedUpperSolutions.clear();
-    localSearchRecords.clear();
     mixedLocalSearch.records.clear();
     bestUpperCandidate.reset();
     generationBestUpper.reset();

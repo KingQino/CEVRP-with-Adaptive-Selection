@@ -22,11 +22,6 @@ class MA : public StatsInterface{
 public:
     static constexpr const char* EVOLUTION_LOG_HEADER =
         "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
-    static constexpr const char* LOCAL_SEARCH_LOG_HEADER =
-        "iter\tquality_gap\tdistance_before\tdistance_after\tmove_limit\t"
-        "accepted_moves\tneighborhood_calls\tls_evals\trelative_upper_improvement\t"
-        "reached_local_optimum\tcrossed_gamma\tlower_evaluated\t"
-        "verified_lower_improvement";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
         "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
     static constexpr const char* LOCAL_SEARCH_ALLOCATION_LOG_HEADER =
@@ -54,10 +49,8 @@ public:
     void close_log_for_local_search();
 
     std::ostringstream evolutionRows;
-    std::ostringstream localSearchRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
-    std::ofstream logLocalSearch;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
     Case* instance;
