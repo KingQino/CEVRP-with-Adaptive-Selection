@@ -121,6 +121,36 @@ int main() {
         boundedOnlineParameters.localSearchIntensity
         == LocalSearchIntensity::BoundedStrong);
 
+    std::vector<std::string> matchedRandomArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "matched-random",
+    };
+    CommandLine matchedRandomCommandLine = make_command_line(
+        matchedRandomArguments);
+    Parameters matchedRandomParameters;
+    matchedRandomCommandLine.parse_parameters(
+        matchedRandomParameters);
+    matchedRandomParameters.validate();
+    assert(
+        matchedRandomParameters.localSearchPolicy
+        == LocalSearchPolicy::MatchedRandom);
+
+    std::vector<std::string> nonContextualArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "non_contextual",
+    };
+    CommandLine nonContextualCommandLine = make_command_line(
+        nonContextualArguments);
+    Parameters nonContextualParameters;
+    nonContextualCommandLine.parse_parameters(
+        nonContextualParameters);
+    nonContextualParameters.validate();
+    assert(
+        nonContextualParameters.localSearchPolicy
+        == LocalSearchPolicy::OnlineNonContextual);
+
     Parameters invalidMixedIntensity;
     invalidMixedIntensity.localSearchPolicy =
         LocalSearchPolicy::RandomMixed;
@@ -128,7 +158,7 @@ int main() {
         LocalSearchIntensity::Medium;
     assert(validation_fails(
         invalidMixedIntensity,
-        "requires -ls strong or bounded_strong"));
+        "allocated ls_policy requires"));
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;

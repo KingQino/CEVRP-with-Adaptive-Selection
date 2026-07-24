@@ -1206,6 +1206,48 @@ int main(int argc, char* argv[]) {
         boundedAllocationRows.find("\tstrong\t")
         == std::string::npos);
 
+    Case matchedAllocationInstance(instancePath, 46);
+    Parameters matchedAllocationParameters =
+        boundedAllocationParameters;
+    matchedAllocationParameters.seed = 46;
+    matchedAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::MatchedRandom;
+    MA matchedAllocationAlgorithm(
+        &matchedAllocationInstance,
+        matchedAllocationParameters);
+    matchedAllocationAlgorithm.initialize_search();
+    matchedAllocationAlgorithm.run_generation();
+    const std::string matchedAllocationRows =
+        matchedAllocationAlgorithm
+            .localSearchAllocationRows.str();
+    std::istringstream matchedRows(matchedAllocationRows);
+    int matchedRowCount = 0;
+    int matchedSelectionCount = 0;
+    while (std::getline(matchedRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 16);
+        assert(columns[1] == "matched_random");
+        matchedSelectionCount += std::stoi(columns[3]);
+        ++matchedRowCount;
+    }
+    assert(matchedRowCount == 3);
+    assert(
+        matchedSelectionCount
+        == matchedAllocationParameters.popSize);
+    assert(
+        matchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Weak)
+        + matchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Medium)
+        + matchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Strong)
+        == 0);
+
     Case onlineAllocationInstance(instancePath, 47);
     Parameters onlineAllocationParameters =
         randomAllocationParameters;
@@ -1233,5 +1275,36 @@ int main(int argc, char* argv[]) {
         + onlineAllocationAlgorithm.localSearchAllocator
             .observation_count(LocalSearchIntensity::Strong);
     assert(onlineObservationCount >= 10);
+
+    Case nonContextualAllocationInstance(instancePath, 49);
+    Parameters nonContextualAllocationParameters =
+        boundedAllocationParameters;
+    nonContextualAllocationParameters.seed = 49;
+    nonContextualAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::OnlineNonContextual;
+    MA nonContextualAllocationAlgorithm(
+        &nonContextualAllocationInstance,
+        nonContextualAllocationParameters);
+    nonContextualAllocationAlgorithm.initialize_search();
+    nonContextualAllocationAlgorithm.run_generation();
+    nonContextualAllocationAlgorithm.run_generation();
+    const std::string nonContextualAllocationRows =
+        nonContextualAllocationAlgorithm
+            .localSearchAllocationRows.str();
+    assert(std::count(
+        nonContextualAllocationRows.begin(),
+        nonContextualAllocationRows.end(),
+        '\n') == 6);
+    assert(
+        nonContextualAllocationRows.find("\tnon_contextual\t")
+        != std::string::npos);
+    const int nonContextualObservationCount =
+        nonContextualAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Weak)
+        + nonContextualAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Medium)
+        + nonContextualAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Strong);
+    assert(nonContextualObservationCount >= 10);
     return 0;
 }

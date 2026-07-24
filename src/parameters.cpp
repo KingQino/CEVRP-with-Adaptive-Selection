@@ -35,7 +35,7 @@ void Parameters::validate() const {
         && localSearchIntensity
             != LocalSearchIntensity::BoundedStrong) {
         throw std::invalid_argument(
-            "random/online ls_policy requires -ls strong or bounded_strong");
+            "allocated ls_policy requires -ls strong or bounded_strong");
     }
 
     require_probability(mutationProb, "mutation_prob");

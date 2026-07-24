@@ -48,7 +48,7 @@ For details, please refer to the following paper:
 | `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
 | `-tournament_size` | `2` | Upper-parent tournament size |
 | `-ls` | `strong` | `skip`, `weak`, `medium`, `bounded_strong`, or `strong` local-search intensity |
-| `-ls_policy` | `static` | `static`, fixed-mix `random`, or individual `online` allocation |
+| `-ls_policy` | `static` | Local-search allocation policy: `static`, `random`, `matched_random`, `non_contextual`, or `online` |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
@@ -60,6 +60,12 @@ Invalid configurations exit with a non-zero status. Probabilities must be in
 `parent_pool_ratio * pop_size >= 5`, and
 `verified_upper_ratio + pure_immigrant_ratio <= 0.25`. The tournament size
 cannot exceed the resulting parent-pool size.
+
+`random` uses the original progressive random mix. `matched_random` assigns
+approximately 62% weak, 9% medium, and 29% deepest actions independently of
+context and feedback. `non_contextual` uses the online learner with a constant
+context, while `online` includes the per-individual search context. The deepest
+action is selected by `-ls strong` or `-ls bounded_strong`.
 
 
 

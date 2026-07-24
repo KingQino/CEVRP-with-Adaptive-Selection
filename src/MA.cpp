@@ -471,8 +471,8 @@ void MA::run_generation() {
     const bool retainVerifiedFallback =
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
 
-    if (localSearchPolicy
-        == LocalSearchPolicy::OnlineIndividual) {
+    if (localSearchPolicy == LocalSearchPolicy::OnlineNonContextual
+        || localSearchPolicy == LocalSearchPolicy::OnlineIndividual) {
         LocalSearchAllocationRunner::assign_lower_archive_feedback(
             mixedLocalSearch,
             evaluatedCompleteSolutions,

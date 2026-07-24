@@ -63,11 +63,22 @@ LocalSearchPolicy parse_local_search_policy(const std::string& value) {
     if (normalized == "random") {
         return LocalSearchPolicy::RandomMixed;
     }
+    if (normalized == "matched_random"
+        || normalized == "matched-random") {
+        return LocalSearchPolicy::MatchedRandom;
+    }
+    if (normalized == "non_contextual"
+        || normalized == "non-contextual"
+        || normalized == "online_non_contextual"
+        || normalized == "online-non-contextual") {
+        return LocalSearchPolicy::OnlineNonContextual;
+    }
     if (normalized == "online" || normalized == "contextual") {
         return LocalSearchPolicy::OnlineIndividual;
     }
     throw std::invalid_argument(
-        "ls_policy must be one of: static, random, online");
+        "ls_policy must be one of: static, random, matched_random, "
+        "non_contextual, online");
 }
 
 }  // namespace
@@ -187,9 +198,8 @@ void CommandLine::display_help() {
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
         << "  -ls <skip|weak|medium|bounded_strong|strong>\n"
         << "                                  Local-search intensity (default: strong)\n"
-        << "  -ls_policy <static|random|online>\n"
-        << "                                  static, fixed random mix, or online\n"
-        << "                                  individual intensity allocation\n"
+        << "  -ls_policy <static|random|matched_random|non_contextual|online>\n"
+        << "                                  Local-search allocation policy\n"
         << "                                  (default: static)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"

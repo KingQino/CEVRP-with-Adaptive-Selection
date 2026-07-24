@@ -19,6 +19,8 @@ constexpr double kLogCostPenalty = 0.02;
 constexpr std::size_t kWorkspaceBatchSize = 10;
 constexpr double kMediumSelectionRatio = 0.80;
 constexpr double kStrongSelectionRatio = 0.50;
+constexpr double kMatchedMediumRatio = 0.09;
+constexpr double kMatchedDeepestRatio = 0.29;
 
 double bounded_nonnegative(double value) {
     const double nonnegative = std::max(0.0, value);
@@ -522,6 +524,36 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
         }
     }
 
+    std::vector<LocalSearchIntensity> matchedIntensities;
+    if (policy == LocalSearchPolicy::MatchedRandom) {
+        const std::size_t candidateCount = searchCandidates.size();
+        const std::size_t deepestCount = std::min(
+            candidateCount,
+            static_cast<std::size_t>(std::lround(
+                static_cast<double>(candidateCount)
+                * kMatchedDeepestRatio)));
+        const std::size_t mediumCount = std::min(
+            candidateCount - deepestCount,
+            static_cast<std::size_t>(std::lround(
+                static_cast<double>(candidateCount)
+                * kMatchedMediumRatio)));
+        matchedIntensities.assign(
+            candidateCount - mediumCount - deepestCount,
+            LocalSearchIntensity::Weak);
+        matchedIntensities.insert(
+            matchedIntensities.end(),
+            mediumCount,
+            LocalSearchIntensity::Medium);
+        matchedIntensities.insert(
+            matchedIntensities.end(),
+            deepestCount,
+            deepestIntensity);
+        std::shuffle(
+            matchedIntensities.begin(),
+            matchedIntensities.end(),
+            allocationEngine);
+    }
+
     for (std::size_t batchStart = 0;
          batchStart < searchCandidates.size();
          batchStart += kWorkspaceBatchSize) {
@@ -585,7 +617,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             run.records.push_back(std::move(record));
         }
 
-        if (policy == LocalSearchPolicy::OnlineIndividual) {
+        if (policy == LocalSearchPolicy::MatchedRandom
+            || policy == LocalSearchPolicy::OnlineNonContextual
+            || policy == LocalSearchPolicy::OnlineIndividual) {
             for (std::size_t localIndex = 0;
                  localIndex < batchSize;
                  ++localIndex) {
@@ -599,12 +633,17 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     continue;
                 }
 
-                const LocalSearchIntensityDecision decision =
-                    learner.select(
+                LocalSearchIntensityDecision decision;
+                if (policy == LocalSearchPolicy::MatchedRandom) {
+                    decision.intensity =
+                        matchedIntensities[batchStart + localIndex];
+                } else {
+                    decision = learner.select(
                         record.context,
                         generation,
                         allocationEngine,
                         deepestIntensity);
+                }
                 record.terminalIntensity = decision.intensity;
                 record.selectionScore = decision.score;
                 record.exploratorySelection =
@@ -908,7 +947,8 @@ void LocalSearchAllocationRunner::finalize_feedback(
                 / static_cast<double>(
                     record.weakResult.distanceCallsUsed)
             : 1.0;
-        if (policy == LocalSearchPolicy::OnlineIndividual) {
+        if (policy == LocalSearchPolicy::OnlineNonContextual
+            || policy == LocalSearchPolicy::OnlineIndividual) {
             learner.update(
                 record.context,
                 record.terminalIntensity,
@@ -980,6 +1020,10 @@ const char* local_search_policy_name(LocalSearchPolicy policy) {
             return "static";
         case LocalSearchPolicy::RandomMixed:
             return "random";
+        case LocalSearchPolicy::MatchedRandom:
+            return "matched_random";
+        case LocalSearchPolicy::OnlineNonContextual:
+            return "non_contextual";
         case LocalSearchPolicy::OnlineIndividual:
             return "online";
     }

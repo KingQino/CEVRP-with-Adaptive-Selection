@@ -18,6 +18,8 @@ class Individual;
 enum class LocalSearchPolicy {
     Static,
     RandomMixed,
+    MatchedRandom,
+    OnlineNonContextual,
     OnlineIndividual,
 };
 
