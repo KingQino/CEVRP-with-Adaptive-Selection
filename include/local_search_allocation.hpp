@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include "leader.hpp"
@@ -17,7 +18,7 @@ class Individual;
 enum class LocalSearchPolicy {
     Static,
     RandomMixed,
-    ContextualMixed,
+    OnlineIndividual,
 };
 
 struct LocalSearchAllocationContext {
@@ -25,74 +26,110 @@ struct LocalSearchAllocationContext {
     double adjacencyDistance{};
     double budgetProgress{};
     double gammaMargin{};
-    double successRate{};
-    double normalizedEfficiency{};
+    double upperStagnation{};
+    double lowerStagnation{};
+    double populationDispersion{};
+    double recentGammaRate{};
+    double probeSuccessRate{};
+    double probeRelativeGain{};
+    double probeEfficiency{};
+    double probeCost{};
 };
 
-class LinearUcbRanker {
+struct LinearUcbEstimate {
+    double prediction{};
+    double uncertainty{};
+};
+
+class LinearUcbModel {
 public:
-    static constexpr std::size_t FEATURE_COUNT = 9;
+    static constexpr std::size_t FEATURE_COUNT = 14;
     using FeatureVector = std::array<double, FEATURE_COUNT>;
 
-    LinearUcbRanker();
+    LinearUcbModel();
 
     void reset();
-    [[nodiscard]] double score(
+    [[nodiscard]] LinearUcbEstimate estimate(
         const LocalSearchAllocationContext& context) const;
     void update(
         const LocalSearchAllocationContext& context,
-        double reward);
+        double target);
 
 private:
     using Matrix =
         std::array<std::array<double, FEATURE_COUNT>, FEATURE_COUNT>;
 
-    Matrix gram{};
+    Matrix inverseGram{};
     FeatureVector targets{};
+    FeatureVector coefficients{};
 
     [[nodiscard]] static FeatureVector features(
         const LocalSearchAllocationContext& context);
-    [[nodiscard]] static FeatureVector solve(
+    [[nodiscard]] static FeatureVector multiply(
         const Matrix& matrix,
-        const FeatureVector& target);
+        const FeatureVector& vector);
     [[nodiscard]] static double dot(
         const FeatureVector& first,
         const FeatureVector& second);
 };
 
-class ContextualLocalSearchAllocator {
+struct LocalSearchIntensityDecision {
+    LocalSearchIntensity intensity{LocalSearchIntensity::Weak};
+    double score{};
+    bool exploratory{};
+};
+
+class OnlineIntensityLearner {
 public:
+    static constexpr std::size_t LOWER_ARCHIVE_CAPACITY = 10;
+
     void reset();
 
-    [[nodiscard]] std::vector<double> score_medium(
-        const std::vector<LocalSearchAllocationContext>& contexts) const;
-    [[nodiscard]] std::vector<double> score_strong(
-        const std::vector<LocalSearchAllocationContext>& contexts) const;
+    [[nodiscard]] LocalSearchIntensityDecision select(
+        const LocalSearchAllocationContext& context,
+        int generation,
+        std::mt19937& randomEngine) const;
+    void update(
+        const LocalSearchAllocationContext& context,
+        LocalSearchIntensity intensity,
+        double utility,
+        double costUnits);
+    [[nodiscard]] std::vector<std::pair<const Individual*, double>>
+    update_lower_archive(
+        const std::vector<std::shared_ptr<Individual>>& completeSolutions);
 
-    void update_medium(
+    [[nodiscard]] double score(
         const LocalSearchAllocationContext& context,
-        double reward);
-    void update_strong(
-        const LocalSearchAllocationContext& context,
-        double reward);
+        LocalSearchIntensity intensity) const;
+    [[nodiscard]] int observation_count(
+        LocalSearchIntensity intensity) const;
 
 private:
-    LinearUcbRanker mediumRanker;
-    LinearUcbRanker strongRanker;
+    struct LowerArchiveEntry {
+        std::vector<int> chromosome;
+        double lowerCost{};
+    };
+
+    std::array<LinearUcbModel, 3> utilityModels;
+    std::array<LinearUcbModel, 3> logCostModels;
+    std::array<int, 3> observationCounts{};
+    std::vector<LowerArchiveEntry> lowerArchive;
 };
 
 struct LocalSearchAllocationStats {
     int selections{};
-    int terminalCount{};
+    int forcedLocalOptima{};
+    int exploratorySelections{};
     int acceptedMoves{};
     int neighborhoodCalls{};
     std::uint64_t distanceCalls{};
     double upperGain{};
     int gammaCrosses{};
-    int parentPoolHits{};
-    int globalUpperUpdates{};
-    int verifiedUpdates{};
-    double reward{};
+    int parentUses{};
+    int lowerArchiveEntries{};
+    double utility{};
+    double costUnits{};
+    double selectionScore{};
 };
 
 struct AllocatedLocalSearchRecord {
@@ -100,19 +137,21 @@ struct AllocatedLocalSearchRecord {
     LocalSearchSession session;
     LocalSearchIntensity terminalIntensity{LocalSearchIntensity::Weak};
     LocalSearchResult weakResult;
-    LocalSearchResult mediumResult;
-    LocalSearchResult strongResult;
-    LocalSearchAllocationContext mediumContext;
-    LocalSearchAllocationContext strongContext;
+    LocalSearchResult continuationResult;
+    LocalSearchResult totalResult;
+    LocalSearchAllocationContext context;
     double costBeforeWeak{};
     double costAfterWeak{};
-    double costAfterMedium{};
-    double costAfterStrong{};
-    bool selectedForMedium{};
-    bool selectedForStrong{};
-    bool parentPoolHit{};
-    bool verifiedUpdate{};
-    double relativeVerifiedImprovement{};
+    double costAfterTerminal{};
+    double selectionScore{};
+    double parentCredit{};
+    double lowerCredit{};
+    double utility{};
+    double costUnits{1.0};
+    int parentUseCount{};
+    bool forcedLocalOptimum{};
+    bool exploratorySelection{};
+    bool crossedGamma{};
 };
 
 struct LocalSearchAllocationRun {
@@ -134,24 +173,27 @@ public:
         const ParentCandidate& upperReference,
         double triggerUpperBound,
         double budgetProgress,
+        double upperStagnation,
+        double lowerStagnation,
+        double populationDispersion,
+        double recentGammaRate,
         std::mt19937& localSearchEngine,
         std::mt19937& allocationEngine,
         std::vector<LocalSearchWorkspace>& workspaces,
-        const ContextualLocalSearchAllocator& allocator);
+        const OnlineIntensityLearner& learner);
 
-    static void assign_parent_pool_feedback(
+    static void assign_parent_use_feedback(
         LocalSearchAllocationRun& run,
-        const std::vector<ParentCandidate>& parentPool);
-    static void assign_verified_feedback(
+        const std::vector<ParentCandidate>& parentPool,
+        const std::vector<int>& parentUseCounts);
+    static void assign_lower_archive_feedback(
         LocalSearchAllocationRun& run,
-        const std::shared_ptr<Individual>& verifiedIndividual,
-        double previousLowerCost,
-        double newLowerCost);
+        const std::vector<std::shared_ptr<Individual>>& completeSolutions,
+        OnlineIntensityLearner& learner);
     static void finalize_feedback(
         LocalSearchAllocationRun& run,
-        double referenceUpperCost,
         LocalSearchPolicy policy,
-        ContextualLocalSearchAllocator& allocator);
+        OnlineIntensityLearner& learner);
 
     static std::size_t intensity_index(
         LocalSearchIntensity intensity);

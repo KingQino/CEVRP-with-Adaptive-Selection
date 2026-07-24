@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <set>
 #include <sstream>
@@ -794,6 +795,7 @@ int main(int argc, char* argv[]) {
         0.2,
         firstOffspringEngine,
         firstProbabilityDistribution);
+    std::vector<int> parentUseCounts;
     const auto workspaceCreatedOffspring = Reproduction::create_offspring(
         parentPool,
         rankedSolutions.front().get(),
@@ -807,8 +809,59 @@ int main(int argc, char* argv[]) {
         0.2,
         secondOffspringEngine,
         secondProbabilityDistribution,
-        reproductionWorkspace);
+        reproductionWorkspace,
+        &parentUseCounts);
     assert(independentlyCreatedOffspring == workspaceCreatedOffspring);
+    assert(parentUseCounts.size() == parentPool.size());
+    assert(std::accumulate(
+        parentUseCounts.begin(),
+        parentUseCounts.end(),
+        0) > 0);
+
+    OnlineIntensityLearner archiveAllocator;
+    archiveAllocator.reset();
+    auto archiveSolution =
+        std::make_shared<Individual>(sevenNeighborhoodOneMove);
+    const auto firstArchiveCredits =
+        archiveAllocator.update_lower_archive({archiveSolution});
+    assert(firstArchiveCredits.size() == 1);
+    assert(firstArchiveCredits.front().first
+           == archiveSolution.get());
+    assert(firstArchiveCredits.front().second > 0.0);
+    const auto repeatedArchiveCredits =
+        archiveAllocator.update_lower_archive({archiveSolution});
+    assert(repeatedArchiveCredits.empty());
+
+    LocalSearchAllocationContext syntheticContext;
+    syntheticContext.qualityGap = 0.01;
+    syntheticContext.adjacencyDistance = 0.5;
+    syntheticContext.budgetProgress = 0.25;
+    syntheticContext.gammaMargin = 0.01;
+    syntheticContext.probeSuccessRate = 0.5;
+    syntheticContext.probeRelativeGain = 0.01;
+    syntheticContext.probeEfficiency = 0.5;
+    for (int observation = 0; observation < 20; ++observation) {
+        archiveAllocator.update(
+            syntheticContext,
+            LocalSearchIntensity::Weak,
+            1.0,
+            1.0);
+        archiveAllocator.update(
+            syntheticContext,
+            LocalSearchIntensity::Strong,
+            0.0,
+            100.0);
+    }
+    assert(
+        archiveAllocator.observation_count(
+            LocalSearchIntensity::Weak) == 20);
+    assert(
+        archiveAllocator.score(
+            syntheticContext,
+            LocalSearchIntensity::Weak)
+        > archiveAllocator.score(
+            syntheticContext,
+            LocalSearchIntensity::Strong));
 
     Parameters algorithmParameters;
     algorithmParameters.seed = 1;
@@ -1137,7 +1190,7 @@ int main(int argc, char* argv[]) {
         randomAllocationAlgorithm
             .localSearchAllocationRows.str());
     int allocationRowCount = 0;
-    int terminalCount = 0;
+    int selectionCount = 0;
     while (std::getline(allocationRows, localSearchRow)) {
         std::istringstream rowStream(localSearchRow);
         std::vector<std::string> columns;
@@ -1145,37 +1198,45 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 14);
+        assert(columns.size() == 16);
         assert(columns[1] == "random");
-        terminalCount += std::stoi(columns[4]);
+        selectionCount += std::stoi(columns[3]);
         ++allocationRowCount;
     }
     assert(allocationRowCount == 3);
-    assert(terminalCount == randomAllocationParameters.popSize);
+    assert(selectionCount == randomAllocationParameters.popSize);
     assert(randomAllocationAlgorithm.upperBestIndividual != nullptr);
     assert(std::fabs(
         randomAllocationAlgorithm
             .upperBestIndividual->get_upper_cost()
         - randomAllocationAlgorithm.globalBestUpperCost) <= 1e-8);
 
-    Case contextualAllocationInstance(instancePath, 47);
-    Parameters contextualAllocationParameters =
+    Case onlineAllocationInstance(instancePath, 47);
+    Parameters onlineAllocationParameters =
         randomAllocationParameters;
-    contextualAllocationParameters.seed = 47;
-    contextualAllocationParameters.localSearchPolicy =
-        LocalSearchPolicy::ContextualMixed;
-    MA contextualAllocationAlgorithm(
-        &contextualAllocationInstance,
-        contextualAllocationParameters);
-    contextualAllocationAlgorithm.initialize_search();
-    contextualAllocationAlgorithm.run_generation();
-    contextualAllocationAlgorithm.run_generation();
-    const std::string contextualAllocationRows =
-        contextualAllocationAlgorithm
+    onlineAllocationParameters.seed = 47;
+    onlineAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::OnlineIndividual;
+    MA onlineAllocationAlgorithm(
+        &onlineAllocationInstance,
+        onlineAllocationParameters);
+    onlineAllocationAlgorithm.initialize_search();
+    onlineAllocationAlgorithm.run_generation();
+    onlineAllocationAlgorithm.run_generation();
+    const std::string onlineAllocationRows =
+        onlineAllocationAlgorithm
             .localSearchAllocationRows.str();
     assert(std::count(
-        contextualAllocationRows.begin(),
-        contextualAllocationRows.end(),
+        onlineAllocationRows.begin(),
+        onlineAllocationRows.end(),
         '\n') == 6);
+    const int onlineObservationCount =
+        onlineAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Weak)
+        + onlineAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Medium)
+        + onlineAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Strong);
+    assert(onlineObservationCount >= 10);
     return 0;
 }

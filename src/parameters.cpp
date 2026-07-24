@@ -33,7 +33,7 @@ void Parameters::validate() const {
     if (localSearchPolicy != LocalSearchPolicy::Static
         && localSearchIntensity != LocalSearchIntensity::Strong) {
         throw std::invalid_argument(
-            "random/contextual ls_policy requires -ls strong");
+            "random/online ls_policy requires -ls strong");
     }
 
     require_probability(mutationProb, "mutation_prob");

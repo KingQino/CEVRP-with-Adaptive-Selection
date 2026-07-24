@@ -5,6 +5,7 @@
 #ifndef CEVRP_YINGHAO_MA_HPP
 #define CEVRP_YINGHAO_MA_HPP
 
+#include <cstdint>
 #include <random>
 
 #include "case.hpp"
@@ -29,9 +30,10 @@ public:
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
         "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
     static constexpr const char* LOCAL_SEARCH_ALLOCATION_LOG_HEADER =
-        "iter\tpolicy\taction\tselections\tterminal_count\taccepted_moves\t"
-        "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\t"
-        "parent_pool_hits\tglobal_upper_updates\tverified_updates\treward";
+        "iter\tpolicy\taction\tselections\tforced_local_optima\t"
+        "exploratory_selections\taccepted_moves\tneighborhood_calls\t"
+        "evals\tupper_gain\tgamma_crosses\tparent_uses\t"
+        "lower_archive_entries\tutility\tavg_cost_units\tavg_score";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -73,7 +75,7 @@ public:
     ReproductionWorkspace reproductionWorkspace;
     LocalSearchWorkspace localSearchWorkspace;
     std::vector<LocalSearchWorkspace> mixedLocalSearchWorkspaces;
-    ContextualLocalSearchAllocator localSearchAllocator;
+    OnlineIntensityLearner localSearchAllocator;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;
@@ -94,5 +96,8 @@ public:
     int generation;
     double lowerLevelTriggerRatio;
     double globalBestUpperCost;
+    std::uint64_t lastUpperImprovementDistanceCalls{};
+    std::uint64_t lastLowerImprovementDistanceCalls{};
+    double recentGammaEntryRate{};
 };
 #endif //CEVRP_YINGHAO_MA_HPP

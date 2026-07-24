@@ -93,18 +93,18 @@ int main() {
     skipCommandLine.parse_parameters(skipParameters);
     assert(skipParameters.localSearchIntensity == LocalSearchIntensity::Skip);
 
-    std::vector<std::string> contextualArguments = {
+    std::vector<std::string> onlineArguments = {
         "build/command_line_test",
-        "-ls_policy", "contextual",
+        "-ls_policy", "online",
     };
-    CommandLine contextualCommandLine = make_command_line(
-        contextualArguments);
-    Parameters contextualParameters;
-    contextualCommandLine.parse_parameters(contextualParameters);
-    contextualParameters.validate();
+    CommandLine onlineCommandLine = make_command_line(
+        onlineArguments);
+    Parameters onlineParameters;
+    onlineCommandLine.parse_parameters(onlineParameters);
+    onlineParameters.validate();
     assert(
-        contextualParameters.localSearchPolicy
-        == LocalSearchPolicy::ContextualMixed);
+        onlineParameters.localSearchPolicy
+        == LocalSearchPolicy::OnlineIndividual);
 
     Parameters invalidMixedIntensity;
     invalidMixedIntensity.localSearchPolicy =

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 
@@ -12,8 +13,10 @@
 namespace {
 
 constexpr double kRidge = 1.0;
-constexpr double kExplorationScale = 0.10;
-constexpr std::size_t kMixedBatchSize = 10;
+constexpr double kExplorationScale = 0.08;
+constexpr double kRandomExplorationRate = 0.05;
+constexpr double kLogCostPenalty = 0.02;
+constexpr std::size_t kWorkspaceBatchSize = 10;
 constexpr double kMediumSelectionRatio = 0.80;
 constexpr double kStrongSelectionRatio = 0.50;
 
@@ -30,58 +33,58 @@ double result_upper_gain(const LocalSearchResult& result) {
     return gain;
 }
 
-int result_gamma_crosses(const LocalSearchResult& result) {
-    int crosses = 0;
-    for (const auto& stats : result.operatorStats) {
-        crosses += stats.gammaCrosses;
-    }
-    return crosses;
-}
-
 void add_operator_stats(
     std::array<
         LocalSearchOperatorStats,
-        LOCAL_SEARCH_OPERATOR_COUNT>& generationStats,
-    const LocalSearchResult& result) {
+        LOCAL_SEARCH_OPERATOR_COUNT>& destination,
+    const LocalSearchResult& source) {
     for (std::size_t operatorIndex = 0;
          operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
          ++operatorIndex) {
-        auto& destination = generationStats[operatorIndex];
-        const auto& source = result.operatorStats[operatorIndex];
-        destination.calls += source.calls;
-        destination.accepts += source.accepts;
-        destination.distanceCalls += source.distanceCalls;
-        destination.upperGain += source.upperGain;
-        destination.gammaCrosses += source.gammaCrosses;
+        auto& destinationStats = destination[operatorIndex];
+        const auto& sourceStats = source.operatorStats[operatorIndex];
+        destinationStats.calls += sourceStats.calls;
+        destinationStats.accepts += sourceStats.accepts;
+        destinationStats.distanceCalls += sourceStats.distanceCalls;
+        destinationStats.upperGain += sourceStats.upperGain;
+        destinationStats.gammaCrosses += sourceStats.gammaCrosses;
     }
 }
 
-void add_allocation_stats(
-    LocalSearchAllocationStats& stats,
-    const LocalSearchResult& result) {
-    ++stats.selections;
-    stats.acceptedMoves += result.acceptedMoves;
-    stats.neighborhoodCalls += result.neighborhoodCalls;
-    stats.distanceCalls += result.distanceCallsUsed;
-    stats.upperGain += result_upper_gain(result);
-    stats.gammaCrosses += result_gamma_crosses(result);
+LocalSearchResult combine_results(
+    const LocalSearchResult& first,
+    const LocalSearchResult& second,
+    double costBefore,
+    double costAfter) {
+    LocalSearchResult combined;
+    combined.moveLimit = second.moveLimit;
+    combined.acceptedMoves =
+        first.acceptedMoves + second.acceptedMoves;
+    combined.neighborhoodCalls =
+        first.neighborhoodCalls + second.neighborhoodCalls;
+    combined.distanceCallsUsed =
+        first.distanceCallsUsed + second.distanceCallsUsed;
+    combined.relativeUpperImprovement = costBefore > 0.0
+        ? (costBefore - costAfter) / costBefore
+        : 0.0;
+    combined.reachedLocalOptimum = second.reachedLocalOptimum;
+    combined.operatorStats = first.operatorStats;
+    add_operator_stats(combined.operatorStats, second);
+    return combined;
 }
 
-double raw_efficiency(const LocalSearchResult& result) {
-    if (result.distanceCallsUsed == 0) {
-        return 0.0;
-    }
-    return result.relativeUpperImprovement
-        / static_cast<double>(result.distanceCallsUsed);
-}
-
-LocalSearchAllocationContext make_allocation_context(
+LocalSearchAllocationContext make_context(
     const Individual& individual,
     const ParentCandidate& reference,
     double triggerUpperBound,
     double budgetProgress,
-    const LocalSearchResult& probeResult,
-    double normalizedEfficiency) {
+    double upperStagnation,
+    double lowerStagnation,
+    double populationDispersion,
+    double recentGammaRate,
+    const LocalSearchResult& weakResult,
+    std::uint64_t evaluationLimitDistanceCalls,
+    std::size_t populationSize) {
     const ParentCandidate candidate =
         Reproduction::make_parent_candidate(individual);
     LocalSearchAllocationContext context;
@@ -97,168 +100,146 @@ LocalSearchAllocationContext make_allocation_context(
         ? (candidate.upperCost - triggerUpperBound)
             / triggerUpperBound
         : 0.0;
-    context.successRate = probeResult.neighborhoodCalls > 0
-        ? static_cast<double>(probeResult.acceptedMoves)
-            / static_cast<double>(probeResult.neighborhoodCalls)
+    context.upperStagnation = upperStagnation;
+    context.lowerStagnation = lowerStagnation;
+    context.populationDispersion = populationDispersion;
+    context.recentGammaRate = recentGammaRate;
+    context.probeSuccessRate = weakResult.neighborhoodCalls > 0
+        ? static_cast<double>(weakResult.acceptedMoves)
+            / static_cast<double>(weakResult.neighborhoodCalls)
         : 0.0;
-    context.normalizedEfficiency = normalizedEfficiency;
+    context.probeRelativeGain = weakResult.relativeUpperImprovement;
+    if (evaluationLimitDistanceCalls > 0) {
+        const double budgetFraction =
+            static_cast<double>(weakResult.distanceCallsUsed)
+            / static_cast<double>(evaluationLimitDistanceCalls);
+        context.probeEfficiency = budgetFraction > 0.0
+            ? bounded_nonnegative(
+                weakResult.relativeUpperImprovement / budgetFraction)
+            : 0.0;
+        context.probeCost = std::clamp(
+            budgetFraction
+                * static_cast<double>(populationSize),
+            0.0,
+            1.0);
+    }
     return context;
 }
 
-double useful_stage_reward(
-    double costBefore,
-    double costAfter,
-    double referenceCost,
-    bool crossedGamma,
-    bool parentPoolHit,
-    bool globalUpperUpdate,
-    bool verifiedUpdate,
-    double relativeVerifiedImprovement) {
-    const double relativeImprovement = costBefore > 0.0
-        ? std::max(0.0, (costBefore - costAfter) / costBefore)
-        : 0.0;
-    const double qualityGap = referenceCost > 0.0
-        ? std::max(0.0, (costAfter - referenceCost) / referenceCost)
-        : 0.0;
-    const double competitiveImprovement =
-        relativeImprovement * std::exp(-10.0 * qualityGap);
-    return std::clamp(
-        competitiveImprovement
-            + (crossedGamma ? 0.05 : 0.0)
-            + (parentPoolHit ? 0.02 : 0.0)
-            + (globalUpperUpdate ? 0.05 : 0.0)
-            + (verifiedUpdate ? 0.10 : 0.0)
-            + std::clamp(relativeVerifiedImprovement, 0.0, 0.10),
-        0.0,
-        1.0);
+void finish_record(
+    AllocatedLocalSearchRecord& record,
+    double triggerUpperBound) {
+    record.costAfterTerminal = record.individual->get_upper_cost();
+    record.crossedGamma =
+        record.costBeforeWeak > triggerUpperBound
+        && record.costAfterTerminal <= triggerUpperBound;
+}
+
+void aggregate_run_operator_stats(LocalSearchAllocationRun& run) {
+    run.operatorStats = {};
+    for (const auto& record : run.records) {
+        add_operator_stats(run.operatorStats, record.totalResult);
+    }
+}
+
+std::array<double, 3> default_cost_units() {
+    return {1.0, 4.0, 16.0};
 }
 
 }  // namespace
 
-LinearUcbRanker::LinearUcbRanker() {
+LinearUcbModel::LinearUcbModel() {
     reset();
 }
 
-void LinearUcbRanker::reset() {
-    gram = {};
+void LinearUcbModel::reset() {
+    inverseGram = {};
     targets = {};
+    coefficients = {};
     for (std::size_t feature = 0; feature < FEATURE_COUNT; ++feature) {
-        gram[feature][feature] = kRidge;
+        inverseGram[feature][feature] = 1.0 / kRidge;
     }
 }
 
-double LinearUcbRanker::score(
+LinearUcbEstimate LinearUcbModel::estimate(
     const LocalSearchAllocationContext& context) const {
     const FeatureVector contextFeatures = features(context);
-    const FeatureVector coefficients = solve(gram, targets);
-    const FeatureVector projectedContext = solve(gram, contextFeatures);
-    const double prediction = dot(coefficients, contextFeatures);
-    const double uncertainty = std::sqrt(std::max(
+    const FeatureVector projectedContext = multiply(
+        inverseGram,
+        contextFeatures);
+    LinearUcbEstimate estimate;
+    estimate.prediction = dot(coefficients, contextFeatures);
+    estimate.uncertainty = std::sqrt(std::max(
         0.0,
         dot(contextFeatures, projectedContext)));
-    return prediction + kExplorationScale * uncertainty;
+    return estimate;
 }
 
-void LinearUcbRanker::update(
+void LinearUcbModel::update(
     const LocalSearchAllocationContext& context,
-    double reward) {
+    double target) {
     const FeatureVector contextFeatures = features(context);
-    const double boundedReward = std::clamp(reward, 0.0, 1.0);
+    const FeatureVector projectedContext = multiply(
+        inverseGram,
+        contextFeatures);
+    const double denominator =
+        1.0 + dot(contextFeatures, projectedContext);
+
     for (std::size_t row = 0; row < FEATURE_COUNT; ++row) {
         for (std::size_t column = 0;
              column < FEATURE_COUNT;
              ++column) {
-            gram[row][column] +=
-                contextFeatures[row] * contextFeatures[column];
+            inverseGram[row][column] -=
+                projectedContext[row]
+                * projectedContext[column]
+                / denominator;
         }
-        targets[row] += contextFeatures[row] * boundedReward;
+        targets[row] += contextFeatures[row] * target;
     }
+    coefficients = multiply(inverseGram, targets);
 }
 
-LinearUcbRanker::FeatureVector LinearUcbRanker::features(
+LinearUcbModel::FeatureVector LinearUcbModel::features(
     const LocalSearchAllocationContext& context) {
-    const double qualityGap = bounded_nonnegative(context.qualityGap);
+    const double qualityGap = bounded_nonnegative(
+        context.qualityGap);
     const double adjacencyDistance = std::clamp(
         context.adjacencyDistance,
-        0.0,
-        1.0);
-    const double budgetProgress = std::clamp(
-        context.budgetProgress,
         0.0,
         1.0);
     return {
         1.0,
         qualityGap,
         adjacencyDistance,
-        budgetProgress,
+        std::clamp(context.budgetProgress, 0.0, 1.0),
         std::tanh(context.gammaMargin),
-        std::clamp(context.successRate, 0.0, 1.0),
-        std::clamp(context.normalizedEfficiency, 0.0, 1.0),
+        std::clamp(context.upperStagnation, 0.0, 1.0),
+        std::clamp(context.lowerStagnation, 0.0, 1.0),
+        std::clamp(context.populationDispersion, 0.0, 1.0),
+        std::clamp(context.recentGammaRate, 0.0, 1.0),
+        std::clamp(context.probeSuccessRate, 0.0, 1.0),
+        bounded_nonnegative(100.0 * context.probeRelativeGain),
+        std::clamp(context.probeEfficiency, 0.0, 1.0),
+        std::clamp(context.probeCost, 0.0, 1.0),
         qualityGap * adjacencyDistance,
-        budgetProgress * adjacencyDistance,
     };
 }
 
-LinearUcbRanker::FeatureVector LinearUcbRanker::solve(
+LinearUcbModel::FeatureVector LinearUcbModel::multiply(
     const Matrix& matrix,
-    const FeatureVector& target) {
-    std::array<
-        std::array<double, FEATURE_COUNT + 1>,
-        FEATURE_COUNT> augmented{};
+    const FeatureVector& vector) {
+    FeatureVector result{};
     for (std::size_t row = 0; row < FEATURE_COUNT; ++row) {
         for (std::size_t column = 0;
              column < FEATURE_COUNT;
              ++column) {
-            augmented[row][column] = matrix[row][column];
-        }
-        augmented[row][FEATURE_COUNT] = target[row];
-    }
-
-    for (std::size_t pivot = 0; pivot < FEATURE_COUNT; ++pivot) {
-        std::size_t pivotRow = pivot;
-        for (std::size_t row = pivot + 1;
-             row < FEATURE_COUNT;
-             ++row) {
-            if (std::fabs(augmented[row][pivot])
-                > std::fabs(augmented[pivotRow][pivot])) {
-                pivotRow = row;
-            }
-        }
-        if (std::fabs(augmented[pivotRow][pivot]) <= 1e-14) {
-            return {};
-        }
-        if (pivotRow != pivot) {
-            std::swap(augmented[pivotRow], augmented[pivot]);
-        }
-
-        const double pivotValue = augmented[pivot][pivot];
-        for (std::size_t column = pivot;
-             column <= FEATURE_COUNT;
-             ++column) {
-            augmented[pivot][column] /= pivotValue;
-        }
-        for (std::size_t row = 0; row < FEATURE_COUNT; ++row) {
-            if (row == pivot) {
-                continue;
-            }
-            const double factor = augmented[row][pivot];
-            for (std::size_t column = pivot;
-                 column <= FEATURE_COUNT;
-                 ++column) {
-                augmented[row][column] -=
-                    factor * augmented[pivot][column];
-            }
+            result[row] += matrix[row][column] * vector[column];
         }
     }
-
-    FeatureVector solution{};
-    for (std::size_t row = 0; row < FEATURE_COUNT; ++row) {
-        solution[row] = augmented[row][FEATURE_COUNT];
-    }
-    return solution;
+    return result;
 }
 
-double LinearUcbRanker::dot(
+double LinearUcbModel::dot(
     const FeatureVector& first,
     const FeatureVector& second) {
     double result = 0.0;
@@ -268,41 +249,232 @@ double LinearUcbRanker::dot(
     return result;
 }
 
-void ContextualLocalSearchAllocator::reset() {
-    mediumRanker.reset();
-    strongRanker.reset();
-}
-
-std::vector<double> ContextualLocalSearchAllocator::score_medium(
-    const std::vector<LocalSearchAllocationContext>& contexts) const {
-    std::vector<double> scores;
-    scores.reserve(contexts.size());
-    for (const auto& context : contexts) {
-        scores.push_back(mediumRanker.score(context));
+void OnlineIntensityLearner::reset() {
+    for (auto& model : utilityModels) {
+        model.reset();
     }
-    return scores;
-}
-
-std::vector<double> ContextualLocalSearchAllocator::score_strong(
-    const std::vector<LocalSearchAllocationContext>& contexts) const {
-    std::vector<double> scores;
-    scores.reserve(contexts.size());
-    for (const auto& context : contexts) {
-        scores.push_back(strongRanker.score(context));
+    for (auto& model : logCostModels) {
+        model.reset();
     }
-    return scores;
+    observationCounts = {};
+    lowerArchive.clear();
 }
 
-void ContextualLocalSearchAllocator::update_medium(
+LocalSearchIntensityDecision OnlineIntensityLearner::select(
     const LocalSearchAllocationContext& context,
-    double reward) {
-    mediumRanker.update(context, reward);
+    int generation,
+    std::mt19937& randomEngine) const {
+    static constexpr std::array<LocalSearchIntensity, 3> intensities = {
+        LocalSearchIntensity::Weak,
+        LocalSearchIntensity::Medium,
+        LocalSearchIntensity::Strong,
+    };
+    std::uniform_real_distribution<double> probability(0.0, 1.0);
+    std::uniform_int_distribution<std::size_t> randomAction(
+        0,
+        intensities.size() - 1);
+
+    LocalSearchIntensityDecision decision;
+    if (generation <= 1
+        || probability(randomEngine) < kRandomExplorationRate) {
+        decision.intensity = intensities[randomAction(randomEngine)];
+        decision.score = score(context, decision.intensity);
+        decision.exploratory = true;
+        return decision;
+    }
+
+    std::array<double, 3> scores{};
+    for (std::size_t actionIndex = 0;
+         actionIndex < intensities.size();
+         ++actionIndex) {
+        scores[actionIndex] = score(
+            context,
+            intensities[actionIndex]);
+    }
+    const double bestScore = *std::max_element(
+        scores.begin(),
+        scores.end());
+    std::vector<std::size_t> bestActions;
+    for (std::size_t actionIndex = 0;
+         actionIndex < scores.size();
+         ++actionIndex) {
+        if (std::fabs(scores[actionIndex] - bestScore) <= 1e-12) {
+            bestActions.push_back(actionIndex);
+        }
+    }
+    std::uniform_int_distribution<std::size_t> tieBreaker(
+        0,
+        bestActions.size() - 1);
+    const std::size_t selectedIndex =
+        bestActions[tieBreaker(randomEngine)];
+    decision.intensity = intensities[selectedIndex];
+    decision.score = scores[selectedIndex];
+    return decision;
 }
 
-void ContextualLocalSearchAllocator::update_strong(
+void OnlineIntensityLearner::update(
     const LocalSearchAllocationContext& context,
-    double reward) {
-    strongRanker.update(context, reward);
+    LocalSearchIntensity intensity,
+    double utility,
+    double costUnits) {
+    const std::size_t actionIndex =
+        LocalSearchAllocationRunner::intensity_index(intensity);
+    utilityModels[actionIndex].update(
+        context,
+        std::clamp(utility, 0.0, 1.0));
+    logCostModels[actionIndex].update(
+        context,
+        std::log1p(std::max(1.0, costUnits)));
+    ++observationCounts[actionIndex];
+}
+
+std::vector<std::pair<const Individual*, double>>
+OnlineIntensityLearner::update_lower_archive(
+    const std::vector<std::shared_ptr<Individual>>& completeSolutions) {
+    struct Candidate {
+        const Individual* individual{};
+        std::vector<int> chromosome;
+        double lowerCost{};
+        bool improvesPreviousArchive{};
+    };
+
+    std::vector<Candidate> candidates;
+    for (const auto& individual : completeSolutions) {
+        if (individual == nullptr
+            || individual->get_lower_cost() >= INFEASIBLE_COST) {
+            continue;
+        }
+        const std::vector<int> chromosome =
+            individual->get_chromosome();
+        const auto previous = std::find_if(
+            lowerArchive.begin(),
+            lowerArchive.end(),
+            [&](const LowerArchiveEntry& entry) {
+                return entry.chromosome == chromosome;
+            });
+        const bool improvesPrevious =
+            previous == lowerArchive.end()
+            || individual->get_lower_cost()
+                < previous->lowerCost - 1e-12;
+
+        const auto duplicate = std::find_if(
+            candidates.begin(),
+            candidates.end(),
+            [&](const Candidate& candidate) {
+                return candidate.chromosome == chromosome;
+            });
+        if (duplicate == candidates.end()) {
+            candidates.push_back({
+                individual.get(),
+                chromosome,
+                individual->get_lower_cost(),
+                improvesPrevious,
+            });
+        } else if (individual->get_lower_cost()
+                   < duplicate->lowerCost) {
+            duplicate->individual = individual.get();
+            duplicate->lowerCost = individual->get_lower_cost();
+            duplicate->improvesPreviousArchive = improvesPrevious;
+        }
+    }
+
+    std::vector<LowerArchiveEntry> merged = lowerArchive;
+    for (const auto& candidate : candidates) {
+        const auto existing = std::find_if(
+            merged.begin(),
+            merged.end(),
+            [&](const LowerArchiveEntry& entry) {
+                return entry.chromosome == candidate.chromosome;
+            });
+        if (existing == merged.end()) {
+            merged.push_back({
+                candidate.chromosome,
+                candidate.lowerCost,
+            });
+        } else if (candidate.lowerCost < existing->lowerCost) {
+            existing->lowerCost = candidate.lowerCost;
+        }
+    }
+    std::sort(
+        merged.begin(),
+        merged.end(),
+        [](const LowerArchiveEntry& first,
+           const LowerArchiveEntry& second) {
+            if (std::fabs(first.lowerCost - second.lowerCost) > 1e-12) {
+                return first.lowerCost < second.lowerCost;
+            }
+            return first.chromosome < second.chromosome;
+        });
+    if (merged.size() > LOWER_ARCHIVE_CAPACITY) {
+        merged.resize(LOWER_ARCHIVE_CAPACITY);
+    }
+    lowerArchive.swap(merged);
+
+    std::vector<std::pair<const Individual*, double>> credits;
+    const double normalizer =
+        static_cast<double>(
+            lowerArchive.size() * (lowerArchive.size() + 1))
+        / 2.0;
+    if (normalizer <= 0.0) {
+        return credits;
+    }
+    for (const auto& candidate : candidates) {
+        if (!candidate.improvesPreviousArchive) {
+            continue;
+        }
+        const auto archived = std::find_if(
+            lowerArchive.begin(),
+            lowerArchive.end(),
+            [&](const LowerArchiveEntry& entry) {
+                return entry.chromosome == candidate.chromosome
+                    && std::fabs(
+                        entry.lowerCost - candidate.lowerCost)
+                        <= 1e-12;
+            });
+        if (archived == lowerArchive.end()) {
+            continue;
+        }
+        const std::size_t rank = static_cast<std::size_t>(
+            std::distance(lowerArchive.begin(), archived));
+        const double credit =
+            static_cast<double>(lowerArchive.size() - rank)
+            / normalizer;
+        credits.emplace_back(candidate.individual, credit);
+    }
+    return credits;
+}
+
+double OnlineIntensityLearner::score(
+    const LocalSearchAllocationContext& context,
+    LocalSearchIntensity intensity) const {
+    const std::size_t actionIndex =
+        LocalSearchAllocationRunner::intensity_index(intensity);
+    const LinearUcbEstimate utilityEstimate =
+        utilityModels[actionIndex].estimate(context);
+    const double optimisticUtility = std::max(
+        0.0,
+        utilityEstimate.prediction
+            + kExplorationScale * utilityEstimate.uncertainty);
+
+    double estimatedCost = default_cost_units()[actionIndex];
+    if (observationCounts[actionIndex] > 0) {
+        const LinearUcbEstimate costEstimate =
+            logCostModels[actionIndex].estimate(context);
+        estimatedCost = std::max(
+            1.0,
+            std::expm1(std::clamp(
+                costEstimate.prediction,
+                0.0,
+                std::log1p(1e6))));
+    }
+    return optimisticUtility
+        - kLogCostPenalty * std::log1p(estimatedCost);
+}
+
+int OnlineIntensityLearner::observation_count(
+    LocalSearchIntensity intensity) const {
+    return observationCounts[
+        LocalSearchAllocationRunner::intensity_index(intensity)];
 }
 
 LocalSearchAllocationRun LocalSearchAllocationRunner::run(
@@ -314,14 +486,23 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     const ParentCandidate& upperReference,
     double triggerUpperBound,
     double budgetProgress,
+    double upperStagnation,
+    double lowerStagnation,
+    double populationDispersion,
+    double recentGammaRate,
     std::mt19937& localSearchEngine,
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
-    const ContextualLocalSearchAllocator& allocator) {
+    const OnlineIntensityLearner& learner) {
+    if (policy == LocalSearchPolicy::Static) {
+        throw std::logic_error(
+            "static local search does not use the allocation runner");
+    }
+
     LocalSearchAllocationRun run;
     run.records.reserve(population.size());
     const std::size_t requiredWorkspaces = std::min(
-        kMixedBatchSize,
+        kWorkspaceBatchSize,
         population.size());
     if (workspaces.size() < requiredWorkspaces) {
         workspaces.resize(requiredWorkspaces);
@@ -339,64 +520,14 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
         }
     }
 
-    auto select_records = [&](
-        std::vector<std::size_t> eligibleRecords,
-        std::size_t selectionCount,
-        bool selectStrong) {
-        selectionCount = std::min(
-            selectionCount,
-            eligibleRecords.size());
-        std::shuffle(
-            eligibleRecords.begin(),
-            eligibleRecords.end(),
-            allocationEngine);
-        if (policy == LocalSearchPolicy::ContextualMixed
-            && generation > 1
-            && !eligibleRecords.empty()) {
-            std::vector<LocalSearchAllocationContext> contexts;
-            contexts.reserve(eligibleRecords.size());
-            for (const std::size_t recordIndex : eligibleRecords) {
-                contexts.push_back(
-                    selectStrong
-                        ? run.records[recordIndex].strongContext
-                        : run.records[recordIndex].mediumContext);
-            }
-            const std::vector<double> scores = selectStrong
-                ? allocator.score_strong(contexts)
-                : allocator.score_medium(contexts);
-            std::vector<std::size_t> scoreOrder(
-                eligibleRecords.size());
-            std::iota(
-                scoreOrder.begin(),
-                scoreOrder.end(),
-                0);
-            std::stable_sort(
-                scoreOrder.begin(),
-                scoreOrder.end(),
-                [&](std::size_t first, std::size_t second) {
-                    return scores[first] > scores[second];
-                });
-            std::vector<std::size_t> rankedRecords;
-            rankedRecords.reserve(eligibleRecords.size());
-            for (const std::size_t scoreIndex : scoreOrder) {
-                rankedRecords.push_back(
-                    eligibleRecords[scoreIndex]);
-            }
-            eligibleRecords.swap(rankedRecords);
-        }
-        eligibleRecords.resize(selectionCount);
-        return eligibleRecords;
-    };
-
     for (std::size_t batchStart = 0;
          batchStart < searchCandidates.size();
-         batchStart += kMixedBatchSize) {
+         batchStart += kWorkspaceBatchSize) {
         const std::size_t batchSize = std::min(
-            kMixedBatchSize,
+            kWorkspaceBatchSize,
             searchCandidates.size() - batchStart);
         const std::size_t recordStart = run.records.size();
 
-        double maximumWeakEfficiency = 0.0;
         for (std::size_t localIndex = 0;
              localIndex < batchSize;
              ++localIndex) {
@@ -425,19 +556,77 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     triggerUpperBound);
             record.costAfterWeak =
                 record.individual->get_upper_cost();
-            record.costAfterMedium = record.costAfterWeak;
-            record.costAfterStrong = record.costAfterWeak;
-            maximumWeakEfficiency = std::max(
-                maximumWeakEfficiency,
-                raw_efficiency(record.weakResult));
-            add_operator_stats(
-                run.operatorStats,
-                record.weakResult);
-            add_allocation_stats(
-                run.stats[
-                    intensity_index(LocalSearchIntensity::Weak)],
-                record.weakResult);
+            record.costAfterTerminal = record.costAfterWeak;
+            record.totalResult = record.weakResult;
+            if (policy == LocalSearchPolicy::OnlineIndividual) {
+                record.context = make_context(
+                    *record.individual,
+                    upperReference,
+                    triggerUpperBound,
+                    budgetProgress,
+                    upperStagnation,
+                    lowerStagnation,
+                    populationDispersion,
+                    recentGammaRate,
+                    record.weakResult,
+                    instance.get_evaluation_limit_distance_calls(),
+                    population.size());
+            }
             run.records.push_back(std::move(record));
+        }
+
+        if (policy == LocalSearchPolicy::OnlineIndividual) {
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                auto& record =
+                    run.records[recordStart + localIndex];
+                if (record.weakResult.reachedLocalOptimum) {
+                    record.terminalIntensity =
+                        LocalSearchIntensity::Weak;
+                    record.forcedLocalOptimum = true;
+                    finish_record(record, triggerUpperBound);
+                    continue;
+                }
+
+                const LocalSearchIntensityDecision decision =
+                    learner.select(
+                        record.context,
+                        generation,
+                        allocationEngine);
+                record.terminalIntensity = decision.intensity;
+                record.selectionScore = decision.score;
+                record.exploratorySelection =
+                    decision.exploratory;
+
+                if (decision.intensity
+                    != LocalSearchIntensity::Weak) {
+                    const int moveLimit =
+                        decision.intensity
+                            == LocalSearchIntensity::Strong
+                        ? -1
+                        : Leader::move_limit_for_intensity(
+                            *record.individual,
+                            instance,
+                            LocalSearchIntensity::Medium);
+                    record.continuationResult =
+                        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+                            *record.individual,
+                            instance,
+                            localSearchEngine,
+                            record.session,
+                            moveLimit,
+                            workspaces[localIndex],
+                            triggerUpperBound);
+                    record.totalResult = combine_results(
+                        record.weakResult,
+                        record.continuationResult,
+                        record.costBeforeWeak,
+                        record.individual->get_upper_cost());
+                }
+                finish_record(record, triggerUpperBound);
+            }
+            continue;
         }
 
         std::vector<std::size_t> mediumEligible;
@@ -446,39 +635,26 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
              ++localIndex) {
             const std::size_t recordIndex =
                 recordStart + localIndex;
-            auto& record = run.records[recordIndex];
-            const double normalizedEfficiency =
-                maximumWeakEfficiency > 0.0
-                ? raw_efficiency(record.weakResult)
-                    / maximumWeakEfficiency
-                : 0.0;
-            record.mediumContext = make_allocation_context(
-                *record.individual,
-                upperReference,
-                triggerUpperBound,
-                budgetProgress,
-                record.weakResult,
-                normalizedEfficiency);
-            if (!record.weakResult.reachedLocalOptimum) {
+            if (!run.records[recordIndex]
+                     .weakResult.reachedLocalOptimum) {
                 mediumEligible.push_back(recordIndex);
             }
         }
-
-        const std::size_t mediumTarget =
+        std::shuffle(
+            mediumEligible.begin(),
+            mediumEligible.end(),
+            allocationEngine);
+        const std::size_t mediumTarget = std::min(
+            mediumEligible.size(),
             static_cast<std::size_t>(std::lround(
                 static_cast<double>(batchSize)
-                * kMediumSelectionRatio));
-        const std::vector<std::size_t> mediumSelected =
-            select_records(
-                mediumEligible,
-                mediumTarget,
-                false);
-        double maximumMediumEfficiency = 0.0;
-        for (const std::size_t recordIndex : mediumSelected) {
+                * kMediumSelectionRatio)));
+        mediumEligible.resize(mediumTarget);
+
+        for (const std::size_t recordIndex : mediumEligible) {
             const std::size_t localIndex =
                 recordIndex - recordStart;
             auto& record = run.records[recordIndex];
-            record.selectedForMedium = true;
             record.terminalIntensity =
                 LocalSearchIntensity::Medium;
             const int mediumLimit =
@@ -486,7 +662,7 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     *record.individual,
                     instance,
                     LocalSearchIntensity::Medium);
-            record.mediumResult =
+            record.continuationResult =
                 Leader::continue_eight_neighborhood_rvnd_one_move_session(
                     *record.individual,
                     instance,
@@ -495,59 +671,40 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     mediumLimit,
                     workspaces[localIndex],
                     triggerUpperBound);
-            record.costAfterMedium =
-                record.individual->get_upper_cost();
-            record.costAfterStrong = record.costAfterMedium;
-            maximumMediumEfficiency = std::max(
-                maximumMediumEfficiency,
-                raw_efficiency(record.mediumResult));
-            add_operator_stats(
-                run.operatorStats,
-                record.mediumResult);
-            add_allocation_stats(
-                run.stats[
-                    intensity_index(
-                        LocalSearchIntensity::Medium)],
-                record.mediumResult);
+            record.totalResult = combine_results(
+                record.weakResult,
+                record.continuationResult,
+                record.costBeforeWeak,
+                record.individual->get_upper_cost());
         }
 
         std::vector<std::size_t> strongEligible;
-        for (const std::size_t recordIndex : mediumSelected) {
-            auto& record = run.records[recordIndex];
-            const double normalizedEfficiency =
-                maximumMediumEfficiency > 0.0
-                ? raw_efficiency(record.mediumResult)
-                    / maximumMediumEfficiency
-                : 0.0;
-            record.strongContext = make_allocation_context(
-                *record.individual,
-                upperReference,
-                triggerUpperBound,
-                budgetProgress,
-                record.mediumResult,
-                normalizedEfficiency);
-            if (!record.mediumResult.reachedLocalOptimum) {
+        for (const std::size_t recordIndex : mediumEligible) {
+            if (!run.records[recordIndex]
+                     .continuationResult.reachedLocalOptimum) {
                 strongEligible.push_back(recordIndex);
             }
         }
-
-        const std::size_t strongTarget =
+        std::shuffle(
+            strongEligible.begin(),
+            strongEligible.end(),
+            allocationEngine);
+        const std::size_t strongTarget = std::min(
+            strongEligible.size(),
             static_cast<std::size_t>(std::lround(
                 static_cast<double>(batchSize)
-                * kStrongSelectionRatio));
-        const std::vector<std::size_t> strongSelected =
-            select_records(
-                strongEligible,
-                strongTarget,
-                true);
-        for (const std::size_t recordIndex : strongSelected) {
+                * kStrongSelectionRatio)));
+        strongEligible.resize(strongTarget);
+
+        for (const std::size_t recordIndex : strongEligible) {
             const std::size_t localIndex =
                 recordIndex - recordStart;
             auto& record = run.records[recordIndex];
-            record.selectedForStrong = true;
+            const LocalSearchResult mediumResult =
+                record.continuationResult;
             record.terminalIntensity =
                 LocalSearchIntensity::Strong;
-            record.strongResult =
+            const LocalSearchResult strongResult =
                 Leader::continue_eight_neighborhood_rvnd_one_move_session(
                     *record.individual,
                     instance,
@@ -556,179 +713,139 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     -1,
                     workspaces[localIndex],
                     triggerUpperBound);
-            record.costAfterStrong =
-                record.individual->get_upper_cost();
-            add_operator_stats(
-                run.operatorStats,
-                record.strongResult);
-            add_allocation_stats(
-                run.stats[
-                    intensity_index(
-                        LocalSearchIntensity::Strong)],
-                record.strongResult);
+            record.continuationResult = combine_results(
+                mediumResult,
+                strongResult,
+                record.costAfterWeak,
+                record.individual->get_upper_cost());
+            record.totalResult = combine_results(
+                record.weakResult,
+                record.continuationResult,
+                record.costBeforeWeak,
+                record.individual->get_upper_cost());
+        }
+
+        for (std::size_t localIndex = 0;
+             localIndex < batchSize;
+             ++localIndex) {
+            auto& record =
+                run.records[recordStart + localIndex];
+            finish_record(record, triggerUpperBound);
         }
     }
 
+    aggregate_run_operator_stats(run);
     return run;
 }
 
-void LocalSearchAllocationRunner::assign_parent_pool_feedback(
+void LocalSearchAllocationRunner::assign_parent_use_feedback(
     LocalSearchAllocationRun& run,
-    const std::vector<ParentCandidate>& parentPool) {
-    for (const ParentCandidate& parent : parentPool) {
-        const auto selectedRecord = std::find_if(
+    const std::vector<ParentCandidate>& parentPool,
+    const std::vector<int>& parentUseCounts) {
+    if (parentPool.size() != parentUseCounts.size()) {
+        throw std::invalid_argument(
+            "parent use counts must match parent pool size");
+    }
+    const int totalParentUses = std::accumulate(
+        parentUseCounts.begin(),
+        parentUseCounts.end(),
+        0);
+    if (totalParentUses <= 0) {
+        return;
+    }
+    const double averageParentUses =
+        static_cast<double>(totalParentUses)
+        / static_cast<double>(parentPool.size());
+    for (std::size_t parentIndex = 0;
+         parentIndex < parentPool.size();
+         ++parentIndex) {
+        if (parentUseCounts[parentIndex] <= 0
+            || parentPool[parentIndex].source == nullptr) {
+            continue;
+        }
+        const auto record = std::find_if(
             run.records.begin(),
             run.records.end(),
-            [&](const AllocatedLocalSearchRecord& record) {
-                return !record.parentPoolHit
-                    && record.individual->get_chromosome()
-                        == parent.chromosome;
+            [&](const AllocatedLocalSearchRecord& candidate) {
+                return candidate.individual.get()
+                    == parentPool[parentIndex].source;
             });
-        if (selectedRecord != run.records.end()) {
-            selectedRecord->parentPoolHit = true;
-            ++run.stats[
-                intensity_index(selectedRecord->terminalIntensity)]
-                .parentPoolHits;
+        if (record == run.records.end()) {
+            continue;
         }
+        record->parentUseCount += parentUseCounts[parentIndex];
+        record->parentCredit = std::min(
+            1.0,
+            record->parentCredit
+                + static_cast<double>(parentUseCounts[parentIndex])
+                    / averageParentUses);
     }
 }
 
-void LocalSearchAllocationRunner::assign_verified_feedback(
+void LocalSearchAllocationRunner::assign_lower_archive_feedback(
     LocalSearchAllocationRun& run,
-    const std::shared_ptr<Individual>& verifiedIndividual,
-    double previousLowerCost,
-    double newLowerCost) {
-    const auto verifiedRecord = std::find_if(
-        run.records.begin(),
-        run.records.end(),
-        [&](const AllocatedLocalSearchRecord& record) {
-            return record.individual == verifiedIndividual;
-        });
-    if (verifiedRecord == run.records.end()) {
-        return;
+    const std::vector<std::shared_ptr<Individual>>& completeSolutions,
+    OnlineIntensityLearner& learner) {
+    const auto credits = learner.update_lower_archive(
+        completeSolutions);
+    for (const auto& creditEntry : credits) {
+        const Individual* individual = creditEntry.first;
+        const double credit = creditEntry.second;
+        const auto record = std::find_if(
+            run.records.begin(),
+            run.records.end(),
+            [&](const AllocatedLocalSearchRecord& candidate) {
+                return candidate.individual.get() == individual;
+            });
+        if (record != run.records.end()) {
+            record->lowerCredit += credit;
+        }
     }
-
-    verifiedRecord->verifiedUpdate = true;
-    if (previousLowerCost < INFEASIBLE_COST
-        && previousLowerCost > 0.0) {
-        verifiedRecord->relativeVerifiedImprovement =
-            (previousLowerCost - newLowerCost)
-            / previousLowerCost;
-    }
-    ++run.stats[
-        intensity_index(verifiedRecord->terminalIntensity)]
-        .verifiedUpdates;
 }
 
 void LocalSearchAllocationRunner::finalize_feedback(
     LocalSearchAllocationRun& run,
-    double referenceUpperCost,
     LocalSearchPolicy policy,
-    ContextualLocalSearchAllocator& allocator) {
+    OnlineIntensityLearner& learner) {
     for (auto& record : run.records) {
-        ++run.stats[
-            intensity_index(record.terminalIntensity)]
-            .terminalCount;
-
-        const bool weakCrossedGamma =
-            result_gamma_crosses(record.weakResult) > 0;
-        const bool mediumCrossedGamma =
-            result_gamma_crosses(record.mediumResult) > 0;
-        const bool strongCrossedGamma =
-            result_gamma_crosses(record.strongResult) > 0;
-        const bool weakUpdatedGlobal =
-            record.costBeforeWeak >= referenceUpperCost
-            && record.costAfterWeak < referenceUpperCost;
-        const bool mediumUpdatedGlobal =
-            record.selectedForMedium
-            && record.costAfterWeak >= referenceUpperCost
-            && record.costAfterMedium < referenceUpperCost;
-        const bool strongUpdatedGlobal =
-            record.selectedForStrong
-            && record.costAfterMedium >= referenceUpperCost
-            && record.costAfterStrong < referenceUpperCost;
-
-        if (weakUpdatedGlobal) {
-            ++run.stats[
-                intensity_index(LocalSearchIntensity::Weak)]
-                .globalUpperUpdates;
-        }
-        if (mediumUpdatedGlobal) {
-            ++run.stats[
-                intensity_index(LocalSearchIntensity::Medium)]
-                .globalUpperUpdates;
-        }
-        if (strongUpdatedGlobal) {
-            ++run.stats[
-                intensity_index(LocalSearchIntensity::Strong)]
-                .globalUpperUpdates;
+        record.utility =
+            record.parentCredit + record.lowerCredit;
+        record.costUnits =
+            record.weakResult.distanceCallsUsed > 0
+            ? static_cast<double>(
+                record.totalResult.distanceCallsUsed)
+                / static_cast<double>(
+                    record.weakResult.distanceCallsUsed)
+            : 1.0;
+        if (policy == LocalSearchPolicy::OnlineIndividual) {
+            learner.update(
+                record.context,
+                record.terminalIntensity,
+                record.utility,
+                record.costUnits);
         }
 
-        const bool weakIsTerminal =
-            record.terminalIntensity == LocalSearchIntensity::Weak;
-        const bool mediumIsTerminal =
-            record.terminalIntensity == LocalSearchIntensity::Medium;
-        const bool strongIsTerminal =
-            record.terminalIntensity == LocalSearchIntensity::Strong;
-
-        const double weakReward = useful_stage_reward(
-            record.costBeforeWeak,
-            record.costAfterWeak,
-            referenceUpperCost,
-            weakCrossedGamma,
-            weakIsTerminal && record.parentPoolHit,
-            weakUpdatedGlobal,
-            weakIsTerminal && record.verifiedUpdate,
-            weakIsTerminal
-                ? record.relativeVerifiedImprovement
-                : 0.0);
-        run.stats[
-            intensity_index(LocalSearchIntensity::Weak)]
-            .reward += weakReward;
-
-        if (record.selectedForMedium) {
-            const double mediumReward = useful_stage_reward(
-                record.costAfterWeak,
-                record.costAfterMedium,
-                referenceUpperCost,
-                mediumCrossedGamma,
-                mediumIsTerminal && record.parentPoolHit,
-                mediumUpdatedGlobal,
-                mediumIsTerminal && record.verifiedUpdate,
-                mediumIsTerminal
-                    ? record.relativeVerifiedImprovement
-                    : 0.0);
-            run.stats[
-                intensity_index(LocalSearchIntensity::Medium)]
-                .reward += mediumReward;
-            if (policy == LocalSearchPolicy::ContextualMixed) {
-                allocator.update_medium(
-                    record.mediumContext,
-                    mediumReward);
-            }
-        }
-
-        if (record.selectedForStrong) {
-            const double strongReward = useful_stage_reward(
-                record.costAfterMedium,
-                record.costAfterStrong,
-                referenceUpperCost,
-                strongCrossedGamma,
-                strongIsTerminal && record.parentPoolHit,
-                strongUpdatedGlobal,
-                strongIsTerminal && record.verifiedUpdate,
-                strongIsTerminal
-                    ? record.relativeVerifiedImprovement
-                    : 0.0);
-            run.stats[
-                intensity_index(LocalSearchIntensity::Strong)]
-                .reward += strongReward;
-            if (policy == LocalSearchPolicy::ContextualMixed) {
-                allocator.update_strong(
-                    record.strongContext,
-                    strongReward);
-            }
-        }
+        auto& stats = run.stats[
+            intensity_index(record.terminalIntensity)];
+        ++stats.selections;
+        stats.forcedLocalOptima += record.forcedLocalOptimum;
+        stats.exploratorySelections +=
+            record.exploratorySelection;
+        stats.acceptedMoves +=
+            record.totalResult.acceptedMoves;
+        stats.neighborhoodCalls +=
+            record.totalResult.neighborhoodCalls;
+        stats.distanceCalls +=
+            record.totalResult.distanceCallsUsed;
+        stats.upperGain +=
+            result_upper_gain(record.totalResult);
+        stats.gammaCrosses += record.crossedGamma;
+        stats.parentUses += record.parentUseCount;
+        stats.lowerArchiveEntries +=
+            record.lowerCredit > 0.0;
+        stats.utility += record.utility;
+        stats.costUnits += record.costUnits;
+        stats.selectionScore += record.selectionScore;
     }
 }
 
@@ -745,7 +862,7 @@ std::size_t LocalSearchAllocationRunner::intensity_index(
             break;
     }
     throw std::logic_error(
-        "skip is not a mixed local-search stage");
+        "skip is not an allocated local-search intensity");
 }
 
 const char* LocalSearchAllocationRunner::intensity_name(
@@ -769,8 +886,8 @@ const char* local_search_policy_name(LocalSearchPolicy policy) {
             return "static";
         case LocalSearchPolicy::RandomMixed:
             return "random";
-        case LocalSearchPolicy::ContextualMixed:
-            return "contextual";
+        case LocalSearchPolicy::OnlineIndividual:
+            return "online";
     }
     return "unknown";
 }

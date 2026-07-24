@@ -112,6 +112,7 @@ ParentCandidate Reproduction::make_parent_candidate(const Individual& individual
     candidate.chromosome = individual.get_chromosome();
     candidate.upperCost = individual.get_upper_cost();
     candidate.adjacencySignature = build_depot_aware_signature(individual);
+    candidate.source = &individual;
     return candidate;
 }
 
@@ -325,7 +326,8 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
         pureImmigrantRatio,
         randomEngine,
         probabilityDistribution,
-        workspace);
+        workspace,
+        nullptr);
 }
 
 std::vector<std::vector<int>> Reproduction::create_offspring(
@@ -341,9 +343,13 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
     double pureImmigrantRatio,
     std::mt19937& randomEngine,
     std::uniform_real_distribution<double>& probabilityDistribution,
-    ReproductionWorkspace& workspace) {
+    ReproductionWorkspace& workspace,
+    std::vector<int>* parentUseCounts) {
     std::vector<std::vector<int>> offspring;
     offspring.reserve(static_cast<std::size_t>(offspringCount));
+    if (parentUseCounts != nullptr) {
+        parentUseCounts->assign(parentPool.size(), 0);
+    }
 
     const int verifiedUpperCount = hasVerifiedBest
         ? static_cast<int>(std::lround(offspringCount * verifiedUpperRatio))
@@ -410,12 +416,18 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
 
     while (static_cast<int>(offspring.size()) < upperParentOffspringCount) {
         const std::size_t firstParentIndex = selectUpperParentIndex();
+        if (parentUseCounts != nullptr) {
+            ++(*parentUseCounts)[firstParentIndex];
+        }
         std::vector<int> firstChild = parentPool[firstParentIndex].chromosome;
         std::vector<int> secondChild;
         if (parentPool.size() == 1) {
             secondChild = make_random_immigrant(customers, randomEngine);
         } else {
             const std::size_t secondParentIndex = selectDiverseMateIndex(firstParentIndex);
+            if (parentUseCounts != nullptr) {
+                ++(*parentUseCounts)[secondParentIndex];
+            }
             secondChild = parentPool[secondParentIndex].chromosome;
         }
         partially_matched_crossover(
@@ -447,9 +459,14 @@ std::vector<std::vector<int>> Reproduction::create_offspring(
             0,
             mateIndices.size() - 1);
         while (static_cast<int>(offspring.size()) < verifiedPhaseTarget) {
+            const std::size_t mateIndex =
+                mateIndices[selectMate(randomEngine)];
+            if (parentUseCounts != nullptr) {
+                ++(*parentUseCounts)[mateIndex];
+            }
             std::vector<int> firstChild = verifiedChromosome;
-            std::vector<int> secondChild = parentPool[
-                mateIndices[selectMate(randomEngine)]].chromosome;
+            std::vector<int> secondChild =
+                parentPool[mateIndex].chromosome;
             partially_matched_crossover(
                 firstChild,
                 secondChild,

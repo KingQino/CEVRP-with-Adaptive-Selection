@@ -99,6 +99,9 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->generation = 0;
     this->lowerLevelTriggerRatio = parameters.gamma;
     this->globalBestUpperCost = DBL_MAX;
+    this->lastUpperImprovementDistanceCalls = 0;
+    this->lastLowerImprovementDistanceCalls = 0;
+    this->recentGammaEntryRate = 0.0;
 }
 
 MA::~MA() {
@@ -315,6 +318,11 @@ void MA::initialize_search() {
     } else {
         globalBestUpperCost = DBL_MAX;
     }
+    lastUpperImprovementDistanceCalls =
+        instance->get_distance_calls();
+    lastLowerImprovementDistanceCalls =
+        instance->get_distance_calls();
+    recentGammaEntryRate = 0.0;
 }
 
 void MA::run_generation() {
@@ -334,16 +342,43 @@ void MA::run_generation() {
         bestUpperCandidate->get_upper_cost());
     const ParentCandidate frozenUpperReference =
         Reproduction::make_parent_candidate(*upperBestIndividual);
-    const double frozenReferenceCost =
-        frozenUpperReference.upperCost;
     const double frozenTriggerUpperBound =
-        frozenReferenceCost * lowerLevelTriggerRatio;
+        frozenUpperReference.upperCost * lowerLevelTriggerRatio;
+    const std::uint64_t evaluationLimitDistanceCalls =
+        instance->get_evaluation_limit_distance_calls();
+    const std::uint64_t generationStartDistanceCalls =
+        instance->get_distance_calls();
     const double budgetProgress =
-        instance->get_evaluation_limit_distance_calls() > 0
-        ? static_cast<double>(instance->get_distance_calls())
-            / static_cast<double>(
-                instance->get_evaluation_limit_distance_calls())
+        evaluationLimitDistanceCalls > 0
+        ? static_cast<double>(generationStartDistanceCalls)
+            / static_cast<double>(evaluationLimitDistanceCalls)
         : 0.0;
+    const double upperStagnation =
+        evaluationLimitDistanceCalls > 0
+        ? static_cast<double>(
+            generationStartDistanceCalls
+            - lastUpperImprovementDistanceCalls)
+            / static_cast<double>(evaluationLimitDistanceCalls)
+        : 0.0;
+    const double lowerStagnation =
+        evaluationLimitDistanceCalls > 0
+        ? static_cast<double>(
+            generationStartDistanceCalls
+            - lastLowerImprovementDistanceCalls)
+            / static_cast<double>(evaluationLimitDistanceCalls)
+        : 0.0;
+    double populationDispersion = 0.0;
+    if (localSearchPolicy == LocalSearchPolicy::OnlineIndividual
+        && !population.empty()) {
+        for (const auto& individual : population) {
+            populationDispersion +=
+                Reproduction::adjacency_distance(
+                    Reproduction::make_parent_candidate(*individual),
+                    frozenUpperReference);
+        }
+        populationDispersion /=
+            static_cast<double>(population.size());
+    }
 
     if (localSearchPolicy == LocalSearchPolicy::Static) {
         auto applyLocalSearch =
@@ -435,6 +470,10 @@ void MA::run_generation() {
             frozenUpperReference,
             frozenTriggerUpperBound,
             budgetProgress,
+            upperStagnation,
+            lowerStagnation,
+            populationDispersion,
+            recentGammaEntryRate,
             localSearchEngine,
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
@@ -455,11 +494,6 @@ void MA::run_generation() {
         rankedUpperSolutions,
         targetParentPoolSize,
         qualityRatio);
-    if (localSearchPolicy != LocalSearchPolicy::Static) {
-        LocalSearchAllocationRunner::assign_parent_pool_feedback(
-            mixedLocalSearch,
-            parentPool);
-    }
 
     vector<shared_ptr<Individual>> followerCandidates;
     shared_ptr<Individual> generationBestUpper = Reproduction::best_by_upper_cost(population);
@@ -467,6 +501,8 @@ void MA::run_generation() {
         upperBestIndividual->copy_from(*generationBestUpper);
         globalBestUpperCost =
             upperBestIndividual->get_upper_cost();
+        lastUpperImprovementDistanceCalls =
+            instance->get_distance_calls();
     }
 
     const double triggerUpperBound = globalBestUpperCost * lowerLevelTriggerRatio;
@@ -519,25 +555,61 @@ void MA::run_generation() {
                     }
                 }
             }
-            if (localSearchPolicy != LocalSearchPolicy::Static) {
-                LocalSearchAllocationRunner::assign_verified_feedback(
-                    mixedLocalSearch,
-                    bestEvaluatedComplete,
-                    verifiedLowerCostBefore,
-                    bestEvaluatedComplete->get_lower_cost());
-            }
             verifiedBest->copy_from(*bestEvaluatedComplete);
+            lastLowerImprovementDistanceCalls =
+                instance->get_distance_calls();
         }
     }
     const bool retainVerifiedFallback =
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
 
+    if (localSearchPolicy
+        == LocalSearchPolicy::OnlineIndividual) {
+        LocalSearchAllocationRunner::assign_lower_archive_feedback(
+            mixedLocalSearch,
+            evaluatedCompleteSolutions,
+            localSearchAllocator);
+    }
+
+    const bool hasLowerElite = lowerElite != nullptr || retainVerifiedFallback;
+    const int offspringTarget = popSize - (hasLowerElite ? 1 : 0);
+    const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
+    vector<int> parentUseCounts;
+    vector<vector<int>> chromosomes = Reproduction::create_offspring(
+        parentPool,
+        verifiedBest.get(),
+        hasVerifiedBest,
+        instance->customers,
+        offspringTarget,
+        tournamentSize,
+        mutationProb,
+        mutationIndProb,
+        verifiedUpperRatio,
+        pureImmigrantRatio,
+        randomEngine,
+        uniformRealDis,
+        reproductionWorkspace,
+        &parentUseCounts);
+
     if (localSearchPolicy != LocalSearchPolicy::Static) {
+        LocalSearchAllocationRunner::assign_parent_use_feedback(
+            mixedLocalSearch,
+            parentPool,
+            parentUseCounts);
         LocalSearchAllocationRunner::finalize_feedback(
             mixedLocalSearch,
-            frozenReferenceCost,
             localSearchPolicy,
             localSearchAllocator);
+        const int gammaEntries = static_cast<int>(std::count_if(
+            mixedLocalSearch.records.begin(),
+            mixedLocalSearch.records.end(),
+            [](const AllocatedLocalSearchRecord& record) {
+                return record.crossedGamma;
+            }));
+        recentGammaEntryRate = mixedLocalSearch.records.empty()
+            ? 0.0
+            : static_cast<double>(gammaEntries)
+                / static_cast<double>(mixedLocalSearch.records.size());
     }
 
     if (enableLogging) {
@@ -589,6 +661,8 @@ void MA::run_generation() {
                 const auto& stats = mixedLocalSearch.stats[
                     LocalSearchAllocationRunner::intensity_index(
                         intensity)];
+                const double selectionCount =
+                    static_cast<double>(stats.selections);
                 localSearchAllocationRows
                     << setprecision(12)
                     << generation << "\t"
@@ -597,40 +671,27 @@ void MA::run_generation() {
                     << LocalSearchAllocationRunner::intensity_name(
                         intensity) << "\t"
                     << stats.selections << "\t"
-                    << stats.terminalCount << "\t"
+                    << stats.forcedLocalOptima << "\t"
+                    << stats.exploratorySelections << "\t"
                     << stats.acceptedMoves << "\t"
                     << stats.neighborhoodCalls << "\t"
                     << instance->distance_calls_to_evals(
                         stats.distanceCalls) << "\t"
                     << stats.upperGain << "\t"
                     << stats.gammaCrosses << "\t"
-                    << stats.parentPoolHits << "\t"
-                    << stats.globalUpperUpdates << "\t"
-                    << stats.verifiedUpdates << "\t"
-                    << stats.reward << "\n";
+                    << stats.parentUses << "\t"
+                    << stats.lowerArchiveEntries << "\t"
+                    << stats.utility << "\t"
+                    << (stats.selections > 0
+                        ? stats.costUnits / selectionCount
+                        : 0.0) << "\t"
+                    << (stats.selections > 0
+                        ? stats.selectionScore / selectionCount
+                        : 0.0) << "\n";
             }
         }
         flush_local_search_log();
     }
-
-
-    const bool hasLowerElite = lowerElite != nullptr || retainVerifiedFallback;
-    const int offspringTarget = popSize - (hasLowerElite ? 1 : 0);
-    const bool hasVerifiedBest = verifiedBest->get_lower_cost() < INFEASIBLE_COST;
-    vector<vector<int>> chromosomes = Reproduction::create_offspring(
-        parentPool,
-        verifiedBest.get(),
-        hasVerifiedBest,
-        instance->customers,
-        offspringTarget,
-        tournamentSize,
-        mutationProb,
-        mutationIndProb,
-        verifiedUpperRatio,
-        pureImmigrantRatio,
-        randomEngine,
-        uniformRealDis,
-        reproductionWorkspace);
 
     // All information needed from the old population is now materialized.
     evaluatedCompleteSolutions.clear();

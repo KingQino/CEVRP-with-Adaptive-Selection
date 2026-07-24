@@ -12,6 +12,7 @@ struct ParentCandidate {
     std::vector<int> chromosome;
     double upperCost;
     std::vector<std::uint64_t> adjacencySignature;
+    const Individual* source{};
 };
 
 struct ReproductionWorkspace {
@@ -82,7 +83,8 @@ public:
         double pureImmigrantRatio,
         std::mt19937& randomEngine,
         std::uniform_real_distribution<double>& probabilityDistribution,
-        ReproductionWorkspace& workspace);
+        ReproductionWorkspace& workspace,
+        std::vector<int>* parentUseCounts = nullptr);
 };
 
 #endif
