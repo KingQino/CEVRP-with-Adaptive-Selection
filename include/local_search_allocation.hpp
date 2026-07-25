@@ -133,7 +133,7 @@ struct LocalSearchAllocationStats {
     double parentReward{};
     double lowerReward{};
     double gammaReward{};
-    double continuationGainReward{};
+    double continuationGainSignal{};
     double reward{};
     double incrementalCostUnits{};
     double selectionScore{};

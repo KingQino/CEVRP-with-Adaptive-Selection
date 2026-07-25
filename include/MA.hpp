@@ -29,7 +29,7 @@ public:
         "exploratory_selections\taccepted_moves\tneighborhood_calls\t"
         "evals\tupper_gain\tgamma_crosses\tparent_uses\t"
         "lower_archive_entries\tparent_reward\tlower_reward\t"
-        "gamma_reward\tcontinuation_gain_reward\treward\t"
+        "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
 
     MA(Case* instance, const Parameters& parameters);

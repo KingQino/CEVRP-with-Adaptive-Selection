@@ -882,7 +882,7 @@ int main(int argc, char* argv[]) {
         LocalSearchPolicy::MatchedRandom,
         unusedRewardLearner);
     const auto& finalizedReward = rewardRun.records.front();
-    assert(std::fabs(finalizedReward.reward - 0.95) <= 1e-12);
+    assert(std::fabs(finalizedReward.reward - 0.90) <= 1e-12);
     assert(std::fabs(
         finalizedReward.incrementalCostUnits - 3.0) <= 1e-12);
     const auto& mediumRewardStats = rewardRun.stats[
@@ -895,7 +895,7 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(
         mediumRewardStats.gammaReward - 0.25) <= 1e-12);
     assert(std::fabs(
-        mediumRewardStats.continuationGainReward - 0.05)
+        mediumRewardStats.continuationGainSignal - 0.05)
         <= 1e-12);
 
     LocalSearchAllocationContext syntheticContext;
@@ -1212,11 +1212,11 @@ int main(int argc, char* argv[]) {
         const double rewardComponentSum =
             std::stod(columns[13])
             + std::stod(columns[14])
-            + std::stod(columns[15])
-            + std::stod(columns[16]);
+            + std::stod(columns[15]);
         assert(std::fabs(
             rewardComponentSum - std::stod(columns[17]))
             <= 1e-8);
+        assert(std::stod(columns[16]) >= 0.0);
         assert(std::stod(columns[18]) >= 0.0);
         if (columns[2] == "weak") {
             assert(std::fabs(std::stod(columns[18])) <= 1e-12);

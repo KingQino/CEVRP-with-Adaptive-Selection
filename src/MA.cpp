@@ -573,7 +573,7 @@ void MA::run_generation() {
                     << stats.parentReward << "\t"
                     << stats.lowerReward << "\t"
                     << stats.gammaReward << "\t"
-                    << stats.continuationGainReward << "\t"
+                    << stats.continuationGainSignal << "\t"
                     << stats.reward << "\t"
                     << (stats.selections > 0
                         ? stats.incrementalCostUnits

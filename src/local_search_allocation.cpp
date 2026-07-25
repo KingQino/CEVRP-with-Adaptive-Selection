@@ -19,7 +19,7 @@ constexpr double kLogCostPenalty = 0.02;
 constexpr double kLowerRewardWeight = 0.45;
 constexpr double kGammaRewardWeight = 0.25;
 constexpr double kParentRewardWeight = 0.20;
-constexpr double kContinuationGainRewardWeight = 0.10;
+constexpr double kContinuationGainSignalWeight = 0.10;
 constexpr double kContinuationGainScale = 100.0;
 constexpr std::size_t kWorkspaceBatchSize = 10;
 constexpr double kMediumSelectionRatio = 0.80;
@@ -966,14 +966,13 @@ void LocalSearchAllocationRunner::finalize_feedback(
             record.postProbeGammaCross
             ? kGammaRewardWeight
             : 0.0;
-        const double continuationGainReward =
-            kContinuationGainRewardWeight
+        const double continuationGainSignal =
+            kContinuationGainSignalWeight
             * record.normalizedContinuationGain;
         record.reward =
             parentReward
             + lowerReward
-            + gammaReward
-            + continuationGainReward;
+            + gammaReward;
 
         const std::uint64_t weakDistanceCalls =
             std::max<std::uint64_t>(
@@ -1013,8 +1012,8 @@ void LocalSearchAllocationRunner::finalize_feedback(
         stats.parentReward += parentReward;
         stats.lowerReward += lowerReward;
         stats.gammaReward += gammaReward;
-        stats.continuationGainReward +=
-            continuationGainReward;
+        stats.continuationGainSignal +=
+            continuationGainSignal;
         stats.reward += record.reward;
         stats.incrementalCostUnits +=
             record.incrementalCostUnits;
