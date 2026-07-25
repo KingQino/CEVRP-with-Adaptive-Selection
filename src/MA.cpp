@@ -570,9 +570,14 @@ void MA::run_generation() {
                     << stats.gammaCrosses << "\t"
                     << stats.parentUses << "\t"
                     << stats.lowerArchiveEntries << "\t"
-                    << stats.utility << "\t"
+                    << stats.parentReward << "\t"
+                    << stats.lowerReward << "\t"
+                    << stats.gammaReward << "\t"
+                    << stats.continuationGainReward << "\t"
+                    << stats.reward << "\t"
                     << (stats.selections > 0
-                        ? stats.costUnits / selectionCount
+                        ? stats.incrementalCostUnits
+                            / selectionCount
                         : 0.0) << "\t"
                     << (stats.selections > 0
                         ? stats.selectionScore / selectionCount

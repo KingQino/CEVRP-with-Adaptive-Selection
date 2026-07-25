@@ -858,10 +858,45 @@ int main(int argc, char* argv[]) {
     assert(firstArchiveCredits.size() == 1);
     assert(firstArchiveCredits.front().first
            == archiveSolution.get());
-    assert(firstArchiveCredits.front().second > 0.0);
+    assert(std::fabs(
+        firstArchiveCredits.front().second - 1.0) <= 1e-12);
     const auto repeatedArchiveCredits =
         archiveAllocator.update_lower_archive({archiveSolution});
     assert(repeatedArchiveCredits.empty());
+
+    LocalSearchAllocationRun rewardRun;
+    AllocatedLocalSearchRecord rewardRecord;
+    rewardRecord.terminalIntensity =
+        LocalSearchIntensity::Medium;
+    rewardRecord.costAfterWeak = 100.0;
+    rewardRecord.costAfterTerminal = 99.0;
+    rewardRecord.parentCredit = 1.0;
+    rewardRecord.lowerCredit = 1.0;
+    rewardRecord.postProbeGammaCross = true;
+    rewardRecord.weakResult.distanceCallsUsed = 100;
+    rewardRecord.continuationResult.distanceCallsUsed = 300;
+    rewardRun.records.push_back(std::move(rewardRecord));
+    OnlineIntensityLearner unusedRewardLearner;
+    LocalSearchAllocationRunner::finalize_feedback(
+        rewardRun,
+        LocalSearchPolicy::MatchedRandom,
+        unusedRewardLearner);
+    const auto& finalizedReward = rewardRun.records.front();
+    assert(std::fabs(finalizedReward.reward - 0.95) <= 1e-12);
+    assert(std::fabs(
+        finalizedReward.incrementalCostUnits - 3.0) <= 1e-12);
+    const auto& mediumRewardStats = rewardRun.stats[
+        LocalSearchAllocationRunner::intensity_index(
+            LocalSearchIntensity::Medium)];
+    assert(std::fabs(
+        mediumRewardStats.parentReward - 0.20) <= 1e-12);
+    assert(std::fabs(
+        mediumRewardStats.lowerReward - 0.45) <= 1e-12);
+    assert(std::fabs(
+        mediumRewardStats.gammaReward - 0.25) <= 1e-12);
+    assert(std::fabs(
+        mediumRewardStats.continuationGainReward - 0.05)
+        <= 1e-12);
 
     LocalSearchAllocationContext syntheticContext;
     syntheticContext.qualityGap = 0.01;
@@ -1172,8 +1207,20 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 16);
+        assert(columns.size() == 20);
         assert(columns[1] == "random");
+        const double rewardComponentSum =
+            std::stod(columns[13])
+            + std::stod(columns[14])
+            + std::stod(columns[15])
+            + std::stod(columns[16]);
+        assert(std::fabs(
+            rewardComponentSum - std::stod(columns[17]))
+            <= 1e-8);
+        assert(std::stod(columns[18]) >= 0.0);
+        if (columns[2] == "weak") {
+            assert(std::fabs(std::stod(columns[18])) <= 1e-12);
+        }
         selectionCount += std::stoi(columns[3]);
         ++allocationRowCount;
     }
@@ -1230,7 +1277,7 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 16);
+        assert(columns.size() == 20);
         assert(columns[1] == "matched_random");
         matchedSelectionCount += std::stoi(columns[3]);
         ++matchedRowCount;

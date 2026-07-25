@@ -95,8 +95,8 @@ public:
     void update(
         const LocalSearchAllocationContext& context,
         LocalSearchIntensity intensity,
-        double utility,
-        double costUnits);
+        double reward,
+        double incrementalCostUnits);
     [[nodiscard]] std::vector<std::pair<const Individual*, double>>
     update_lower_archive(
         const std::vector<std::shared_ptr<Individual>>& completeSolutions);
@@ -113,7 +113,7 @@ private:
         double lowerCost{};
     };
 
-    std::array<LinearUcbModel, 3> utilityModels;
+    std::array<LinearUcbModel, 3> rewardModels;
     std::array<LinearUcbModel, 3> logCostModels;
     std::array<int, 3> observationCounts{};
     std::vector<LowerArchiveEntry> lowerArchive;
@@ -130,8 +130,12 @@ struct LocalSearchAllocationStats {
     int gammaCrosses{};
     int parentUses{};
     int lowerArchiveEntries{};
-    double utility{};
-    double costUnits{};
+    double parentReward{};
+    double lowerReward{};
+    double gammaReward{};
+    double continuationGainReward{};
+    double reward{};
+    double incrementalCostUnits{};
     double selectionScore{};
 };
 
@@ -151,12 +155,14 @@ struct AllocatedLocalSearchRecord {
     double selectionScore{};
     double parentCredit{};
     double lowerCredit{};
-    double utility{};
-    double costUnits{1.0};
+    double normalizedContinuationGain{};
+    double reward{};
+    double incrementalCostUnits{};
     int parentUseCount{};
     bool forcedLocalOptimum{};
     bool exploratorySelection{};
     bool crossedGamma{};
+    bool postProbeGammaCross{};
 };
 
 struct LocalSearchAllocationRun {

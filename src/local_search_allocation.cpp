@@ -16,6 +16,11 @@ constexpr double kRidge = 1.0;
 constexpr double kExplorationScale = 0.08;
 constexpr double kRandomExplorationRate = 0.05;
 constexpr double kLogCostPenalty = 0.02;
+constexpr double kLowerRewardWeight = 0.45;
+constexpr double kGammaRewardWeight = 0.25;
+constexpr double kParentRewardWeight = 0.20;
+constexpr double kContinuationGainRewardWeight = 0.10;
+constexpr double kContinuationGainScale = 100.0;
 constexpr std::size_t kWorkspaceBatchSize = 10;
 constexpr double kMediumSelectionRatio = 0.80;
 constexpr double kStrongSelectionRatio = 0.50;
@@ -135,6 +140,9 @@ void finish_record(
     record.crossedGamma =
         record.costBeforeWeak > triggerUpperBound
         && record.costAfterTerminal <= triggerUpperBound;
+    record.postProbeGammaCross =
+        record.costAfterWeak > triggerUpperBound
+        && record.costAfterTerminal <= triggerUpperBound;
 }
 
 void aggregate_run_operator_stats(LocalSearchAllocationRun& run) {
@@ -144,8 +152,8 @@ void aggregate_run_operator_stats(LocalSearchAllocationRun& run) {
     }
 }
 
-std::array<double, 3> default_cost_units() {
-    return {1.0, 4.0, 16.0};
+std::array<double, 3> default_incremental_cost_units() {
+    return {0.0, 3.0, 15.0};
 }
 
 }  // namespace
@@ -252,7 +260,7 @@ double LinearUcbModel::dot(
 }
 
 void OnlineIntensityLearner::reset() {
-    for (auto& model : utilityModels) {
+    for (auto& model : rewardModels) {
         model.reset();
     }
     for (auto& model : logCostModels) {
@@ -318,16 +326,16 @@ LocalSearchIntensityDecision OnlineIntensityLearner::select(
 void OnlineIntensityLearner::update(
     const LocalSearchAllocationContext& context,
     LocalSearchIntensity intensity,
-    double utility,
-    double costUnits) {
+    double reward,
+    double incrementalCostUnits) {
     const std::size_t actionIndex =
         LocalSearchAllocationRunner::intensity_index(intensity);
-    utilityModels[actionIndex].update(
+    rewardModels[actionIndex].update(
         context,
-        std::clamp(utility, 0.0, 1.0));
+        std::clamp(reward, 0.0, 1.0));
     logCostModels[actionIndex].update(
         context,
-        std::log1p(std::max(1.0, costUnits)));
+        std::log1p(std::max(0.0, incrementalCostUnits)));
     ++observationCounts[actionIndex];
 }
 
@@ -414,11 +422,7 @@ OnlineIntensityLearner::update_lower_archive(
     lowerArchive.swap(merged);
 
     std::vector<std::pair<const Individual*, double>> credits;
-    const double normalizer =
-        static_cast<double>(
-            lowerArchive.size() * (lowerArchive.size() + 1))
-        / 2.0;
-    if (normalizer <= 0.0) {
+    if (lowerArchive.empty()) {
         return credits;
     }
     for (const auto& candidate : candidates) {
@@ -441,7 +445,7 @@ OnlineIntensityLearner::update_lower_archive(
             std::distance(lowerArchive.begin(), archived));
         const double credit =
             static_cast<double>(lowerArchive.size() - rank)
-            / normalizer;
+            / static_cast<double>(lowerArchive.size());
         credits.emplace_back(candidate.individual, credit);
     }
     return credits;
@@ -452,25 +456,26 @@ double OnlineIntensityLearner::score(
     LocalSearchIntensity intensity) const {
     const std::size_t actionIndex =
         LocalSearchAllocationRunner::intensity_index(intensity);
-    const LinearUcbEstimate utilityEstimate =
-        utilityModels[actionIndex].estimate(context);
-    const double optimisticUtility = std::max(
+    const LinearUcbEstimate rewardEstimate =
+        rewardModels[actionIndex].estimate(context);
+    const double optimisticReward = std::max(
         0.0,
-        utilityEstimate.prediction
-            + kExplorationScale * utilityEstimate.uncertainty);
+        rewardEstimate.prediction
+            + kExplorationScale * rewardEstimate.uncertainty);
 
-    double estimatedCost = default_cost_units()[actionIndex];
+    double estimatedCost =
+        default_incremental_cost_units()[actionIndex];
     if (observationCounts[actionIndex] > 0) {
         const LinearUcbEstimate costEstimate =
             logCostModels[actionIndex].estimate(context);
         estimatedCost = std::max(
-            1.0,
+            0.0,
             std::expm1(std::clamp(
                 costEstimate.prediction,
                 0.0,
                 std::log1p(1e6))));
     }
-    return optimisticUtility
+    return optimisticReward
         - kLogCostPenalty * std::log1p(estimatedCost);
 }
 
@@ -938,22 +943,53 @@ void LocalSearchAllocationRunner::finalize_feedback(
     LocalSearchPolicy policy,
     OnlineIntensityLearner& learner) {
     for (auto& record : run.records) {
-        record.utility =
-            record.parentCredit + record.lowerCredit;
-        record.costUnits =
-            record.weakResult.distanceCallsUsed > 0
-            ? static_cast<double>(
-                record.totalResult.distanceCallsUsed)
-                / static_cast<double>(
-                    record.weakResult.distanceCallsUsed)
-            : 1.0;
+        // The allocation action starts after the common weak probe.
+        const double continuationRelativeGain =
+            record.costAfterWeak > 0.0
+            ? std::max(
+                0.0,
+                (record.costAfterWeak
+                    - record.costAfterTerminal)
+                    / record.costAfterWeak)
+            : 0.0;
+        record.normalizedContinuationGain =
+            bounded_nonnegative(
+                kContinuationGainScale
+                    * continuationRelativeGain);
+        const double parentReward =
+            kParentRewardWeight
+            * std::clamp(record.parentCredit, 0.0, 1.0);
+        const double lowerReward =
+            kLowerRewardWeight
+            * std::clamp(record.lowerCredit, 0.0, 1.0);
+        const double gammaReward =
+            record.postProbeGammaCross
+            ? kGammaRewardWeight
+            : 0.0;
+        const double continuationGainReward =
+            kContinuationGainRewardWeight
+            * record.normalizedContinuationGain;
+        record.reward =
+            parentReward
+            + lowerReward
+            + gammaReward
+            + continuationGainReward;
+
+        const std::uint64_t weakDistanceCalls =
+            std::max<std::uint64_t>(
+                1,
+                record.weakResult.distanceCallsUsed);
+        record.incrementalCostUnits =
+            static_cast<double>(
+                record.continuationResult.distanceCallsUsed)
+            / static_cast<double>(weakDistanceCalls);
         if (policy == LocalSearchPolicy::OnlineNonContextual
             || policy == LocalSearchPolicy::OnlineIndividual) {
             learner.update(
                 record.context,
                 record.terminalIntensity,
-                record.utility,
-                record.costUnits);
+                record.reward,
+                record.incrementalCostUnits);
         }
 
         auto& stats = run.stats[
@@ -974,8 +1010,14 @@ void LocalSearchAllocationRunner::finalize_feedback(
         stats.parentUses += record.parentUseCount;
         stats.lowerArchiveEntries +=
             record.lowerCredit > 0.0;
-        stats.utility += record.utility;
-        stats.costUnits += record.costUnits;
+        stats.parentReward += parentReward;
+        stats.lowerReward += lowerReward;
+        stats.gammaReward += gammaReward;
+        stats.continuationGainReward +=
+            continuationGainReward;
+        stats.reward += record.reward;
+        stats.incrementalCostUnits +=
+            record.incrementalCostUnits;
         stats.selectionScore += record.selectionScore;
     }
 }
