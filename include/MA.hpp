@@ -28,8 +28,9 @@ public:
         "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
     static constexpr const char* LOCAL_SEARCH_ALLOCATION_LOG_HEADER =
         "iter\tpolicy\taction\tselections\tforced_local_optima\t"
-        "exploratory_selections\taccepted_moves\tneighborhood_calls\t"
-        "evals\tupper_gain\tgamma_crosses\tparent_uses\t"
+        "exploratory_selections\treached_local_optimum\t"
+        "hit_move_limit\thit_distance_limit\taccepted_moves\t"
+        "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\tparent_uses\t"
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";

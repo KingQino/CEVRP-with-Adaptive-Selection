@@ -342,11 +342,35 @@ void assert_progressive_eight_neighborhood_session_matches_strong() {
         instance.fitness_evaluation(routes),
         instance.compute_demand_sum(routes));
     Individual progressive(direct);
+    Individual distanceLimited(direct);
 
     std::mt19937 directEngine(29);
     std::mt19937 progressiveEngine(29);
+    std::mt19937 distanceLimitedEngine(29);
     LocalSearchWorkspace directWorkspace;
     LocalSearchWorkspace progressiveWorkspace;
+    LocalSearchWorkspace distanceLimitedWorkspace;
+    LocalSearchSession distanceLimitedSession;
+    Leader::begin_eight_neighborhood_rvnd_one_move_session(
+        distanceLimited,
+        distanceLimitedSession,
+        distanceLimitedWorkspace);
+    const LocalSearchResult distanceLimitedResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            distanceLimited,
+            instance,
+            distanceLimitedEngine,
+            distanceLimitedSession,
+            -1,
+            distanceLimitedWorkspace,
+            std::numeric_limits<double>::infinity(),
+            0);
+    assert(!distanceLimitedResult.reachedLocalOptimum);
+    assert(!distanceLimitedResult.hitMoveLimit);
+    assert(distanceLimitedResult.hitDistanceCallLimit);
+    assert(distanceLimitedResult.neighborhoodCalls == 0);
+    assert(distanceLimitedResult.distanceCallsUsed == 0);
+
     const LocalSearchResult directResult =
         Leader::improve_with_eight_neighborhood_rvnd_one_move(
             direct,
@@ -617,6 +641,11 @@ int main(int argc, char* argv[]) {
     assert(
         boundedSearchResult.acceptedMoves
         <= boundedSearchResult.moveLimit);
+    assert(
+        static_cast<int>(boundedSearchResult.reachedLocalOptimum)
+        + static_cast<int>(boundedSearchResult.hitMoveLimit)
+        + static_cast<int>(boundedSearchResult.hitDistanceCallLimit)
+        == 1);
     assert(
         Leader::bounded_strong_distance_call_limit(0) == 128);
     assert(
@@ -1215,20 +1244,25 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 20);
+        assert(columns.size() == 23);
         assert(columns[1] == "random");
         const double rewardComponentSum =
-            std::stod(columns[13])
-            + std::stod(columns[14])
-            + std::stod(columns[15]);
+            std::stod(columns[16])
+            + std::stod(columns[17])
+            + std::stod(columns[18]);
         assert(std::fabs(
-            rewardComponentSum - std::stod(columns[17]))
+            rewardComponentSum - std::stod(columns[20]))
             <= 1e-8);
-        assert(std::stod(columns[16]) >= 0.0);
-        assert(std::stod(columns[18]) >= 0.0);
+        assert(std::stod(columns[19]) >= 0.0);
+        assert(std::stod(columns[21]) >= 0.0);
         if (columns[2] == "weak") {
-            assert(std::fabs(std::stod(columns[18])) <= 1e-12);
+            assert(std::fabs(std::stod(columns[21])) <= 1e-12);
         }
+        const int terminationCount =
+            std::stoi(columns[6])
+            + std::stoi(columns[7])
+            + std::stoi(columns[8]);
+        assert(terminationCount == std::stoi(columns[3]));
         selectionCount += std::stoi(columns[3]);
         ++allocationRowCount;
     }
@@ -1289,8 +1323,13 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 20);
+        assert(columns.size() == 23);
         assert(columns[1] == "matched_random");
+        const int terminationCount =
+            std::stoi(columns[6])
+            + std::stoi(columns[7])
+            + std::stoi(columns[8]);
+        assert(terminationCount == std::stoi(columns[3]));
         matchedSelectionCount += std::stoi(columns[3]);
         ++matchedRowCount;
     }

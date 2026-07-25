@@ -2333,6 +2333,7 @@ LocalSearchResult improve_with_rvnd_one_move(
 
     while (!activeNeighborhoods.empty()) {
         if (moveLimit >= 0 && result.acceptedMoves >= moveLimit) {
+            result.hitMoveLimit = true;
             break;
         }
 
@@ -2629,6 +2630,9 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
             result.distanceCallsUsed += continuation.distanceCallsUsed;
             result.reachedLocalOptimum =
                 continuation.reachedLocalOptimum;
+            result.hitMoveLimit = continuation.hitMoveLimit;
+            result.hitDistanceCallLimit =
+                continuation.hitDistanceCallLimit;
             for (std::size_t operatorIndex = 0;
                  operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
                  ++operatorIndex) {
@@ -2698,10 +2702,12 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     while (!session.activeOperators.empty()) {
         if (cumulativeMoveLimit >= 0
             && session.totalAcceptedMoves >= cumulativeMoveLimit) {
+            result.hitMoveLimit = true;
             break;
         }
         if (session.totalDistanceCalls
             >= cumulativeDistanceCallLimit) {
+            result.hitDistanceCallLimit = true;
             break;
         }
 

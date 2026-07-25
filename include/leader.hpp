@@ -50,6 +50,8 @@ struct LocalSearchResult {
     std::uint64_t distanceCallsUsed{};
     double relativeUpperImprovement{};
     bool reachedLocalOptimum{};
+    bool hitMoveLimit{};
+    bool hitDistanceCallLimit{};
     std::array<LocalSearchOperatorStats, LOCAL_SEARCH_OPERATOR_COUNT>
         operatorStats{};
 };

@@ -76,6 +76,8 @@ LocalSearchResult combine_results(
         ? (costBefore - costAfter) / costBefore
         : 0.0;
     combined.reachedLocalOptimum = second.reachedLocalOptimum;
+    combined.hitMoveLimit = second.hitMoveLimit;
+    combined.hitDistanceCallLimit = second.hitDistanceCallLimit;
     combined.operatorStats = first.operatorStats;
     add_operator_stats(combined.operatorStats, second);
     return combined;
@@ -998,6 +1000,12 @@ void LocalSearchAllocationRunner::finalize_feedback(
         stats.forcedLocalOptima += record.forcedLocalOptimum;
         stats.exploratorySelections +=
             record.exploratorySelection;
+        stats.localOptimumTerminations +=
+            record.totalResult.reachedLocalOptimum;
+        stats.moveLimitTerminations +=
+            record.totalResult.hitMoveLimit;
+        stats.distanceLimitTerminations +=
+            record.totalResult.hitDistanceCallLimit;
         stats.acceptedMoves +=
             record.totalResult.acceptedMoves;
         stats.neighborhoodCalls +=

@@ -43,6 +43,12 @@ void add_allocation_stats(
     destination.selections += source.selections;
     destination.forcedLocalOptima += source.forcedLocalOptima;
     destination.exploratorySelections += source.exploratorySelections;
+    destination.localOptimumTerminations +=
+        source.localOptimumTerminations;
+    destination.moveLimitTerminations +=
+        source.moveLimitTerminations;
+    destination.distanceLimitTerminations +=
+        source.distanceLimitTerminations;
     destination.acceptedMoves += source.acceptedMoves;
     destination.neighborhoodCalls += source.neighborhoodCalls;
     destination.distanceCalls += source.distanceCalls;
@@ -309,6 +315,9 @@ void MA::write_local_search_allocation_snapshot() {
             << stats.selections << "\t"
             << stats.forcedLocalOptima << "\t"
             << stats.exploratorySelections << "\t"
+            << stats.localOptimumTerminations << "\t"
+            << stats.moveLimitTerminations << "\t"
+            << stats.distanceLimitTerminations << "\t"
             << stats.acceptedMoves << "\t"
             << stats.neighborhoodCalls << "\t"
             << instance->distance_calls_to_evals(

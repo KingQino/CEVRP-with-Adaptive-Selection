@@ -123,6 +123,9 @@ struct LocalSearchAllocationStats {
     int selections{};
     int forcedLocalOptima{};
     int exploratorySelections{};
+    int localOptimumTerminations{};
+    int moveLimitTerminations{};
+    int distanceLimitTerminations{};
     int acceptedMoves{};
     int neighborhoodCalls{};
     std::uint64_t distanceCalls{};
