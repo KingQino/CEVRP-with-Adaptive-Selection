@@ -872,6 +872,58 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
         }
     }
 
+    if (deepestIntensity == LocalSearchIntensity::BoundedStrong
+        && !workspaces.empty()) {
+        const auto elitePosition = std::min_element(
+            run.records.begin(),
+            run.records.end(),
+            [](const AllocatedLocalSearchRecord& lhs,
+               const AllocatedLocalSearchRecord& rhs) {
+                const bool lhsEligible =
+                    lhs.terminalIntensity
+                        == LocalSearchIntensity::BoundedStrong
+                    && !lhs.totalResult.reachedLocalOptimum;
+                const bool rhsEligible =
+                    rhs.terminalIntensity
+                        == LocalSearchIntensity::BoundedStrong
+                    && !rhs.totalResult.reachedLocalOptimum;
+                if (lhsEligible != rhsEligible) {
+                    return lhsEligible;
+                }
+                if (!lhsEligible) {
+                    return false;
+                }
+                return lhs.individual->get_upper_cost()
+                    < rhs.individual->get_upper_cost();
+            });
+        if (elitePosition != run.records.end()
+            && elitePosition->terminalIntensity
+                == LocalSearchIntensity::BoundedStrong
+            && !elitePosition->totalResult.reachedLocalOptimum) {
+            auto& eliteRecord = *elitePosition;
+            eliteRecord.eliteUnlimitedContinuation = true;
+            eliteRecord.eliteUnlimitedResult =
+                Leader::improve_with_eight_neighborhood_rvnd_one_move(
+                    *eliteRecord.individual,
+                    instance,
+                    localSearchEngine,
+                    LocalSearchIntensity::Strong,
+                    workspaces.front(),
+                    triggerUpperBound);
+            eliteRecord.continuationResult = combine_results(
+                eliteRecord.continuationResult,
+                eliteRecord.eliteUnlimitedResult,
+                eliteRecord.costAfterWeak,
+                eliteRecord.individual->get_upper_cost());
+            eliteRecord.totalResult = combine_results(
+                eliteRecord.weakResult,
+                eliteRecord.continuationResult,
+                eliteRecord.costBeforeWeak,
+                eliteRecord.individual->get_upper_cost());
+            finish_record(eliteRecord, triggerUpperBound);
+        }
+    }
+
     aggregate_run_operator_stats(run);
     return run;
 }
@@ -1006,6 +1058,12 @@ void LocalSearchAllocationRunner::finalize_feedback(
             record.totalResult.hitMoveLimit;
         stats.distanceLimitTerminations +=
             record.totalResult.hitDistanceCallLimit;
+        stats.eliteUnlimitedContinuations +=
+            record.eliteUnlimitedContinuation;
+        stats.eliteUnlimitedDistanceCalls +=
+            record.eliteUnlimitedResult.distanceCallsUsed;
+        stats.eliteUnlimitedUpperGain +=
+            result_upper_gain(record.eliteUnlimitedResult);
         stats.acceptedMoves +=
             record.totalResult.acceptedMoves;
         stats.neighborhoodCalls +=

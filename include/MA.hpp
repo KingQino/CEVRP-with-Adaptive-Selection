@@ -30,7 +30,9 @@ public:
         "iter\tpolicy\taction\tselections\tforced_local_optima\t"
         "exploratory_selections\treached_local_optimum\t"
         "hit_move_limit\thit_distance_limit\taccepted_moves\t"
-        "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\tparent_uses\t"
+        "elite_unlimited_continuations\telite_unlimited_evals\t"
+        "elite_unlimited_upper_gain\tneighborhood_calls\tevals\t"
+        "upper_gain\tgamma_crosses\tparent_uses\t"
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";

@@ -126,6 +126,9 @@ struct LocalSearchAllocationStats {
     int localOptimumTerminations{};
     int moveLimitTerminations{};
     int distanceLimitTerminations{};
+    int eliteUnlimitedContinuations{};
+    std::uint64_t eliteUnlimitedDistanceCalls{};
+    double eliteUnlimitedUpperGain{};
     int acceptedMoves{};
     int neighborhoodCalls{};
     std::uint64_t distanceCalls{};
@@ -148,6 +151,7 @@ struct AllocatedLocalSearchRecord {
     LocalSearchIntensity terminalIntensity{LocalSearchIntensity::Weak};
     LocalSearchResult weakResult;
     LocalSearchResult continuationResult;
+    LocalSearchResult eliteUnlimitedResult;
     LocalSearchResult totalResult;
     int boundedStrongMoveLimit{};
     std::uint64_t boundedStrongDistanceCallLimit{};
@@ -164,6 +168,7 @@ struct AllocatedLocalSearchRecord {
     int parentUseCount{};
     bool forcedLocalOptimum{};
     bool exploratorySelection{};
+    bool eliteUnlimitedContinuation{};
     bool crossedGamma{};
     bool postProbeGammaCross{};
 };

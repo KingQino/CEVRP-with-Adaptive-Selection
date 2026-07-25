@@ -1244,19 +1244,19 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 26);
         assert(columns[1] == "random");
         const double rewardComponentSum =
-            std::stod(columns[16])
-            + std::stod(columns[17])
-            + std::stod(columns[18]);
+            std::stod(columns[19])
+            + std::stod(columns[20])
+            + std::stod(columns[21]);
         assert(std::fabs(
-            rewardComponentSum - std::stod(columns[20]))
+            rewardComponentSum - std::stod(columns[23]))
             <= 1e-8);
-        assert(std::stod(columns[19]) >= 0.0);
-        assert(std::stod(columns[21]) >= 0.0);
+        assert(std::stod(columns[22]) >= 0.0);
+        assert(std::stod(columns[24]) >= 0.0);
         if (columns[2] == "weak") {
-            assert(std::fabs(std::stod(columns[21])) <= 1e-12);
+            assert(std::fabs(std::stod(columns[24])) <= 1e-12);
         }
         const int terminationCount =
             std::stoi(columns[6])
@@ -1296,6 +1296,23 @@ int main(int argc, char* argv[]) {
     assert(
         boundedAllocationRows.find("\tstrong\t")
         == std::string::npos);
+    std::istringstream boundedRows(boundedAllocationRows);
+    int eliteUnlimitedContinuations = 0;
+    while (std::getline(boundedRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 26);
+        const int continuationCount = std::stoi(columns[10]);
+        if (columns[2] != "bounded_strong") {
+            assert(continuationCount == 0);
+        }
+        eliteUnlimitedContinuations += continuationCount;
+    }
+    assert(eliteUnlimitedContinuations <= 1);
 
     Case matchedAllocationInstance(instancePath, 46);
     Parameters matchedAllocationParameters =
@@ -1323,7 +1340,7 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 26);
         assert(columns[1] == "matched_random");
         const int terminationCount =
             std::stoi(columns[6])

@@ -49,6 +49,12 @@ void add_allocation_stats(
         source.moveLimitTerminations;
     destination.distanceLimitTerminations +=
         source.distanceLimitTerminations;
+    destination.eliteUnlimitedContinuations +=
+        source.eliteUnlimitedContinuations;
+    destination.eliteUnlimitedDistanceCalls +=
+        source.eliteUnlimitedDistanceCalls;
+    destination.eliteUnlimitedUpperGain +=
+        source.eliteUnlimitedUpperGain;
     destination.acceptedMoves += source.acceptedMoves;
     destination.neighborhoodCalls += source.neighborhoodCalls;
     destination.distanceCalls += source.distanceCalls;
@@ -319,6 +325,10 @@ void MA::write_local_search_allocation_snapshot() {
             << stats.moveLimitTerminations << "\t"
             << stats.distanceLimitTerminations << "\t"
             << stats.acceptedMoves << "\t"
+            << stats.eliteUnlimitedContinuations << "\t"
+            << instance->distance_calls_to_evals(
+                stats.eliteUnlimitedDistanceCalls) << "\t"
+            << stats.eliteUnlimitedUpperGain << "\t"
             << stats.neighborhoodCalls << "\t"
             << instance->distance_calls_to_evals(
                 stats.distanceCalls) << "\t"
