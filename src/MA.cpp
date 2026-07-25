@@ -37,6 +37,30 @@ void add_operator_stats(
     }
 }
 
+void add_allocation_stats(
+    LocalSearchAllocationStats& destination,
+    const LocalSearchAllocationStats& source) {
+    destination.selections += source.selections;
+    destination.forcedLocalOptima += source.forcedLocalOptima;
+    destination.exploratorySelections += source.exploratorySelections;
+    destination.acceptedMoves += source.acceptedMoves;
+    destination.neighborhoodCalls += source.neighborhoodCalls;
+    destination.distanceCalls += source.distanceCalls;
+    destination.upperGain += source.upperGain;
+    destination.gammaCrosses += source.gammaCrosses;
+    destination.parentUses += source.parentUses;
+    destination.lowerArchiveEntries += source.lowerArchiveEntries;
+    destination.parentReward += source.parentReward;
+    destination.lowerReward += source.lowerReward;
+    destination.gammaReward += source.gammaReward;
+    destination.continuationGainSignal +=
+        source.continuationGainSignal;
+    destination.reward += source.reward;
+    destination.incrementalCostUnits +=
+        source.incrementalCostUnits;
+    destination.selectionScore += source.selectionScore;
+}
+
 }  // namespace
 
 using std::endl;
@@ -249,7 +273,69 @@ void MA::flush_local_search_log() {
     }
 }
 
+void MA::accumulate_local_search_allocation_stats(
+    const std::array<LocalSearchAllocationStats, 3>& stats) {
+    for (std::size_t index = 0; index < stats.size(); ++index) {
+        add_allocation_stats(
+            pendingLocalSearchAllocationStats[index],
+            stats[index]);
+    }
+    ++pendingLocalSearchAllocationGenerations;
+}
+
+void MA::write_local_search_allocation_snapshot() {
+    if (pendingLocalSearchAllocationGenerations == 0
+        || localSearchPolicy == LocalSearchPolicy::Static) {
+        return;
+    }
+
+    const std::array<LocalSearchIntensity, 3> intensities = {
+        LocalSearchIntensity::Weak,
+        LocalSearchIntensity::Medium,
+        localSearchIntensity,
+    };
+    for (std::size_t index = 0; index < intensities.size(); ++index) {
+        const LocalSearchIntensity intensity = intensities[index];
+        const auto& stats =
+            pendingLocalSearchAllocationStats[index];
+        const double selectionCount =
+            static_cast<double>(stats.selections);
+        localSearchAllocationRows
+            << setprecision(12)
+            << generation << "\t"
+            << local_search_policy_name(localSearchPolicy) << "\t"
+            << LocalSearchAllocationRunner::intensity_name(
+                intensity) << "\t"
+            << stats.selections << "\t"
+            << stats.forcedLocalOptima << "\t"
+            << stats.exploratorySelections << "\t"
+            << stats.acceptedMoves << "\t"
+            << stats.neighborhoodCalls << "\t"
+            << instance->distance_calls_to_evals(
+                stats.distanceCalls) << "\t"
+            << stats.upperGain << "\t"
+            << stats.gammaCrosses << "\t"
+            << stats.parentUses << "\t"
+            << stats.lowerArchiveEntries << "\t"
+            << stats.parentReward << "\t"
+            << stats.lowerReward << "\t"
+            << stats.gammaReward << "\t"
+            << stats.continuationGainSignal << "\t"
+            << stats.reward << "\t"
+            << (stats.selections > 0
+                ? stats.incrementalCostUnits / selectionCount
+                : 0.0) << "\t"
+            << (stats.selections > 0
+                ? stats.selectionScore / selectionCount
+                : 0.0) << "\n";
+    }
+
+    pendingLocalSearchAllocationStats = {};
+    pendingLocalSearchAllocationGenerations = 0;
+}
+
 void MA::close_log_for_local_search() {
+    write_local_search_allocation_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
@@ -273,6 +359,8 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     localSearchAllocator.reset();
+    pendingLocalSearchAllocationStats = {};
+    pendingLocalSearchAllocationGenerations = 0;
     retainedLowerElite.reset();
     upperBestIndividual.reset();
     population.clear();
@@ -540,48 +628,11 @@ void MA::run_generation() {
                 << operatorStats.gammaCrosses << "\n";
         }
         if (localSearchPolicy != LocalSearchPolicy::Static) {
-            const std::array<LocalSearchIntensity, 3> intensities = {
-                    LocalSearchIntensity::Weak,
-                    LocalSearchIntensity::Medium,
-                    localSearchIntensity,
-                };
-            for (const LocalSearchIntensity intensity
-                 : intensities) {
-                const auto& stats = mixedLocalSearch.stats[
-                    LocalSearchAllocationRunner::intensity_index(
-                        intensity)];
-                const double selectionCount =
-                    static_cast<double>(stats.selections);
-                localSearchAllocationRows
-                    << setprecision(12)
-                    << generation << "\t"
-                    << local_search_policy_name(
-                        localSearchPolicy) << "\t"
-                    << LocalSearchAllocationRunner::intensity_name(
-                        intensity) << "\t"
-                    << stats.selections << "\t"
-                    << stats.forcedLocalOptima << "\t"
-                    << stats.exploratorySelections << "\t"
-                    << stats.acceptedMoves << "\t"
-                    << stats.neighborhoodCalls << "\t"
-                    << instance->distance_calls_to_evals(
-                        stats.distanceCalls) << "\t"
-                    << stats.upperGain << "\t"
-                    << stats.gammaCrosses << "\t"
-                    << stats.parentUses << "\t"
-                    << stats.lowerArchiveEntries << "\t"
-                    << stats.parentReward << "\t"
-                    << stats.lowerReward << "\t"
-                    << stats.gammaReward << "\t"
-                    << stats.continuationGainSignal << "\t"
-                    << stats.reward << "\t"
-                    << (stats.selections > 0
-                        ? stats.incrementalCostUnits
-                            / selectionCount
-                        : 0.0) << "\t"
-                    << (stats.selections > 0
-                        ? stats.selectionScore / selectionCount
-                        : 0.0) << "\n";
+            accumulate_local_search_allocation_stats(
+                mixedLocalSearch.stats);
+            if (pendingLocalSearchAllocationGenerations
+                == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
+                write_local_search_allocation_snapshot();
             }
         }
         flush_local_search_log();

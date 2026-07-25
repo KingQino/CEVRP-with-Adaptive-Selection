@@ -5,6 +5,7 @@
 #ifndef CEVRP_YINGHAO_MA_HPP
 #define CEVRP_YINGHAO_MA_HPP
 
+#include <array>
 #include <cstdint>
 #include <random>
 
@@ -20,6 +21,7 @@
 
 class MA : public StatsInterface{
 public:
+    static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
     static constexpr const char* EVOLUTION_LOG_HEADER =
         "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
@@ -49,12 +51,18 @@ public:
     void open_log_for_local_search();
     void flush_local_search_log();
     void close_log_for_local_search();
+    void accumulate_local_search_allocation_stats(
+        const std::array<LocalSearchAllocationStats, 3>& stats);
+    void write_local_search_allocation_snapshot();
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
+    std::array<LocalSearchAllocationStats, 3>
+        pendingLocalSearchAllocationStats{};
+    int pendingLocalSearchAllocationGenerations{};
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;

@@ -24,8 +24,9 @@ constexpr double kContinuationGainScale = 100.0;
 constexpr std::size_t kWorkspaceBatchSize = 10;
 constexpr double kMediumSelectionRatio = 0.80;
 constexpr double kStrongSelectionRatio = 0.50;
-constexpr double kMatchedMediumRatio = 0.09;
-constexpr double kMatchedDeepestRatio = 0.29;
+// Reward V3.1's aggregate online allocation, used as a context-free ablation.
+constexpr double kMatchedMediumRatio = 0.033;
+constexpr double kMatchedDeepestRatio = 0.079;
 
 double bounded_nonnegative(double value) {
     const double nonnegative = std::max(0.0, value);

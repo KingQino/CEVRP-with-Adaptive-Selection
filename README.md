@@ -62,10 +62,11 @@ Invalid configurations exit with a non-zero status. Probabilities must be in
 cannot exceed the resulting parent-pool size.
 
 `random` uses the original progressive random mix. `matched_random` assigns
-approximately 62% weak, 9% medium, and 29% deepest actions independently of
-context and feedback. `non_contextual` uses the online learner with a constant
-context, while `online` includes the per-individual search context. The deepest
-action is selected by `-ls strong` or `-ls bounded_strong`.
+approximately 88.8% weak, 3.3% medium, and 7.9% deepest actions, matching the
+aggregate Reward V3.1 online allocation independently of context and feedback.
+`non_contextual` uses the online learner with a constant context, while `online`
+includes the per-individual search context. The deepest action is selected by
+`-ls strong` or `-ls bounded_strong`.
 
 
 
@@ -119,6 +120,6 @@ action is selected by `-ls strong` or `-ls bounded_strong`.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online reward combines lower-archive rank, post-probe gamma crossing, and reproduction parent usage. Continuation upper gain remains an aggregate diagnostic signal but is excluded from reward. Action cost contains only evaluations consumed after the common weak probe.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
-- All policies write eight per-generation operator totals to `local-search-operators.tsv`. Random and online allocation additionally write three action totals per generation to `local-search-allocation.tsv`; per-individual local-search rows are intentionally omitted to keep long runs compact.
+- All policies write eight per-generation operator totals to `local-search-operators.tsv`. Non-static allocation policies additionally write three action totals for each 10-generation window to `local-search-allocation.tsv`, including a final partial window; per-individual local-search rows are intentionally omitted to keep long runs compact.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - With `popSize=100`, `Reproduction` builds the next generation from one lower-level elite, 84 upper-parent offspring, 5 `verifiedBest x P_upper` offspring, and 10 pure immigrants.

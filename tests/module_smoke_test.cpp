@@ -1195,6 +1195,14 @@ int main(int argc, char* argv[]) {
         randomAllocationParameters);
     randomAllocationAlgorithm.initialize_search();
     randomAllocationAlgorithm.run_generation();
+    assert(
+        randomAllocationAlgorithm
+            .localSearchAllocationRows.str().empty());
+    assert(
+        randomAllocationAlgorithm
+            .pendingLocalSearchAllocationGenerations == 1);
+    randomAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
     std::istringstream allocationRows(
         randomAllocationAlgorithm
             .localSearchAllocationRows.str());
@@ -1243,6 +1251,8 @@ int main(int argc, char* argv[]) {
         boundedAllocationParameters);
     boundedAllocationAlgorithm.initialize_search();
     boundedAllocationAlgorithm.run_generation();
+    boundedAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
     const std::string boundedAllocationRows =
         boundedAllocationAlgorithm
             .localSearchAllocationRows.str();
@@ -1264,6 +1274,8 @@ int main(int argc, char* argv[]) {
         matchedAllocationParameters);
     matchedAllocationAlgorithm.initialize_search();
     matchedAllocationAlgorithm.run_generation();
+    matchedAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
     const std::string matchedAllocationRows =
         matchedAllocationAlgorithm
             .localSearchAllocationRows.str();
@@ -1307,13 +1319,15 @@ int main(int argc, char* argv[]) {
     onlineAllocationAlgorithm.initialize_search();
     onlineAllocationAlgorithm.run_generation();
     onlineAllocationAlgorithm.run_generation();
+    onlineAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
     const std::string onlineAllocationRows =
         onlineAllocationAlgorithm
             .localSearchAllocationRows.str();
     assert(std::count(
         onlineAllocationRows.begin(),
         onlineAllocationRows.end(),
-        '\n') == 6);
+        '\n') == 3);
     const int onlineObservationCount =
         onlineAllocationAlgorithm.localSearchAllocator
             .observation_count(LocalSearchIntensity::Weak)
@@ -1335,13 +1349,15 @@ int main(int argc, char* argv[]) {
     nonContextualAllocationAlgorithm.initialize_search();
     nonContextualAllocationAlgorithm.run_generation();
     nonContextualAllocationAlgorithm.run_generation();
+    nonContextualAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
     const std::string nonContextualAllocationRows =
         nonContextualAllocationAlgorithm
             .localSearchAllocationRows.str();
     assert(std::count(
         nonContextualAllocationRows.begin(),
         nonContextualAllocationRows.end(),
-        '\n') == 6);
+        '\n') == 3);
     assert(
         nonContextualAllocationRows.find("\tnon_contextual\t")
         != std::string::npos);
