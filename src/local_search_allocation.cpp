@@ -159,6 +159,21 @@ std::array<double, 3> default_incremental_cost_units() {
     return {0.0, 3.0, 15.0};
 }
 
+std::uint64_t rounded_up_median(
+    std::vector<std::uint64_t> values) {
+    if (values.empty()) {
+        return 0;
+    }
+    std::sort(values.begin(), values.end());
+    const std::size_t midpoint = values.size() / 2;
+    if (values.size() % 2 != 0) {
+        return values[midpoint];
+    }
+    const std::uint64_t lower = values[midpoint - 1];
+    const std::uint64_t difference = values[midpoint] - lower;
+    return lower + difference / 2 + difference % 2;
+}
+
 }  // namespace
 
 LinearUcbModel::LinearUcbModel() {
@@ -562,6 +577,40 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             allocationEngine);
     }
 
+    struct DeferredDistanceContinuation {
+        std::size_t recordIndex{};
+        LocalSearchWorkspace workspace;
+    };
+    std::vector<std::uint64_t> weakDistanceCalls;
+    weakDistanceCalls.reserve(searchCandidates.size());
+    std::vector<DeferredDistanceContinuation>
+        deferredDistanceContinuations;
+    deferredDistanceContinuations.reserve(searchCandidates.size());
+    auto defer_distance_limited_records =
+        [&](std::size_t recordStart, std::size_t batchSize) {
+            if (deepestIntensity
+                != LocalSearchIntensity::BoundedStrong) {
+                return;
+            }
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                const std::size_t recordIndex =
+                    recordStart + localIndex;
+                const auto& record = run.records[recordIndex];
+                if (record.terminalIntensity
+                        == LocalSearchIntensity::BoundedStrong
+                    && record.totalResult.hitDistanceCallLimit) {
+                    deferredDistanceContinuations.push_back({
+                        recordIndex,
+                        std::move(workspaces[localIndex]),
+                    });
+                    workspaces[localIndex] =
+                        LocalSearchWorkspace{};
+                }
+            }
+        };
+
     for (std::size_t batchStart = 0;
          batchStart < searchCandidates.size();
          batchStart += kWorkspaceBatchSize) {
@@ -601,6 +650,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     weakLimit,
                     workspaces[localIndex],
                     triggerUpperBound);
+            weakDistanceCalls.push_back(
+                record.weakResult.distanceCallsUsed);
             record.costAfterWeak =
                 record.individual->get_upper_cost();
             record.boundedStrongDistanceCallLimit =
@@ -693,6 +744,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 }
                 finish_record(record, triggerUpperBound);
             }
+            defer_distance_limited_records(
+                recordStart,
+                batchSize);
             continue;
         }
 
@@ -778,6 +832,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     run.records[recordStart + localIndex],
                     triggerUpperBound);
             }
+            defer_distance_limited_records(
+                recordStart,
+                batchSize);
             continue;
         }
 
@@ -868,6 +925,48 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
              ++localIndex) {
             auto& record =
                 run.records[recordStart + localIndex];
+            finish_record(record, triggerUpperBound);
+        }
+        defer_distance_limited_records(
+            recordStart,
+            batchSize);
+    }
+
+    if (!deferredDistanceContinuations.empty()) {
+        const std::uint64_t generationMedianWeakCalls =
+            rounded_up_median(weakDistanceCalls);
+        const std::uint64_t medianDistanceCallLimit =
+            Leader::bounded_strong_distance_call_limit(
+                generationMedianWeakCalls);
+        for (auto& deferred : deferredDistanceContinuations) {
+            auto& record = run.records[deferred.recordIndex];
+            if (medianDistanceCallLimit
+                <= record.boundedStrongDistanceCallLimit) {
+                continue;
+            }
+            record.medianFloorContinuation = true;
+            record.boundedStrongDistanceCallLimit =
+                medianDistanceCallLimit;
+            record.medianFloorResult =
+                Leader::continue_eight_neighborhood_rvnd_one_move_session(
+                    *record.individual,
+                    instance,
+                    localSearchEngine,
+                    record.session,
+                    record.boundedStrongMoveLimit,
+                    deferred.workspace,
+                    triggerUpperBound,
+                    medianDistanceCallLimit);
+            record.continuationResult = combine_results(
+                record.continuationResult,
+                record.medianFloorResult,
+                record.costAfterWeak,
+                record.individual->get_upper_cost());
+            record.totalResult = combine_results(
+                record.weakResult,
+                record.continuationResult,
+                record.costBeforeWeak,
+                record.individual->get_upper_cost());
             finish_record(record, triggerUpperBound);
         }
     }
@@ -1006,6 +1105,12 @@ void LocalSearchAllocationRunner::finalize_feedback(
             record.totalResult.hitMoveLimit;
         stats.distanceLimitTerminations +=
             record.totalResult.hitDistanceCallLimit;
+        stats.medianFloorContinuations +=
+            record.medianFloorContinuation;
+        stats.medianFloorDistanceCalls +=
+            record.medianFloorResult.distanceCallsUsed;
+        stats.medianFloorUpperGain +=
+            result_upper_gain(record.medianFloorResult);
         stats.acceptedMoves +=
             record.totalResult.acceptedMoves;
         stats.neighborhoodCalls +=
