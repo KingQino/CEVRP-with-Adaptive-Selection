@@ -23,6 +23,8 @@ AllocatedLocalSearchRecord make_bounded_record(
     record.costAfterWeak = individual->get_upper_cost();
     record.costAfterTerminal = individual->get_upper_cost();
     record.weakResult.distanceCallsUsed = 1;
+    record.continuationResult.distanceCallsUsed = 2;
+    record.boundedStrongMoveLimit = 1;
     return record;
 }
 
@@ -80,23 +82,38 @@ int main() {
         static_cast<double>(controller.credit_distance_calls())
         - 1.0) <= 1e-12);
 
+    const EliteUnlimitedRun deferredRun = controller.run(
+        allocationRun,
+        instance,
+        EliteUnlimitedController::WARMUP_GENERATIONS + 1,
+        0,
+        preferred->get_upper_cost() * 0.99,
+        localSearchEngine,
+        workspace);
+    assert(!deferredRun.triggered);
+    assert(deferredRun.eligibleCandidates == 2);
+    assert(!allocationRun.records[0].excludeFromLearnerFeedback);
+
     EliteUnlimitedRun eliteRun = controller.run(
         allocationRun,
         instance,
         EliteUnlimitedController::WARMUP_GENERATIONS + 1,
-        1,
+        10,
         preferred->get_upper_cost() * 0.99,
         localSearchEngine,
         workspace);
     assert(eliteRun.triggered);
     assert(eliteRun.eligibleCandidates == 2);
     assert(eliteRun.individual == preferred);
-    assert(eliteRun.result.reachedLocalOptimum);
+    assert(eliteRun.chunks >= 1);
+    assert(
+        eliteRun.chunks
+        <= EliteUnlimitedController::MAX_CHUNKS_PER_TRIGGER);
     assert(eliteRun.result.distanceCallsUsed > 0);
     assert(allocationRun.records[0].excludeFromLearnerFeedback);
     assert(!allocationRun.records[1].excludeFromLearnerFeedback);
     const long double expectedCredit =
-        1.1L
+        2.0L
         - static_cast<long double>(
             eliteRun.result.distanceCallsUsed);
     assert(std::fabs(
@@ -134,6 +151,13 @@ int main() {
             11,
             controller.credit_distance_calls());
     assert(eliteStats.triggers == 1);
+    assert(eliteStats.chunks == eliteRun.chunks);
+    assert(
+        eliteStats.localOptimumStops
+            + eliteStats.lowEfficiencyStops
+            + eliteStats.budgetStops
+            + eliteStats.chunkCapStops
+        == 1);
     assert(eliteStats.parentUses == 9);
     assert(eliteStats.lowerArchiveEntries == 1);
     assert(eliteStats.verifiedImprovements == 1);
@@ -178,6 +202,6 @@ int main() {
     std::string row;
     assert(std::getline(rows, row));
     assert(!std::getline(rows, row));
-    assert(std::count(row.begin(), row.end(), '\t') == 12);
+    assert(std::count(row.begin(), row.end(), '\t') == 19);
     return 0;
 }

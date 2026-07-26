@@ -81,6 +81,13 @@ void add_elite_unlimited_stats(
     const EliteUnlimitedStats& source) {
     destination.eligibleCandidates += source.eligibleCandidates;
     destination.triggers += source.triggers;
+    destination.chunks += source.chunks;
+    destination.localOptimumStops +=
+        source.localOptimumStops;
+    destination.lowEfficiencyStops +=
+        source.lowEfficiencyStops;
+    destination.budgetStops += source.budgetStops;
+    destination.chunkCapStops += source.chunkCapStops;
     destination.normalDistanceCalls += source.normalDistanceCalls;
     destination.distanceCalls += source.distanceCalls;
     destination.acceptedMoves += source.acceptedMoves;
@@ -90,6 +97,11 @@ void add_elite_unlimited_stats(
     destination.parentUses += source.parentUses;
     destination.lowerArchiveEntries += source.lowerArchiveEntries;
     destination.verifiedImprovements += source.verifiedImprovements;
+    destination.probeEfficiency += source.probeEfficiency;
+    destination.chunkEfficiencyRatio +=
+        source.chunkEfficiencyRatio;
+    destination.chunkEfficiencySamples +=
+        source.chunkEfficiencySamples;
     destination.endingCreditDistanceCalls =
         source.endingCreditDistanceCalls;
 }
@@ -404,6 +416,11 @@ void MA::write_elite_unlimited_snapshot() {
         << generation << "\t"
         << pendingEliteUnlimitedStats.eligibleCandidates << "\t"
         << pendingEliteUnlimitedStats.triggers << "\t"
+        << pendingEliteUnlimitedStats.chunks << "\t"
+        << pendingEliteUnlimitedStats.localOptimumStops << "\t"
+        << pendingEliteUnlimitedStats.lowEfficiencyStops << "\t"
+        << pendingEliteUnlimitedStats.budgetStops << "\t"
+        << pendingEliteUnlimitedStats.chunkCapStops << "\t"
         << instance->distance_calls_to_evals(
             pendingEliteUnlimitedStats.normalDistanceCalls) << "\t"
         << instance->distance_calls_to_evals(
@@ -415,6 +432,17 @@ void MA::write_elite_unlimited_snapshot() {
         << pendingEliteUnlimitedStats.parentUses << "\t"
         << pendingEliteUnlimitedStats.lowerArchiveEntries << "\t"
         << pendingEliteUnlimitedStats.verifiedImprovements << "\t"
+        << (pendingEliteUnlimitedStats.triggers > 0
+                ? pendingEliteUnlimitedStats.probeEfficiency
+                    / static_cast<double>(
+                        pendingEliteUnlimitedStats.triggers)
+                : 0.0) << "\t"
+        << (pendingEliteUnlimitedStats.chunkEfficiencySamples > 0
+                ? pendingEliteUnlimitedStats.chunkEfficiencyRatio
+                    / static_cast<double>(
+                        pendingEliteUnlimitedStats
+                            .chunkEfficiencySamples)
+                : 0.0) << "\t"
         << creditEvals << "\n";
 
     pendingEliteUnlimitedStats = {};
