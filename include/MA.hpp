@@ -10,6 +10,7 @@
 #include <random>
 
 #include "case.hpp"
+#include "elite_unlimited.hpp"
 #include "stats.hpp"
 #include "individual.hpp"
 #include "follower.hpp"
@@ -34,6 +35,11 @@ public:
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
+    static constexpr const char* ELITE_UNLIMITED_LOG_HEADER =
+        "iter\teligible_candidates\ttriggers\tnormal_ls_evals\t"
+        "elite_evals\taccepted_moves\tneighborhood_calls\tupper_gain\t"
+        "gamma_crosses\tparent_uses\tlower_archive_entries\t"
+        "verified_improvements\tbudget_credit_evals";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -55,15 +61,23 @@ public:
     void accumulate_local_search_allocation_stats(
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();
+    void accumulate_elite_unlimited_stats(
+        const EliteUnlimitedStats& stats);
+    void write_elite_unlimited_snapshot();
+    [[nodiscard]] bool elite_unlimited_enabled() const;
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
+    std::ostringstream eliteUnlimitedRows;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
+    std::ofstream logEliteUnlimited;
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};
+    EliteUnlimitedStats pendingEliteUnlimitedStats{};
+    int pendingEliteUnlimitedGenerations{};
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;
@@ -78,8 +92,10 @@ public:
     SplitWorkspace splitWorkspace;
     ReproductionWorkspace reproductionWorkspace;
     LocalSearchWorkspace localSearchWorkspace;
+    LocalSearchWorkspace eliteUnlimitedWorkspace;
     std::vector<LocalSearchWorkspace> mixedLocalSearchWorkspaces;
     OnlineIntensityLearner localSearchAllocator;
+    EliteUnlimitedController eliteUnlimitedController;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;

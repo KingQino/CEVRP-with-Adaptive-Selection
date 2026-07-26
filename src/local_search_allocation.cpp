@@ -884,16 +884,31 @@ void LocalSearchAllocationRunner::assign_parent_use_feedback(
         throw std::invalid_argument(
             "parent use counts must match parent pool size");
     }
-    const int totalParentUses = std::accumulate(
-        parentUseCounts.begin(),
-        parentUseCounts.end(),
-        0);
-    if (totalParentUses <= 0) {
+    int totalParentUses = 0;
+    std::size_t scoredParentCount = 0;
+    for (std::size_t parentIndex = 0;
+         parentIndex < parentPool.size();
+         ++parentIndex) {
+        const auto record = std::find_if(
+            run.records.begin(),
+            run.records.end(),
+            [&](const AllocatedLocalSearchRecord& candidate) {
+                return candidate.individual.get()
+                    == parentPool[parentIndex].source;
+            });
+        if (record != run.records.end()
+            && record->excludeFromLearnerFeedback) {
+            continue;
+        }
+        totalParentUses += parentUseCounts[parentIndex];
+        ++scoredParentCount;
+    }
+    if (totalParentUses <= 0 || scoredParentCount == 0) {
         return;
     }
     const double averageParentUses =
         static_cast<double>(totalParentUses)
-        / static_cast<double>(parentPool.size());
+        / static_cast<double>(scoredParentCount);
     for (std::size_t parentIndex = 0;
          parentIndex < parentPool.size();
          ++parentIndex) {
@@ -908,7 +923,8 @@ void LocalSearchAllocationRunner::assign_parent_use_feedback(
                 return candidate.individual.get()
                     == parentPool[parentIndex].source;
             });
-        if (record == run.records.end()) {
+        if (record == run.records.end()
+            || record->excludeFromLearnerFeedback) {
             continue;
         }
         record->parentUseCount += parentUseCounts[parentIndex];
@@ -920,7 +936,8 @@ void LocalSearchAllocationRunner::assign_parent_use_feedback(
     }
 }
 
-void LocalSearchAllocationRunner::assign_lower_archive_feedback(
+std::vector<std::pair<const Individual*, double>>
+LocalSearchAllocationRunner::assign_lower_archive_feedback(
     LocalSearchAllocationRun& run,
     const std::vector<std::shared_ptr<Individual>>& completeSolutions,
     OnlineIntensityLearner& learner) {
@@ -935,10 +952,12 @@ void LocalSearchAllocationRunner::assign_lower_archive_feedback(
             [&](const AllocatedLocalSearchRecord& candidate) {
                 return candidate.individual.get() == individual;
             });
-        if (record != run.records.end()) {
+        if (record != run.records.end()
+            && !record->excludeFromLearnerFeedback) {
             record->lowerCredit += credit;
         }
     }
+    return credits;
 }
 
 void LocalSearchAllocationRunner::finalize_feedback(
@@ -985,8 +1004,9 @@ void LocalSearchAllocationRunner::finalize_feedback(
             static_cast<double>(
                 record.continuationResult.distanceCallsUsed)
             / static_cast<double>(weakDistanceCalls);
-        if (policy == LocalSearchPolicy::OnlineNonContextual
-            || policy == LocalSearchPolicy::OnlineIndividual) {
+        if ((policy == LocalSearchPolicy::OnlineNonContextual
+             || policy == LocalSearchPolicy::OnlineIndividual)
+            && !record.excludeFromLearnerFeedback) {
             learner.update(
                 record.context,
                 record.terminalIntensity,

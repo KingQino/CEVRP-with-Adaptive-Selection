@@ -164,6 +164,7 @@ struct AllocatedLocalSearchRecord {
     int parentUseCount{};
     bool forcedLocalOptimum{};
     bool exploratorySelection{};
+    bool excludeFromLearnerFeedback{};
     bool crossedGamma{};
     bool postProbeGammaCross{};
 };
@@ -201,7 +202,8 @@ public:
         LocalSearchAllocationRun& run,
         const std::vector<ParentCandidate>& parentPool,
         const std::vector<int>& parentUseCounts);
-    static void assign_lower_archive_feedback(
+    static std::vector<std::pair<const Individual*, double>>
+    assign_lower_archive_feedback(
         LocalSearchAllocationRun& run,
         const std::vector<std::shared_ptr<Individual>>& completeSolutions,
         OnlineIntensityLearner& learner);

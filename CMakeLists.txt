@@ -13,6 +13,7 @@ set(CORE_SOURCES
         src/initializer.cpp
         src/leader.cpp
         src/local_search_allocation.cpp
+        src/elite_unlimited.cpp
         src/follower.cpp
         src/reproduction.cpp
         src/individual.cpp
@@ -46,6 +47,12 @@ if(BUILD_TESTING)
     add_executable(command_line_test tests/command_line_test.cpp)
     target_link_libraries(command_line_test PRIVATE cevrp_core)
     add_test(NAME command_line_test COMMAND command_line_test)
+
+    add_executable(elite_unlimited_test tests/elite_unlimited_test.cpp)
+    target_link_libraries(elite_unlimited_test PRIVATE cevrp_core)
+    target_compile_definitions(elite_unlimited_test PRIVATE
+            TEST_DATA_DIRECTORY="${CMAKE_SOURCE_DIR}/data")
+    add_test(NAME elite_unlimited_test COMMAND elite_unlimited_test)
 endif()
 
 add_custom_target(valgrind

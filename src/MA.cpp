@@ -67,6 +67,33 @@ void add_allocation_stats(
     destination.selectionScore += source.selectionScore;
 }
 
+std::uint64_t allocation_distance_calls(
+    const LocalSearchAllocationRun& run) {
+    std::uint64_t distanceCalls = 0;
+    for (const auto& record : run.records) {
+        distanceCalls += record.totalResult.distanceCallsUsed;
+    }
+    return distanceCalls;
+}
+
+void add_elite_unlimited_stats(
+    EliteUnlimitedStats& destination,
+    const EliteUnlimitedStats& source) {
+    destination.eligibleCandidates += source.eligibleCandidates;
+    destination.triggers += source.triggers;
+    destination.normalDistanceCalls += source.normalDistanceCalls;
+    destination.distanceCalls += source.distanceCalls;
+    destination.acceptedMoves += source.acceptedMoves;
+    destination.neighborhoodCalls += source.neighborhoodCalls;
+    destination.upperGain += source.upperGain;
+    destination.gammaCrosses += source.gammaCrosses;
+    destination.parentUses += source.parentUses;
+    destination.lowerArchiveEntries += source.lowerArchiveEntries;
+    destination.verifiedImprovements += source.verifiedImprovements;
+    destination.endingCreditDistanceCalls =
+        source.endingCreditDistanceCalls;
+}
+
 }  // namespace
 
 using std::endl;
@@ -264,6 +291,11 @@ void MA::open_log_for_local_search() {
         logLocalSearchAllocation
             << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
     }
+    if (elite_unlimited_enabled()) {
+        logEliteUnlimited.open(
+            directoryPath / "elite-local-search.tsv");
+        logEliteUnlimited << ELITE_UNLIMITED_LOG_HEADER << "\n";
+    }
 }
 
 void MA::flush_local_search_log() {
@@ -276,6 +308,11 @@ void MA::flush_local_search_log() {
         logLocalSearchAllocation << localSearchAllocationRows.str();
         localSearchAllocationRows.str("");
         localSearchAllocationRows.clear();
+    }
+    if (logEliteUnlimited.is_open()) {
+        logEliteUnlimited << eliteUnlimitedRows.str();
+        eliteUnlimitedRows.str("");
+        eliteUnlimitedRows.clear();
     }
 }
 
@@ -343,11 +380,60 @@ void MA::write_local_search_allocation_snapshot() {
     pendingLocalSearchAllocationGenerations = 0;
 }
 
+void MA::accumulate_elite_unlimited_stats(
+    const EliteUnlimitedStats& stats) {
+    add_elite_unlimited_stats(
+        pendingEliteUnlimitedStats,
+        stats);
+    ++pendingEliteUnlimitedGenerations;
+}
+
+void MA::write_elite_unlimited_snapshot() {
+    if (pendingEliteUnlimitedGenerations == 0
+        || !elite_unlimited_enabled()) {
+        return;
+    }
+
+    const double creditEvals = instance->actualProblemSize > 0
+        ? static_cast<double>(
+            pendingEliteUnlimitedStats.endingCreditDistanceCalls)
+            / static_cast<double>(instance->actualProblemSize)
+        : 0.0;
+    eliteUnlimitedRows
+        << setprecision(12)
+        << generation << "\t"
+        << pendingEliteUnlimitedStats.eligibleCandidates << "\t"
+        << pendingEliteUnlimitedStats.triggers << "\t"
+        << instance->distance_calls_to_evals(
+            pendingEliteUnlimitedStats.normalDistanceCalls) << "\t"
+        << instance->distance_calls_to_evals(
+            pendingEliteUnlimitedStats.distanceCalls) << "\t"
+        << pendingEliteUnlimitedStats.acceptedMoves << "\t"
+        << pendingEliteUnlimitedStats.neighborhoodCalls << "\t"
+        << pendingEliteUnlimitedStats.upperGain << "\t"
+        << pendingEliteUnlimitedStats.gammaCrosses << "\t"
+        << pendingEliteUnlimitedStats.parentUses << "\t"
+        << pendingEliteUnlimitedStats.lowerArchiveEntries << "\t"
+        << pendingEliteUnlimitedStats.verifiedImprovements << "\t"
+        << creditEvals << "\n";
+
+    pendingEliteUnlimitedStats = {};
+    pendingEliteUnlimitedGenerations = 0;
+}
+
+bool MA::elite_unlimited_enabled() const {
+    return localSearchPolicy == LocalSearchPolicy::OnlineIndividual
+        && localSearchIntensity
+            == LocalSearchIntensity::BoundedStrong;
+}
+
 void MA::close_log_for_local_search() {
     write_local_search_allocation_snapshot();
+    write_elite_unlimited_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
+    logEliteUnlimited.close();
 }
 
 void MA::save_log_for_solution() {
@@ -368,8 +454,11 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     localSearchAllocator.reset();
+    eliteUnlimitedController.reset();
     pendingLocalSearchAllocationStats = {};
     pendingLocalSearchAllocationGenerations = 0;
+    pendingEliteUnlimitedStats = {};
+    pendingEliteUnlimitedGenerations = 0;
     retainedLowerElite.reset();
     upperBestIndividual.reset();
     population.clear();
@@ -408,6 +497,8 @@ void MA::run_generation() {
 
     shared_ptr<Individual> unchangedLowerElite = retainedLowerElite;
     LocalSearchAllocationRun mixedLocalSearch;
+    EliteUnlimitedRun eliteUnlimitedRun;
+    std::uint64_t normalLocalSearchDistanceCalls = 0;
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
@@ -507,6 +598,21 @@ void MA::run_generation() {
             localSearchAllocator);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
+        if (elite_unlimited_enabled()) {
+            normalLocalSearchDistanceCalls =
+                allocation_distance_calls(mixedLocalSearch);
+            eliteUnlimitedRun = eliteUnlimitedController.run(
+                mixedLocalSearch,
+                *instance,
+                generation,
+                normalLocalSearchDistanceCalls,
+                frozenTriggerUpperBound,
+                localSearchEngine,
+                eliteUnlimitedWorkspace);
+            add_operator_stats(
+                generationOperatorStats,
+                eliteUnlimitedRun.result);
+        }
     }
 
     // Build the quality-diversity parent pool before follower evaluation, so
@@ -540,6 +646,8 @@ void MA::run_generation() {
     }
 
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
+    const double verifiedLowerCostBeforeFollower =
+        verifiedBest->get_lower_cost();
     for (auto& individual : followerCandidates) {
         const bool canReuseLowerElite = individual == unchangedLowerElite
             && individual->get_lower_cost() < INFEASIBLE_COST;
@@ -565,15 +673,47 @@ void MA::run_generation() {
                 instance->get_distance_calls();
         }
     }
+    if (eliteUnlimitedRun.triggered
+        && eliteUnlimitedRun.individual->get_lower_cost()
+            < verifiedLowerCostBeforeFollower - 1e-12) {
+        eliteUnlimitedRun.verifiedImprovements = 1;
+    }
     const bool retainVerifiedFallback =
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
 
     if (localSearchPolicy == LocalSearchPolicy::OnlineNonContextual
         || localSearchPolicy == LocalSearchPolicy::OnlineIndividual) {
+        vector<shared_ptr<Individual>> ordinaryCompleteSolutions;
+        const vector<shared_ptr<Individual>>* ordinaryCompleteSource =
+            &evaluatedCompleteSolutions;
+        if (eliteUnlimitedRun.triggered) {
+            ordinaryCompleteSolutions.reserve(
+                evaluatedCompleteSolutions.size());
+            std::copy_if(
+                evaluatedCompleteSolutions.begin(),
+                evaluatedCompleteSolutions.end(),
+                std::back_inserter(ordinaryCompleteSolutions),
+                [&](const shared_ptr<Individual>& individual) {
+                    return individual != eliteUnlimitedRun.individual;
+                });
+            ordinaryCompleteSource = &ordinaryCompleteSolutions;
+        }
         LocalSearchAllocationRunner::assign_lower_archive_feedback(
             mixedLocalSearch,
-            evaluatedCompleteSolutions,
+            *ordinaryCompleteSource,
             localSearchAllocator);
+        auto eliteLowerArchiveCredits =
+            std::vector<std::pair<const Individual*, double>>{};
+        if (eliteUnlimitedRun.triggered
+            && eliteUnlimitedRun.individual->get_lower_cost()
+                < INFEASIBLE_COST) {
+            eliteLowerArchiveCredits =
+                localSearchAllocator.update_lower_archive(
+                    {eliteUnlimitedRun.individual});
+        }
+        EliteUnlimitedController::assign_lower_archive_feedback(
+            eliteUnlimitedRun,
+            eliteLowerArchiveCredits);
     }
 
     const bool hasLowerElite = lowerElite != nullptr || retainVerifiedFallback;
@@ -599,6 +739,10 @@ void MA::run_generation() {
     if (localSearchPolicy != LocalSearchPolicy::Static) {
         LocalSearchAllocationRunner::assign_parent_use_feedback(
             mixedLocalSearch,
+            parentPool,
+            parentUseCounts);
+        EliteUnlimitedController::assign_parent_use_feedback(
+            eliteUnlimitedRun,
             parentPool,
             parentUseCounts);
         LocalSearchAllocationRunner::finalize_feedback(
@@ -642,6 +786,18 @@ void MA::run_generation() {
             if (pendingLocalSearchAllocationGenerations
                 == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
                 write_local_search_allocation_snapshot();
+            }
+        }
+        if (elite_unlimited_enabled()) {
+            accumulate_elite_unlimited_stats(
+                EliteUnlimitedController::make_stats(
+                    eliteUnlimitedRun,
+                    normalLocalSearchDistanceCalls,
+                    eliteUnlimitedController
+                        .credit_distance_calls()));
+            if (pendingEliteUnlimitedGenerations
+                == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
+                write_elite_unlimited_snapshot();
             }
         }
         flush_local_search_log();
