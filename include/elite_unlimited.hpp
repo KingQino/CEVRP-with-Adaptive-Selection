@@ -45,7 +45,7 @@ struct EliteUnlimitedRun {
 class EliteUnlimitedController {
 public:
     static constexpr int WARMUP_GENERATIONS = 10;
-    static constexpr long double CREDIT_RATIO = 0.10L;
+    static constexpr long double CREDIT_RATIO = 0.05L;
 
     void reset();
 

@@ -76,9 +76,13 @@ int main() {
         assert(!warmupRun.triggered);
         assert(warmupRun.eligibleCandidates == 2);
     }
-    assert(std::fabs(
-        static_cast<double>(controller.credit_distance_calls())
-        - 1.0) <= 1e-12);
+    const long double expectedWarmupCredit =
+        static_cast<long double>(
+            EliteUnlimitedController::WARMUP_GENERATIONS)
+        * EliteUnlimitedController::CREDIT_RATIO;
+    assert(std::fabs(static_cast<double>(
+        controller.credit_distance_calls()
+        - expectedWarmupCredit)) <= 1e-12);
 
     EliteUnlimitedRun eliteRun = controller.run(
         allocationRun,
@@ -96,7 +100,8 @@ int main() {
     assert(allocationRun.records[0].excludeFromLearnerFeedback);
     assert(!allocationRun.records[1].excludeFromLearnerFeedback);
     const long double expectedCredit =
-        1.1L
+        expectedWarmupCredit
+        + EliteUnlimitedController::CREDIT_RATIO
         - static_cast<long double>(
             eliteRun.result.distanceCallsUsed);
     assert(std::fabs(
