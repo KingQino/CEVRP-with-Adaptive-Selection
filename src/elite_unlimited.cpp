@@ -37,12 +37,10 @@ EliteUnlimitedRun EliteUnlimitedController::run(
     Case& instance,
     int generation,
     std::uint64_t normalDistanceCalls,
+    double budgetProgress,
     double triggerUpperBound,
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
-    creditDistanceCalls +=
-        CREDIT_RATIO * static_cast<long double>(normalDistanceCalls);
-
     EliteUnlimitedRun run;
     auto bestCandidate = allocationRun.records.end();
     for (auto record = allocationRun.records.begin();
@@ -62,6 +60,13 @@ EliteUnlimitedRun EliteUnlimitedController::run(
             bestCandidate = record;
         }
     }
+
+    if (budgetProgress >= TRIGGER_PROGRESS_LIMIT) {
+        return run;
+    }
+
+    creditDistanceCalls +=
+        CREDIT_RATIO * static_cast<long double>(normalDistanceCalls);
 
     if (generation <= WARMUP_GENERATIONS
         || creditDistanceCalls <= 0.0L

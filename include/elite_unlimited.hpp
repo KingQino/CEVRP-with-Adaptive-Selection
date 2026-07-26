@@ -46,6 +46,7 @@ class EliteUnlimitedController {
 public:
     static constexpr int WARMUP_GENERATIONS = 10;
     static constexpr long double CREDIT_RATIO = 0.10L;
+    static constexpr double TRIGGER_PROGRESS_LIMIT = 0.25;
 
     void reset();
 
@@ -54,6 +55,7 @@ public:
         Case& instance,
         int generation,
         std::uint64_t normalDistanceCalls,
+        double budgetProgress,
         double triggerUpperBound,
         std::mt19937& randomEngine,
         LocalSearchWorkspace& workspace);

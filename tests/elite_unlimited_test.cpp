@@ -70,6 +70,7 @@ int main() {
             instance,
             generation,
             1,
+            0.10,
             preferred->get_upper_cost() * 0.99,
             localSearchEngine,
             workspace);
@@ -85,6 +86,7 @@ int main() {
         instance,
         EliteUnlimitedController::WARMUP_GENERATIONS + 1,
         1,
+        0.10,
         preferred->get_upper_cost() * 0.99,
         localSearchEngine,
         workspace);
@@ -110,10 +112,27 @@ int main() {
         instance,
         EliteUnlimitedController::WARMUP_GENERATIONS + 2,
         1,
+        0.10,
         preferred->get_upper_cost() * 0.99,
         localSearchEngine,
         workspace);
     assert(!debtRun.triggered);
+
+    EliteUnlimitedController phaseLimitedController;
+    const EliteUnlimitedRun phaseLimitedRun =
+        phaseLimitedController.run(
+            allocationRun,
+            instance,
+            EliteUnlimitedController::WARMUP_GENERATIONS + 1,
+            1000,
+            EliteUnlimitedController::TRIGGER_PROGRESS_LIMIT,
+            preferred->get_upper_cost() * 0.99,
+            localSearchEngine,
+            workspace);
+    assert(!phaseLimitedRun.triggered);
+    assert(phaseLimitedRun.eligibleCandidates == 2);
+    assert(std::fabs(static_cast<double>(
+        phaseLimitedController.credit_distance_calls())) <= 1e-12);
 
     std::vector<ParentCandidate> parentPool = {
         Reproduction::make_parent_candidate(*preferred),

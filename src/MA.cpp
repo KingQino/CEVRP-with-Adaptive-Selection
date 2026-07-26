@@ -601,11 +601,19 @@ void MA::run_generation() {
         if (elite_unlimited_enabled()) {
             normalLocalSearchDistanceCalls =
                 allocation_distance_calls(mixedLocalSearch);
+            const double eliteBudgetProgress =
+                evaluationLimitDistanceCalls > 0
+                ? static_cast<double>(
+                    instance->get_distance_calls())
+                    / static_cast<double>(
+                        evaluationLimitDistanceCalls)
+                : 0.0;
             eliteUnlimitedRun = eliteUnlimitedController.run(
                 mixedLocalSearch,
                 *instance,
                 generation,
                 normalLocalSearchDistanceCalls,
+                eliteBudgetProgress,
                 frozenTriggerUpperBound,
                 localSearchEngine,
                 eliteUnlimitedWorkspace);
