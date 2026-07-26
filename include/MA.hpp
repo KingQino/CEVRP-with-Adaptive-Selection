@@ -19,6 +19,18 @@
 #include "parameters.hpp"
 #include "reproduction.hpp"
 
+struct FinalVerifiedUnlimitedStats {
+    double upperCostBefore{};
+    double upperCostAfter{};
+    double originalLowerCost{};
+    double candidateLowerCost{};
+    std::uint64_t distanceCalls{};
+    int acceptedMoves{};
+    int neighborhoodCalls{};
+    bool reachedLocalOptimum{};
+    bool selectedCandidate{};
+};
+
 class MA : public StatsInterface{
 public:
     static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
@@ -34,6 +46,10 @@ public:
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
+    static constexpr const char* FINAL_LOCAL_SEARCH_LOG_HEADER =
+        "upper_before\tupper_after\tls_evals\taccepted_moves\t"
+        "neighborhood_calls\treached_local_optimum\toriginal_lower\t"
+        "candidate_lower\tselected_candidate";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -52,6 +68,10 @@ public:
     void open_log_for_local_search();
     void flush_local_search_log();
     void close_log_for_local_search();
+    FinalVerifiedUnlimitedStats
+    finalize_verified_best_with_unlimited_search();
+    void save_final_local_search_log(
+        const FinalVerifiedUnlimitedStats& stats);
     void accumulate_local_search_allocation_stats(
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();

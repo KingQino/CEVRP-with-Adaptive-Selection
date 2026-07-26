@@ -170,7 +170,11 @@ void MA::run() {
     if (verifiedBest == nullptr) {
         throw std::runtime_error("search finished without a feasible complete solution");
     }
-    Follower::refine_charging_by_enumeration(*verifiedBest, *instance);
+    const FinalVerifiedUnlimitedStats finalLocalSearch =
+        finalize_verified_best_with_unlimited_search();
+    if (enableLogging) {
+        save_final_local_search_log(finalLocalSearch);
+    }
     if (verifiedBest->get_lower_cost() >= INFEASIBLE_COST) {
         throw std::runtime_error("search finished without a feasible complete solution");
     }
@@ -364,6 +368,79 @@ void MA::save_log_for_solution() {
     }
     logSolution << endl;
     logSolution.close();
+}
+
+FinalVerifiedUnlimitedStats
+MA::finalize_verified_best_with_unlimited_search() {
+    if (verifiedBest == nullptr) {
+        throw std::logic_error(
+            "final unlimited search requires verifiedBest");
+    }
+
+    auto strongCandidate =
+        make_unique<Individual>(*verifiedBest);
+    FinalVerifiedUnlimitedStats stats;
+    stats.upperCostBefore =
+        strongCandidate->get_upper_cost();
+    const LocalSearchResult searchResult =
+        Leader::improve_with_eight_neighborhood_rvnd_one_move(
+            *strongCandidate,
+            *instance,
+            localSearchEngine,
+            LocalSearchIntensity::Strong,
+            localSearchWorkspace);
+    stats.upperCostAfter =
+        strongCandidate->get_upper_cost();
+    stats.distanceCalls =
+        searchResult.distanceCallsUsed;
+    stats.acceptedMoves =
+        searchResult.acceptedMoves;
+    stats.neighborhoodCalls =
+        searchResult.neighborhoodCalls;
+    stats.reachedLocalOptimum =
+        searchResult.reachedLocalOptimum;
+
+    Follower::refine_charging_by_enumeration(
+        *verifiedBest,
+        *instance);
+    Follower::refine_charging_by_enumeration(
+        *strongCandidate,
+        *instance);
+    stats.originalLowerCost =
+        verifiedBest->get_lower_cost();
+    stats.candidateLowerCost =
+        strongCandidate->get_lower_cost();
+    stats.selectedCandidate =
+        stats.candidateLowerCost
+            < stats.originalLowerCost;
+    if (stats.selectedCandidate) {
+        verifiedBest->copy_from(*strongCandidate);
+    }
+    return stats;
+}
+
+void MA::save_final_local_search_log(
+    const FinalVerifiedUnlimitedStats& stats) {
+    const std::filesystem::path directoryPath =
+        std::filesystem::path(statsDirectory)
+        / instance->instanceName
+        / to_string(seed);
+    create_directories_if_not_exists(
+        directoryPath.string());
+    std::ofstream log(
+        directoryPath / "final-local-search.tsv");
+    log << FINAL_LOCAL_SEARCH_LOG_HEADER << "\n"
+        << setprecision(12)
+        << stats.upperCostBefore << "\t"
+        << stats.upperCostAfter << "\t"
+        << instance->distance_calls_to_evals(
+            stats.distanceCalls) << "\t"
+        << stats.acceptedMoves << "\t"
+        << stats.neighborhoodCalls << "\t"
+        << stats.reachedLocalOptimum << "\t"
+        << stats.originalLowerCost << "\t"
+        << stats.candidateLowerCost << "\t"
+        << stats.selectedCandidate << "\n";
 }
 
 void MA::initialize_search() {

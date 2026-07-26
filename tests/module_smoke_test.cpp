@@ -442,6 +442,50 @@ void assert_progressive_eight_neighborhood_session_matches_strong() {
         == directResult.distanceCallsUsed);
 }
 
+void assert_final_verified_unlimited_keeps_better_complete_solution() {
+    const std::string instancePath =
+        std::string(TEST_DATA_DIRECTORY) + "/E-n22-k4.evrp";
+    Case instance(instancePath, 53);
+    std::mt19937 initializationEngine(53);
+    const auto routes = Initializer::build_with_clustering(
+        instance,
+        initializationEngine);
+    Individual initial(
+        instance.vehicleNumber * 3,
+        instance.customerNumber + 2,
+        routes,
+        instance.fitness_evaluation(routes),
+        instance.compute_demand_sum(routes));
+    Individual originalRefined(initial);
+    Follower::refine_charging_by_enumeration(
+        originalRefined,
+        instance);
+
+    Parameters parameters;
+    parameters.seed = 53;
+    MA algorithm(&instance, parameters);
+    algorithm.verifiedBest =
+        std::make_unique<Individual>(initial);
+    const FinalVerifiedUnlimitedStats stats =
+        algorithm.finalize_verified_best_with_unlimited_search();
+
+    assert(stats.reachedLocalOptimum);
+    assert(stats.upperCostAfter
+           <= stats.upperCostBefore + 1e-8);
+    assert(std::fabs(
+        stats.originalLowerCost
+        - originalRefined.get_lower_cost()) <= 1e-8);
+    assert(
+        stats.selectedCandidate
+        == (stats.candidateLowerCost
+            < stats.originalLowerCost));
+    assert(std::fabs(
+        algorithm.verifiedBest->get_lower_cost()
+        - std::min(
+            stats.originalLowerCost,
+            stats.candidateLowerCost)) <= 1e-8);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -479,6 +523,7 @@ int main(int argc, char* argv[]) {
     assert_refinement_handles_boundary_cases();
     assert_swap_star_improves_a_seven_neighborhood_local_optimum();
     assert_progressive_eight_neighborhood_session_matches_strong();
+    assert_final_verified_unlimited_keeps_better_complete_solution();
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
     auto splitRoutes = Initializer::build_with_random_split(instance, randomEngine);
