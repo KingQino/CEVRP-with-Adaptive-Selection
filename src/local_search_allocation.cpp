@@ -506,11 +506,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
     const OnlineIntensityLearner& learner,
-    const std::array<
-        double,
-        LOCAL_SEARCH_OPERATOR_COUNT>* continuationOperatorWeights,
-    std::mt19937* operatorSelectionEngine,
-    double operatorUniformExplorationRate) {
+    const LocalSearchOperatorSelectionTable*
+        continuationOperatorSelectionTable,
+    std::mt19937* operatorSelectionEngine) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
             "static local search does not use the allocation runner");
@@ -690,9 +688,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                                 ? record.boundedStrongDistanceCallLimit
                                 : std::numeric_limits<
                                     std::uint64_t>::max(),
-                            continuationOperatorWeights,
-                            operatorSelectionEngine,
-                            operatorUniformExplorationRate);
+                            continuationOperatorSelectionTable,
+                            operatorSelectionEngine);
                     record.totalResult = combine_results(
                         record.weakResult,
                         record.continuationResult,
@@ -773,9 +770,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             ? record.boundedStrongDistanceCallLimit
                             : std::numeric_limits<
                                 std::uint64_t>::max(),
-                        continuationOperatorWeights,
-                        operatorSelectionEngine,
-                        operatorUniformExplorationRate);
+                        continuationOperatorSelectionTable,
+                        operatorSelectionEngine);
                 record.totalResult = combine_results(
                     record.weakResult,
                     record.continuationResult,
@@ -813,9 +809,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     workspaces[localIndex],
                     triggerUpperBound,
                     std::numeric_limits<std::uint64_t>::max(),
-                    continuationOperatorWeights,
-                    operatorSelectionEngine,
-                    operatorUniformExplorationRate);
+                    continuationOperatorSelectionTable,
+                    operatorSelectionEngine);
             record.totalResult = combine_results(
                 record.weakResult,
                 record.continuationResult,
@@ -866,9 +861,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     boundedStrong
                         ? record.boundedStrongDistanceCallLimit
                         : std::numeric_limits<std::uint64_t>::max(),
-                    continuationOperatorWeights,
-                    operatorSelectionEngine,
-                    operatorUniformExplorationRate);
+                    continuationOperatorSelectionTable,
+                    operatorSelectionEngine);
             record.continuationResult = combine_results(
                 mediumResult,
                 strongResult,

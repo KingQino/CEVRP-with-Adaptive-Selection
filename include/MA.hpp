@@ -23,6 +23,7 @@
 class MA : public StatsInterface{
 public:
     static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
+    static constexpr int OPERATOR_LEARNING_LOG_INTERVAL = 50;
     static constexpr const char* EVOLUTION_LOG_HEADER =
         "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =

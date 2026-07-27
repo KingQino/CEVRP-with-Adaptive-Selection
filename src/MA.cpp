@@ -509,6 +509,20 @@ void MA::run_generation() {
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     OnlineOperatorLearner::GenerationStats
         generationOperatorLearningStats{};
+    LocalSearchOperatorSelectionTable
+        generationOperatorSelectionTable;
+    const LocalSearchOperatorSelectionTable*
+        generationOperatorSelectionTablePointer = nullptr;
+    if (operatorSelectionPolicy
+        == OperatorSelectionPolicy::Online) {
+        generationOperatorSelectionTable =
+            Leader::build_operator_selection_table(
+                operatorLearner.selection_weights(),
+                OnlineOperatorLearner::
+                    UNIFORM_EXPLORATION_RATE);
+        generationOperatorSelectionTablePointer =
+            &generationOperatorSelectionTable;
+    }
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     const ParentCandidate frozenUpperReference =
         Reproduction::make_parent_candidate(*upperBestIndividual);
@@ -603,19 +617,11 @@ void MA::run_generation() {
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
             localSearchAllocator,
-            operatorSelectionPolicy
-                    == OperatorSelectionPolicy::Online
-                ? &operatorLearner.selection_weights()
-                : nullptr,
+            generationOperatorSelectionTablePointer,
             operatorSelectionPolicy
                     == OperatorSelectionPolicy::Online
                 ? &operatorSelectionEngine
-                : nullptr,
-            operatorSelectionPolicy
-                    == OperatorSelectionPolicy::Online
-                ? OnlineOperatorLearner::
-                    UNIFORM_EXPLORATION_RATE
-                : 0.0);
+                : nullptr);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
     }
@@ -765,7 +771,7 @@ void MA::run_generation() {
             accumulate_operator_learning_stats(
                 generationOperatorLearningStats);
             if (pendingOperatorLearningGenerations
-                == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
+                == OPERATOR_LEARNING_LOG_INTERVAL) {
                 write_operator_learning_snapshot();
             }
         }

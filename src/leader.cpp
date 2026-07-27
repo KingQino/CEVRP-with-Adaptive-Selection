@@ -2674,9 +2674,71 @@ void Leader::begin_eight_neighborhood_rvnd_one_move_session(
     session.totalAcceptedMoves = 0;
     session.totalNeighborhoodCalls = 0;
     session.totalDistanceCalls = 0;
+    session.activeOperatorMask =
+        LOCAL_SEARCH_ALL_OPERATOR_MASK;
     session.activeOperators.assign(
         kEightOperators.begin(),
         kEightOperators.end());
+}
+
+LocalSearchOperatorSelectionTable
+Leader::build_operator_selection_table(
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>& operatorSelectionWeights,
+    double operatorUniformExplorationRate) {
+    LocalSearchOperatorSelectionTable table;
+    const double uniformExplorationRate = std::clamp(
+        operatorUniformExplorationRate,
+        0.0,
+        1.0);
+
+    for (std::size_t mask = 1;
+         mask < LOCAL_SEARCH_OPERATOR_MASK_COUNT;
+         ++mask) {
+        auto& entry = table.entries[mask];
+        double learnedWeightTotal = 0.0;
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            if ((mask & (1U << operatorIndex)) == 0) {
+                continue;
+            }
+            ++entry.activeCount;
+            learnedWeightTotal += std::max(
+                0.0,
+                operatorSelectionWeights[operatorIndex]);
+        }
+
+        double cumulativeProbability = 0.0;
+        std::size_t activeIndex = 0;
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            if ((mask & (1U << operatorIndex)) == 0) {
+                continue;
+            }
+            const double uniformProbability =
+                1.0 / static_cast<double>(entry.activeCount);
+            const double learnedProbability =
+                learnedWeightTotal > 0.0
+                ? std::max(
+                    0.0,
+                    operatorSelectionWeights[operatorIndex])
+                    / learnedWeightTotal
+                : uniformProbability;
+            cumulativeProbability +=
+                uniformExplorationRate * uniformProbability
+                + (1.0 - uniformExplorationRate)
+                    * learnedProbability;
+            entry.cumulativeProbabilities[activeIndex] =
+                cumulativeProbability;
+            ++activeIndex;
+        }
+        entry.cumulativeProbabilities[
+            entry.activeCount - 1] = 1.0;
+    }
+    return table;
 }
 
 LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
@@ -2688,24 +2750,18 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     LocalSearchWorkspace& workspace,
     double gammaUpperBound,
     std::uint64_t cumulativeDistanceCallLimit,
-    const std::array<
-        double,
-        LOCAL_SEARCH_OPERATOR_COUNT>* operatorSelectionWeights,
-    std::mt19937* operatorSelectionEngine,
-    double operatorUniformExplorationRate) {
+    const LocalSearchOperatorSelectionTable*
+        operatorSelectionTable,
+    std::mt19937* operatorSelectionEngine) {
     if (!session.initialized) {
         throw std::logic_error(
             "local-search session must be initialized before continuation");
     }
-    if ((operatorSelectionWeights == nullptr)
+    if ((operatorSelectionTable == nullptr)
         != (operatorSelectionEngine == nullptr)) {
         throw std::logic_error(
-            "operator weights and selection engine must be provided together");
+            "operator selection table and engine must be provided together");
     }
-    const double uniformExplorationRate = std::clamp(
-        operatorUniformExplorationRate,
-        0.0,
-        1.0);
 
     const double upperCostBefore = individual.get_upper_cost();
     const std::uint64_t distanceCallsBefore =
@@ -2726,58 +2782,37 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
         }
 
         std::size_t selectedIndex = 0;
-        if (operatorSelectionWeights == nullptr) {
+        if (operatorSelectionTable == nullptr) {
             std::uniform_int_distribution<std::size_t> selectOperator(
                 0,
                 session.activeOperators.size() - 1);
             selectedIndex = selectOperator(randomEngine);
         } else {
-            double learnedWeightTotal = 0.0;
-            for (const LocalSearchOperator localSearchOperator :
-                 session.activeOperators) {
-                learnedWeightTotal += std::max(
-                    0.0,
-                    (*operatorSelectionWeights)[
-                        operator_index(localSearchOperator)]);
+            const auto& selectionEntry =
+                operatorSelectionTable->entries[
+                    session.activeOperatorMask];
+            if (selectionEntry.activeCount
+                != session.activeOperators.size()) {
+                throw std::logic_error(
+                    "operator selection table does not match active operators");
             }
-            if (learnedWeightTotal <= 0.0) {
-                std::uniform_int_distribution<std::size_t>
-                    selectOperator(
-                        0,
-                        session.activeOperators.size() - 1);
-                selectedIndex =
-                    selectOperator(*operatorSelectionEngine);
-            } else {
-                std::uniform_real_distribution<double> selectOperator(
-                    0.0,
-                    1.0);
-                const double selectedWeight =
-                    selectOperator(*operatorSelectionEngine);
-                double cumulativeWeight = 0.0;
-                const double uniformWeight =
-                    uniformExplorationRate
-                    / static_cast<double>(
-                        session.activeOperators.size());
-                for (std::size_t index = 0;
-                     index < session.activeOperators.size();
-                     ++index) {
-                    const double learnedWeight = std::max(
-                        0.0,
-                        (*operatorSelectionWeights)[operator_index(
-                            session.activeOperators[index])])
-                        / learnedWeightTotal;
-                    cumulativeWeight +=
-                        uniformWeight
-                        + (1.0 - uniformExplorationRate)
-                            * learnedWeight;
-                    if (selectedWeight <= cumulativeWeight
-                        || index + 1
-                            == session.activeOperators.size()) {
-                        selectedIndex = index;
-                        break;
-                    }
-                }
-            }
+            std::uniform_real_distribution<double> selectOperator(
+                0.0,
+                1.0);
+            const double selectedProbability =
+                selectOperator(*operatorSelectionEngine);
+            const auto selectedPosition = std::lower_bound(
+                selectionEntry.cumulativeProbabilities.begin(),
+                selectionEntry.cumulativeProbabilities.begin()
+                    + selectionEntry.activeCount,
+                selectedProbability);
+            selectedIndex = static_cast<std::size_t>(
+                std::distance(
+                    selectionEntry.cumulativeProbabilities.begin(),
+                    selectedPosition));
+            selectedIndex = std::min(
+                selectedIndex,
+                selectionEntry.activeCount - 1);
         }
         const LocalSearchOperator selectedOperator =
             session.activeOperators[selectedIndex];
@@ -2824,7 +2859,13 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
             session.activeOperators.assign(
                 kEightOperators.begin(),
                 kEightOperators.end());
+            session.activeOperatorMask =
+                LOCAL_SEARCH_ALL_OPERATOR_MASK;
         } else {
+            session.activeOperatorMask &=
+                static_cast<std::uint16_t>(
+                    ~(1U << operator_index(
+                        selectedOperator)));
             session.activeOperators.erase(
                 session.activeOperators.begin() + selectedIndex);
         }

@@ -39,12 +39,14 @@ public:
     [[nodiscard]] double score(LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double selection_probability(
         LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double effective_observations(
+        LocalSearchOperator localSearchOperator) const;
 
 private:
     struct ArmState {
-        double effectiveCalls{};
-        double creditedReward{};
-        double logCost{};
+        double effectiveObservations{};
+        double rewardRateSum{};
+        double logCostRateSum{};
     };
 
     std::array<ArmState, LOCAL_SEARCH_OPERATOR_COUNT> arms{};

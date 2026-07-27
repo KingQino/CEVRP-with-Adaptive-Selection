@@ -26,6 +26,26 @@ enum class LocalSearchOperator {
 
 constexpr std::size_t LOCAL_SEARCH_OPERATOR_COUNT =
     static_cast<std::size_t>(LocalSearchOperator::Count);
+static_assert(
+    LOCAL_SEARCH_OPERATOR_COUNT <= 16,
+    "local-search operator mask exceeds its storage");
+constexpr std::size_t LOCAL_SEARCH_OPERATOR_MASK_COUNT =
+    1U << LOCAL_SEARCH_OPERATOR_COUNT;
+constexpr std::uint16_t LOCAL_SEARCH_ALL_OPERATOR_MASK =
+    static_cast<std::uint16_t>(
+        LOCAL_SEARCH_OPERATOR_MASK_COUNT - 1U);
+
+struct LocalSearchOperatorSelectionEntry {
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        cumulativeProbabilities{};
+    std::size_t activeCount{};
+};
+
+struct LocalSearchOperatorSelectionTable {
+    std::array<
+        LocalSearchOperatorSelectionEntry,
+        LOCAL_SEARCH_OPERATOR_MASK_COUNT> entries{};
+};
 
 struct LocalSearchOperatorStats {
     int calls{};
@@ -61,6 +81,7 @@ struct LocalSearchSession {
     int totalAcceptedMoves{};
     int totalNeighborhoodCalls{};
     std::uint64_t totalDistanceCalls{};
+    std::uint16_t activeOperatorMask{};
     std::vector<LocalSearchOperator> activeOperators;
 };
 
@@ -160,6 +181,12 @@ public:
         Individual& individual,
         LocalSearchSession& session,
         LocalSearchWorkspace& workspace);
+    static LocalSearchOperatorSelectionTable
+    build_operator_selection_table(
+        const std::array<
+            double,
+            LOCAL_SEARCH_OPERATOR_COUNT>& operatorSelectionWeights,
+        double operatorUniformExplorationRate);
     static LocalSearchResult continue_eight_neighborhood_rvnd_one_move_session(
         Individual& individual,
         Case& instance,
@@ -170,12 +197,9 @@ public:
         double gammaUpperBound,
         std::uint64_t cumulativeDistanceCallLimit =
             std::numeric_limits<std::uint64_t>::max(),
-        const std::array<
-            double,
-            LOCAL_SEARCH_OPERATOR_COUNT>* operatorSelectionWeights =
-                nullptr,
-        std::mt19937* operatorSelectionEngine = nullptr,
-        double operatorUniformExplorationRate = 0.0);
+        const LocalSearchOperatorSelectionTable*
+            operatorSelectionTable = nullptr,
+        std::mt19937* operatorSelectionEngine = nullptr);
     static int move_limit_for_intensity(
         const Individual& individual,
         const Case& instance,

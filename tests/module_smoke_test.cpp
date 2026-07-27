@@ -980,6 +980,83 @@ int main(int argc, char* argv[]) {
             LocalSearchOperator::NodeShift)
         > operatorLearner.selection_probability(
             LocalSearchOperator::InterRouteRelocate));
+    assert(std::fabs(
+        operatorLearner.effective_observations(
+            LocalSearchOperator::NodeShift)
+        - 1.0) <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.effective_observations(
+            LocalSearchOperator::InterRouteRelocate)
+        - 1.0) <= 1e-12);
+
+    LocalSearchAllocationRun scaledRewardRun = rewardRun;
+    for (auto& operatorStats :
+         scaledRewardRun.records.front()
+             .continuationResult.operatorStats) {
+        operatorStats.calls *= 100;
+        operatorStats.accepts *= 100;
+        operatorStats.distanceCalls *= 100;
+    }
+    OnlineOperatorLearner scaledOperatorLearner;
+    scaledOperatorLearner.reset();
+    const auto scaledOperatorLearningStats =
+        scaledOperatorLearner.update(scaledRewardRun);
+    assert(
+        scaledOperatorLearningStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)]
+            .operatorStats.calls == 200);
+    double operatorProbabilitySum = 0.0;
+    for (std::size_t operatorIndex = 0;
+         operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++operatorIndex) {
+        const auto localSearchOperator =
+            static_cast<LocalSearchOperator>(operatorIndex);
+        operatorProbabilitySum +=
+            operatorLearner.selection_probability(
+                localSearchOperator);
+        assert(std::fabs(
+            operatorLearner.selection_probability(
+                localSearchOperator)
+            - scaledOperatorLearner.selection_probability(
+                localSearchOperator)) <= 1e-12);
+    }
+    assert(std::fabs(operatorProbabilitySum - 1.0) <= 1e-12);
+
+    OnlineOperatorLearner::SelectionWeights
+        dominantOperatorWeights{};
+    dominantOperatorWeights[
+        static_cast<std::size_t>(
+            LocalSearchOperator::NodeShift)] = 1.0;
+    const LocalSearchOperatorSelectionTable selectionTable =
+        Leader::build_operator_selection_table(
+            dominantOperatorWeights,
+            OnlineOperatorLearner::UNIFORM_EXPLORATION_RATE);
+    const auto& fullSelectionEntry =
+        selectionTable.entries[
+            LOCAL_SEARCH_ALL_OPERATOR_MASK];
+    assert(
+        fullSelectionEntry.activeCount
+        == LOCAL_SEARCH_OPERATOR_COUNT);
+    assert(std::fabs(
+        fullSelectionEntry.cumulativeProbabilities.front()
+        - 0.95625) <= 1e-12);
+    const std::size_t firstTwoOperatorMask =
+        (1U << static_cast<std::size_t>(
+            LocalSearchOperator::NodeShift))
+        | (1U << static_cast<std::size_t>(
+            LocalSearchOperator::InterRouteRelocate));
+    const auto& twoOperatorSelectionEntry =
+        selectionTable.entries[firstTwoOperatorMask];
+    assert(twoOperatorSelectionEntry.activeCount == 2);
+    assert(std::fabs(
+        twoOperatorSelectionEntry
+            .cumulativeProbabilities[0]
+        - 0.975) <= 1e-12);
+    assert(std::fabs(
+        twoOperatorSelectionEntry
+            .cumulativeProbabilities[1]
+        - 1.0) <= 1e-12);
     assert(
         std::string(operator_selection_policy_name(
             OperatorSelectionPolicy::Online))

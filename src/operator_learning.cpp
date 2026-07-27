@@ -11,8 +11,11 @@ namespace {
 
 constexpr double kDiscountFactor = 0.95;
 constexpr double kExplorationScale = 0.08;
-constexpr double kLogCostPenalty = 0.02;
-constexpr double kSoftmaxTemperature = 0.05;
+constexpr double kNormalizedCostWeight = 1.0;
+constexpr double kSoftmaxTemperature = 1.0;
+constexpr double kRobustScaleFactor = 1.4826;
+constexpr double kMaximumStandardizedSignal = 3.0;
+constexpr double kMinimumScale = 1e-12;
 
 std::size_t operator_index(LocalSearchOperator localSearchOperator) {
     const std::size_t index =
@@ -31,6 +34,60 @@ void add_operator_stats(
     destination.distanceCalls += source.distanceCalls;
     destination.upperGain += source.upperGain;
     destination.gammaCrosses += source.gammaCrosses;
+}
+
+double median(
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT> values) {
+    std::sort(values.begin(), values.end());
+    constexpr std::size_t upperMiddle =
+        LOCAL_SEARCH_OPERATOR_COUNT / 2;
+    return 0.5
+        * (values[upperMiddle - 1] + values[upperMiddle]);
+}
+
+std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+robust_standardize(
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>& values) {
+    const double center = median(values);
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        absoluteDeviations{};
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        absoluteDeviations[index] =
+            std::fabs(values[index] - center);
+    }
+
+    double scale =
+        kRobustScaleFactor * median(absoluteDeviations);
+    if (scale < kMinimumScale) {
+        double squaredDeviationSum = 0.0;
+        for (const double value : values) {
+            const double deviation = value - center;
+            squaredDeviationSum += deviation * deviation;
+        }
+        scale = std::sqrt(
+            squaredDeviationSum
+            / static_cast<double>(
+                LOCAL_SEARCH_OPERATOR_COUNT));
+    }
+
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        standardized{};
+    if (scale < kMinimumScale) {
+        return standardized;
+    }
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        standardized[index] = std::clamp(
+            (values[index] - center) / scale,
+            -kMaximumStandardizedSignal,
+            kMaximumStandardizedSignal);
+    }
+    return standardized;
 }
 
 }  // namespace
@@ -69,9 +126,9 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
         generationStats[index].score = scores[index];
         generationStats[index].selectionProbability =
             selectionProbabilities[index];
-        arms[index].effectiveCalls *= kDiscountFactor;
-        arms[index].creditedReward *= kDiscountFactor;
-        arms[index].logCost *= kDiscountFactor;
+        arms[index].effectiveObservations *= kDiscountFactor;
+        arms[index].rewardRateSum *= kDiscountFactor;
+        arms[index].logCostRateSum *= kDiscountFactor;
     }
 
     for (const auto& record : run.records) {
@@ -117,10 +174,6 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
             const double normalizedCostUnits =
                 static_cast<double>(operatorStats.distanceCalls)
                 / weakDistanceCalls;
-            const double callCount =
-                static_cast<double>(operatorStats.calls);
-            const double costPerCall =
-                normalizedCostUnits / callCount;
 
             add_operator_stats(
                 generationStats[index].operatorStats,
@@ -129,12 +182,26 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 creditedReward;
             generationStats[index].normalizedCostUnits +=
                 normalizedCostUnits;
-
-            arms[index].effectiveCalls += callCount;
-            arms[index].creditedReward += creditedReward;
-            arms[index].logCost +=
-                callCount * std::log1p(costPerCall);
         }
+    }
+
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        const double callCount = static_cast<double>(
+            generationStats[index].operatorStats.calls);
+        if (callCount <= 0.0) {
+            continue;
+        }
+        const double rewardPerCall =
+            generationStats[index].creditedReward / callCount;
+        const double costPerCall =
+            generationStats[index].normalizedCostUnits
+            / callCount;
+        arms[index].effectiveObservations += 1.0;
+        arms[index].rewardRateSum += rewardPerCall;
+        arms[index].logCostRateSum +=
+            std::log1p(costPerCall);
     }
 
     recompute_selection_weights();
@@ -152,30 +219,52 @@ double OnlineOperatorLearner::selection_probability(
         operator_index(localSearchOperator)];
 }
 
+double OnlineOperatorLearner::effective_observations(
+    LocalSearchOperator localSearchOperator) const {
+    return arms[operator_index(localSearchOperator)]
+        .effectiveObservations;
+}
+
 void OnlineOperatorLearner::recompute_selection_weights() {
-    const double totalEffectiveCalls = std::accumulate(
+    const double totalEffectiveObservations = std::accumulate(
         arms.begin(),
         arms.end(),
         0.0,
         [](double total, const ArmState& arm) {
-            return total + arm.effectiveCalls;
+            return total + arm.effectiveObservations;
         });
+
+    SelectionWeights rewardSignals{};
+    SelectionWeights costSignals{};
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        const double effectiveObservations =
+            arms[index].effectiveObservations;
+        if (effectiveObservations > kMinimumScale) {
+            rewardSignals[index] =
+                arms[index].rewardRateSum
+                / effectiveObservations;
+            costSignals[index] =
+                arms[index].logCostRateSum
+                / effectiveObservations;
+        }
+    }
+    const SelectionWeights standardizedReward =
+        robust_standardize(rewardSignals);
+    const SelectionWeights standardizedCost =
+        robust_standardize(costSignals);
 
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
-        const double denominator =
-            std::max(1.0, arms[index].effectiveCalls);
-        const double meanReward =
-            arms[index].creditedReward / denominator;
-        const double meanLogCost =
-            arms[index].logCost / denominator;
         const double uncertainty = std::sqrt(
-            std::log(totalEffectiveCalls + 2.0)
-            / (arms[index].effectiveCalls + 1.0));
+            std::log(totalEffectiveObservations + 2.0)
+            / (arms[index].effectiveObservations + 1.0));
         scores[index] =
-            meanReward
-            - kLogCostPenalty * meanLogCost
+            standardizedReward[index]
+            - kNormalizedCostWeight
+                * standardizedCost[index]
             + kExplorationScale * uncertainty;
     }
 
