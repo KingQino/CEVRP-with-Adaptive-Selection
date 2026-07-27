@@ -36,10 +36,13 @@ public:
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* ELITE_UNLIMITED_LOG_HEADER =
-        "iter\teligible_candidates\ttriggers\tnormal_ls_evals\t"
-        "elite_evals\taccepted_moves\tneighborhood_calls\tupper_gain\t"
-        "gamma_crosses\tparent_uses\tlower_archive_entries\t"
-        "verified_improvements\tbudget_credit_evals";
+        "iter\teligible_candidates\tquality_candidates\ttriggers\t"
+        "avg_selected_quality_rank\tselected_probe_evals\t"
+        "selected_probe_upper_gain\tavg_selected_adjacency_distance\t"
+        "normal_ls_evals\telite_evals\taccepted_moves\t"
+        "neighborhood_calls\tupper_gain\tgamma_crosses\tparent_uses\t"
+        "lower_archive_entries\tverified_improvements\t"
+        "budget_credit_evals";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;

@@ -44,22 +44,73 @@ EliteUnlimitedRun EliteUnlimitedController::run(
         CREDIT_RATIO * static_cast<long double>(normalDistanceCalls);
 
     EliteUnlimitedRun run;
-    auto bestCandidate = allocationRun.records.end();
-    for (auto record = allocationRun.records.begin();
-         record != allocationRun.records.end();
-         ++record) {
+    std::vector<std::size_t> eligibleCandidateIndices;
+    eligibleCandidateIndices.reserve(allocationRun.records.size());
+    for (std::size_t index = 0;
+         index < allocationRun.records.size();
+         ++index) {
+        const auto& record = allocationRun.records[index];
         const bool eligible =
-            record->terminalIntensity
+            record.terminalIntensity
                 == LocalSearchIntensity::BoundedStrong
-            && !record->totalResult.reachedLocalOptimum;
+            && !record.totalResult.reachedLocalOptimum;
         if (!eligible) {
             continue;
         }
-        ++run.eligibleCandidates;
+        eligibleCandidateIndices.push_back(index);
+    }
+    run.eligibleCandidates =
+        static_cast<int>(eligibleCandidateIndices.size());
+
+    std::stable_sort(
+        eligibleCandidateIndices.begin(),
+        eligibleCandidateIndices.end(),
+        [&](std::size_t first, std::size_t second) {
+            return allocationRun.records[first]
+                       .individual->get_upper_cost()
+                < allocationRun.records[second]
+                       .individual->get_upper_cost();
+        });
+
+    const std::size_t qualityCandidateCount =
+        (eligibleCandidateIndices.size() + 1) / 2;
+    run.qualityCandidates =
+        static_cast<int>(qualityCandidateCount);
+
+    auto bestCandidate = allocationRun.records.end();
+    long double bestEfficiency = -1.0L;
+    double bestDistance = -1.0;
+    for (std::size_t rank = 0;
+         rank < qualityCandidateCount;
+         ++rank) {
+        auto candidate = allocationRun.records.begin()
+            + static_cast<std::ptrdiff_t>(
+                eligibleCandidateIndices[rank]);
+        const double probeGain =
+            result_upper_gain(candidate->continuationResult);
+        const std::uint64_t probeDistanceCalls =
+            candidate->continuationResult.distanceCallsUsed;
+        const long double efficiency =
+            probeDistanceCalls > 0
+            ? static_cast<long double>(probeGain)
+                / static_cast<long double>(probeDistanceCalls)
+            : 0.0L;
+        const double adjacencyDistance =
+            candidate->context.adjacencyDistance;
         if (bestCandidate == allocationRun.records.end()
-            || record->individual->get_upper_cost()
-                < bestCandidate->individual->get_upper_cost()) {
-            bestCandidate = record;
+            || efficiency > bestEfficiency
+            || (efficiency == bestEfficiency
+                && adjacencyDistance > bestDistance)) {
+            bestCandidate = candidate;
+            bestEfficiency = efficiency;
+            bestDistance = adjacencyDistance;
+            run.selectedQualityRank =
+                static_cast<int>(rank + 1);
+            run.selectedProbeDistanceCalls =
+                probeDistanceCalls;
+            run.selectedProbeUpperGain = probeGain;
+            run.selectedAdjacencyDistance =
+                adjacencyDistance;
         }
     }
 
@@ -129,12 +180,21 @@ EliteUnlimitedStats EliteUnlimitedController::make_stats(
     long double endingCreditDistanceCalls) {
     EliteUnlimitedStats stats;
     stats.eligibleCandidates = run.eligibleCandidates;
+    stats.qualityCandidates = run.qualityCandidates;
     stats.triggers = run.triggered;
+    stats.selectedQualityRank =
+        run.triggered ? run.selectedQualityRank : 0;
     stats.normalDistanceCalls = normalDistanceCalls;
     stats.distanceCalls = run.result.distanceCallsUsed;
+    stats.selectedProbeDistanceCalls =
+        run.triggered ? run.selectedProbeDistanceCalls : 0;
     stats.acceptedMoves = run.result.acceptedMoves;
     stats.neighborhoodCalls = run.result.neighborhoodCalls;
     stats.upperGain = result_upper_gain(run.result);
+    stats.selectedProbeUpperGain =
+        run.triggered ? run.selectedProbeUpperGain : 0.0;
+    stats.selectedAdjacencyDistance =
+        run.triggered ? run.selectedAdjacencyDistance : 0.0;
     stats.gammaCrosses = result_gamma_crosses(run.result);
     stats.parentUses = run.parentUses;
     stats.lowerArchiveEntries = run.lowerArchiveEntries;

@@ -16,12 +16,17 @@ struct ParentCandidate;
 
 struct EliteUnlimitedStats {
     int eligibleCandidates{};
+    int qualityCandidates{};
     int triggers{};
+    int selectedQualityRank{};
     std::uint64_t normalDistanceCalls{};
     std::uint64_t distanceCalls{};
+    std::uint64_t selectedProbeDistanceCalls{};
     int acceptedMoves{};
     int neighborhoodCalls{};
     double upperGain{};
+    double selectedProbeUpperGain{};
+    double selectedAdjacencyDistance{};
     int gammaCrosses{};
     int parentUses{};
     int lowerArchiveEntries{};
@@ -33,8 +38,13 @@ struct EliteUnlimitedRun {
     std::shared_ptr<Individual> individual;
     LocalSearchResult result;
     int eligibleCandidates{};
+    int qualityCandidates{};
+    int selectedQualityRank{};
+    std::uint64_t selectedProbeDistanceCalls{};
     double upperCostBefore{};
     double upperCostAfter{};
+    double selectedProbeUpperGain{};
+    double selectedAdjacencyDistance{};
     int parentUses{};
     int lowerArchiveEntries{};
     int verifiedImprovements{};

@@ -80,12 +80,20 @@ void add_elite_unlimited_stats(
     EliteUnlimitedStats& destination,
     const EliteUnlimitedStats& source) {
     destination.eligibleCandidates += source.eligibleCandidates;
+    destination.qualityCandidates += source.qualityCandidates;
     destination.triggers += source.triggers;
+    destination.selectedQualityRank += source.selectedQualityRank;
     destination.normalDistanceCalls += source.normalDistanceCalls;
     destination.distanceCalls += source.distanceCalls;
+    destination.selectedProbeDistanceCalls +=
+        source.selectedProbeDistanceCalls;
     destination.acceptedMoves += source.acceptedMoves;
     destination.neighborhoodCalls += source.neighborhoodCalls;
     destination.upperGain += source.upperGain;
+    destination.selectedProbeUpperGain +=
+        source.selectedProbeUpperGain;
+    destination.selectedAdjacencyDistance +=
+        source.selectedAdjacencyDistance;
     destination.gammaCrosses += source.gammaCrosses;
     destination.parentUses += source.parentUses;
     destination.lowerArchiveEntries += source.lowerArchiveEntries;
@@ -399,11 +407,31 @@ void MA::write_elite_unlimited_snapshot() {
             pendingEliteUnlimitedStats.endingCreditDistanceCalls)
             / static_cast<double>(instance->actualProblemSize)
         : 0.0;
+    const double averageSelectedQualityRank =
+        pendingEliteUnlimitedStats.triggers > 0
+        ? static_cast<double>(
+            pendingEliteUnlimitedStats.selectedQualityRank)
+            / static_cast<double>(
+                pendingEliteUnlimitedStats.triggers)
+        : 0.0;
+    const double averageSelectedAdjacencyDistance =
+        pendingEliteUnlimitedStats.triggers > 0
+        ? pendingEliteUnlimitedStats.selectedAdjacencyDistance
+            / static_cast<double>(
+                pendingEliteUnlimitedStats.triggers)
+        : 0.0;
     eliteUnlimitedRows
         << setprecision(12)
         << generation << "\t"
         << pendingEliteUnlimitedStats.eligibleCandidates << "\t"
+        << pendingEliteUnlimitedStats.qualityCandidates << "\t"
         << pendingEliteUnlimitedStats.triggers << "\t"
+        << averageSelectedQualityRank << "\t"
+        << instance->distance_calls_to_evals(
+            pendingEliteUnlimitedStats
+                .selectedProbeDistanceCalls) << "\t"
+        << pendingEliteUnlimitedStats.selectedProbeUpperGain << "\t"
+        << averageSelectedAdjacencyDistance << "\t"
         << instance->distance_calls_to_evals(
             pendingEliteUnlimitedStats.normalDistanceCalls) << "\t"
         << instance->distance_calls_to_evals(
