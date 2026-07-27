@@ -65,6 +65,8 @@ void add_allocation_stats(
     destination.incrementalCostUnits +=
         source.incrementalCostUnits;
     destination.selectionScore += source.selectionScore;
+    destination.productiveNeighborhoodFraction +=
+        source.productiveNeighborhoodFraction;
 }
 
 }  // namespace
@@ -336,6 +338,10 @@ void MA::write_local_search_allocation_snapshot() {
                 : 0.0) << "\t"
             << (stats.selections > 0
                 ? stats.selectionScore / selectionCount
+                : 0.0) << "\t"
+            << (stats.selections > 0
+                ? stats.productiveNeighborhoodFraction
+                    / selectionCount
                 : 0.0) << "\n";
     }
 

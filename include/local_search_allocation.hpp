@@ -36,6 +36,7 @@ struct LocalSearchAllocationContext {
     double probeRelativeGain{};
     double probeEfficiency{};
     double probeCost{};
+    double productiveNeighborhoodFraction{};
 };
 
 struct LinearUcbEstimate {
@@ -45,7 +46,7 @@ struct LinearUcbEstimate {
 
 class LinearUcbModel {
 public:
-    static constexpr std::size_t FEATURE_COUNT = 14;
+    static constexpr std::size_t FEATURE_COUNT = 15;
     using FeatureVector = std::array<double, FEATURE_COUNT>;
 
     LinearUcbModel();
@@ -140,6 +141,7 @@ struct LocalSearchAllocationStats {
     double reward{};
     double incrementalCostUnits{};
     double selectionScore{};
+    double productiveNeighborhoodFraction{};
 };
 
 struct AllocatedLocalSearchRecord {

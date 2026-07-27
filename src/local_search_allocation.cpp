@@ -119,6 +119,16 @@ LocalSearchAllocationContext make_context(
             / static_cast<double>(weakResult.neighborhoodCalls)
         : 0.0;
     context.probeRelativeGain = weakResult.relativeUpperImprovement;
+    const std::size_t productiveNeighborhoods =
+        static_cast<std::size_t>(std::count_if(
+            weakResult.operatorStats.begin(),
+            weakResult.operatorStats.end(),
+            [](const LocalSearchOperatorStats& stats) {
+                return stats.accepts > 0;
+            }));
+    context.productiveNeighborhoodFraction =
+        static_cast<double>(productiveNeighborhoods)
+        / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT);
     if (evaluationLimitDistanceCalls > 0) {
         const double budgetFraction =
             static_cast<double>(weakResult.distanceCallsUsed)
@@ -234,6 +244,10 @@ LinearUcbModel::FeatureVector LinearUcbModel::features(
         bounded_nonnegative(100.0 * context.probeRelativeGain),
         std::clamp(context.probeEfficiency, 0.0, 1.0),
         std::clamp(context.probeCost, 0.0, 1.0),
+        std::clamp(
+            context.productiveNeighborhoodFraction,
+            0.0,
+            1.0),
         qualityGap * adjacencyDistance,
     };
 }
@@ -1027,6 +1041,8 @@ void LocalSearchAllocationRunner::finalize_feedback(
         stats.incrementalCostUnits +=
             record.incrementalCostUnits;
         stats.selectionScore += record.selectionScore;
+        stats.productiveNeighborhoodFraction +=
+            record.context.productiveNeighborhoodFraction;
     }
 }
 

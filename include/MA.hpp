@@ -33,7 +33,8 @@ public:
         "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\tparent_uses\t"
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
-        "avg_incremental_cost_units\tavg_score";
+        "avg_incremental_cost_units\tavg_score\t"
+        "avg_productive_neighborhood_fraction";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;

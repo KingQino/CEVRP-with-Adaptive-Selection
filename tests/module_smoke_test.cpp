@@ -902,6 +902,7 @@ int main(int argc, char* argv[]) {
     rewardRecord.parentCredit = 1.0;
     rewardRecord.lowerCredit = 1.0;
     rewardRecord.postProbeGammaCross = true;
+    rewardRecord.context.productiveNeighborhoodFraction = 0.375;
     rewardRecord.weakResult.distanceCallsUsed = 100;
     rewardRecord.continuationResult.distanceCallsUsed = 300;
     rewardRun.records.push_back(std::move(rewardRecord));
@@ -926,6 +927,9 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(
         mediumRewardStats.continuationGainSignal - 0.05)
         <= 1e-12);
+    assert(std::fabs(
+        mediumRewardStats.productiveNeighborhoodFraction - 0.375)
+        <= 1e-12);
 
     LocalSearchAllocationContext syntheticContext;
     syntheticContext.qualityGap = 0.01;
@@ -935,6 +939,27 @@ int main(int argc, char* argv[]) {
     syntheticContext.probeSuccessRate = 0.5;
     syntheticContext.probeRelativeGain = 0.01;
     syntheticContext.probeEfficiency = 0.5;
+    syntheticContext.productiveNeighborhoodFraction = 0.375;
+    LocalSearchAllocationContext sparseProductiveContext =
+        syntheticContext;
+    sparseProductiveContext.productiveNeighborhoodFraction = 0.125;
+    LocalSearchAllocationContext broadProductiveContext =
+        syntheticContext;
+    broadProductiveContext.productiveNeighborhoodFraction = 0.75;
+    LinearUcbModel productiveContextModel;
+    for (int observation = 0; observation < 20; ++observation) {
+        productiveContextModel.update(
+            sparseProductiveContext,
+            0.0);
+        productiveContextModel.update(
+            broadProductiveContext,
+            1.0);
+    }
+    assert(
+        productiveContextModel.estimate(
+            broadProductiveContext).prediction
+        > productiveContextModel.estimate(
+            sparseProductiveContext).prediction);
     for (int observation = 0; observation < 20; ++observation) {
         archiveAllocator.update(
             syntheticContext,
@@ -1244,7 +1269,7 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 24);
         assert(columns[1] == "random");
         const double rewardComponentSum =
             std::stod(columns[16])
@@ -1258,6 +1283,7 @@ int main(int argc, char* argv[]) {
         if (columns[2] == "weak") {
             assert(std::fabs(std::stod(columns[21])) <= 1e-12);
         }
+        assert(std::fabs(std::stod(columns[23])) <= 1e-12);
         const int terminationCount =
             std::stoi(columns[6])
             + std::stoi(columns[7])
@@ -1323,8 +1349,9 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 24);
         assert(columns[1] == "matched_random");
+        assert(std::fabs(std::stod(columns[23])) <= 1e-12);
         const int terminationCount =
             std::stoi(columns[6])
             + std::stoi(columns[7])
@@ -1367,6 +1394,24 @@ int main(int argc, char* argv[]) {
         onlineAllocationRows.begin(),
         onlineAllocationRows.end(),
         '\n') == 3);
+    std::istringstream onlineRows(onlineAllocationRows);
+    bool observedProductiveNeighborhood = false;
+    while (std::getline(onlineRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 24);
+        const double productiveFraction = std::stod(columns[23]);
+        assert(productiveFraction >= 0.0);
+        assert(productiveFraction <= 1.0);
+        observedProductiveNeighborhood =
+            observedProductiveNeighborhood
+            || productiveFraction > 0.0;
+    }
+    assert(observedProductiveNeighborhood);
     const int onlineObservationCount =
         onlineAllocationAlgorithm.localSearchAllocator
             .observation_count(LocalSearchIntensity::Weak)
