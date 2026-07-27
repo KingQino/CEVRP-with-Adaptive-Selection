@@ -5,6 +5,7 @@
 
 #include "leader.hpp"
 #include "local_search_allocation.hpp"
+#include "operator_learning.hpp"
 
 struct Parameters {
     std::string dataPath;
@@ -21,6 +22,8 @@ struct Parameters {
     int tournamentSize = 2;
     LocalSearchIntensity localSearchIntensity = LocalSearchIntensity::Strong;
     LocalSearchPolicy localSearchPolicy = LocalSearchPolicy::Static;
+    OperatorSelectionPolicy operatorSelectionPolicy =
+        OperatorSelectionPolicy::Uniform;
     double parentPoolRatio = 0.10;
     double qualityRatio = 0.50;
     double verifiedUpperRatio = 0.05;

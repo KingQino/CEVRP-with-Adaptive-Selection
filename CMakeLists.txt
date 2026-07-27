@@ -13,6 +13,7 @@ set(CORE_SOURCES
         src/initializer.cpp
         src/leader.cpp
         src/local_search_allocation.cpp
+        src/operator_learning.cpp
         src/follower.cpp
         src/reproduction.cpp
         src/individual.cpp

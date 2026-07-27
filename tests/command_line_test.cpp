@@ -43,6 +43,7 @@ int main() {
         "-tournament_size", "3",
         "-ls", "medium",
         "-ls_policy", "static",
+        "-op_policy", "uniform",
         "-parent_pool_ratio", "0.15",
         "-quality_ratio", "0.4",
         "-verified_upper_ratio", "0.10",
@@ -63,6 +64,9 @@ int main() {
     assert(namedParameters.tournamentSize == 3);
     assert(namedParameters.localSearchIntensity == LocalSearchIntensity::Medium);
     assert(namedParameters.localSearchPolicy == LocalSearchPolicy::Static);
+    assert(
+        namedParameters.operatorSelectionPolicy
+        == OperatorSelectionPolicy::Uniform);
     assert(std::fabs(namedParameters.parentPoolRatio - 0.15) <= 1e-12);
     assert(std::fabs(namedParameters.qualityRatio - 0.4) <= 1e-12);
     assert(std::fabs(namedParameters.verifiedUpperRatio - 0.10) <= 1e-12);
@@ -121,6 +125,22 @@ int main() {
         boundedOnlineParameters.localSearchIntensity
         == LocalSearchIntensity::BoundedStrong);
 
+    std::vector<std::string> operatorOnlineArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "online",
+        "-op_policy", "online",
+    };
+    CommandLine operatorOnlineCommandLine = make_command_line(
+        operatorOnlineArguments);
+    Parameters operatorOnlineParameters;
+    operatorOnlineCommandLine.parse_parameters(
+        operatorOnlineParameters);
+    operatorOnlineParameters.validate();
+    assert(
+        operatorOnlineParameters.operatorSelectionPolicy
+        == OperatorSelectionPolicy::Online);
+
     std::vector<std::string> matchedRandomArguments = {
         "build/command_line_test",
         "-ls", "bounded_strong",
@@ -159,6 +179,13 @@ int main() {
     assert(validation_fails(
         invalidMixedIntensity,
         "allocated ls_policy requires"));
+
+    Parameters invalidOperatorPolicy;
+    invalidOperatorPolicy.operatorSelectionPolicy =
+        OperatorSelectionPolicy::Online;
+    assert(validation_fails(
+        invalidOperatorPolicy,
+        "online op_policy requires"));
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;

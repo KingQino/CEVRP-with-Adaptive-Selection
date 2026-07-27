@@ -81,6 +81,19 @@ LocalSearchPolicy parse_local_search_policy(const std::string& value) {
         "non_contextual, online");
 }
 
+OperatorSelectionPolicy parse_operator_selection_policy(
+    const std::string& value) {
+    const std::string normalized = lowercase(value);
+    if (normalized == "uniform") {
+        return OperatorSelectionPolicy::Uniform;
+    }
+    if (normalized == "online") {
+        return OperatorSelectionPolicy::Online;
+    }
+    throw std::invalid_argument(
+        "op_policy must be one of: uniform, online");
+}
+
 }  // namespace
 
 CommandLine::CommandLine(int argc, char* argv[]) {
@@ -137,6 +150,7 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "tournament_size",
         "ls",
         "ls_policy",
+        "op_policy",
         "parent_pool_ratio",
         "quality_ratio",
         "verified_upper_ratio",
@@ -167,6 +181,9 @@ void CommandLine::parse_parameters(Parameters& params) const {
         get_string("ls", "strong"));
     params.localSearchPolicy = parse_local_search_policy(
         get_string("ls_policy", "static"));
+    params.operatorSelectionPolicy =
+        parse_operator_selection_policy(
+            get_string("op_policy", "uniform"));
     params.parentPoolRatio = get_double(
         "parent_pool_ratio",
         params.parentPoolRatio);
@@ -201,6 +218,8 @@ void CommandLine::display_help() {
         << "  -ls_policy <static|random|matched_random|non_contextual|online>\n"
         << "                                  Local-search allocation policy\n"
         << "                                  (default: static)\n"
+        << "  -op_policy <uniform|online>     Continuation operator policy\n"
+        << "                                  (default: uniform)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"

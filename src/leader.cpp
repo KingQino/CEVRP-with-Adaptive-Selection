@@ -2687,11 +2687,25 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     int cumulativeMoveLimit,
     LocalSearchWorkspace& workspace,
     double gammaUpperBound,
-    std::uint64_t cumulativeDistanceCallLimit) {
+    std::uint64_t cumulativeDistanceCallLimit,
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>* operatorSelectionWeights,
+    std::mt19937* operatorSelectionEngine,
+    double operatorUniformExplorationRate) {
     if (!session.initialized) {
         throw std::logic_error(
             "local-search session must be initialized before continuation");
     }
+    if ((operatorSelectionWeights == nullptr)
+        != (operatorSelectionEngine == nullptr)) {
+        throw std::logic_error(
+            "operator weights and selection engine must be provided together");
+    }
+    const double uniformExplorationRate = std::clamp(
+        operatorUniformExplorationRate,
+        0.0,
+        1.0);
 
     const double upperCostBefore = individual.get_upper_cost();
     const std::uint64_t distanceCallsBefore =
@@ -2711,10 +2725,60 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
             break;
         }
 
-        std::uniform_int_distribution<std::size_t> selectOperator(
-            0,
-            session.activeOperators.size() - 1);
-        const std::size_t selectedIndex = selectOperator(randomEngine);
+        std::size_t selectedIndex = 0;
+        if (operatorSelectionWeights == nullptr) {
+            std::uniform_int_distribution<std::size_t> selectOperator(
+                0,
+                session.activeOperators.size() - 1);
+            selectedIndex = selectOperator(randomEngine);
+        } else {
+            double learnedWeightTotal = 0.0;
+            for (const LocalSearchOperator localSearchOperator :
+                 session.activeOperators) {
+                learnedWeightTotal += std::max(
+                    0.0,
+                    (*operatorSelectionWeights)[
+                        operator_index(localSearchOperator)]);
+            }
+            if (learnedWeightTotal <= 0.0) {
+                std::uniform_int_distribution<std::size_t>
+                    selectOperator(
+                        0,
+                        session.activeOperators.size() - 1);
+                selectedIndex =
+                    selectOperator(*operatorSelectionEngine);
+            } else {
+                std::uniform_real_distribution<double> selectOperator(
+                    0.0,
+                    1.0);
+                const double selectedWeight =
+                    selectOperator(*operatorSelectionEngine);
+                double cumulativeWeight = 0.0;
+                const double uniformWeight =
+                    uniformExplorationRate
+                    / static_cast<double>(
+                        session.activeOperators.size());
+                for (std::size_t index = 0;
+                     index < session.activeOperators.size();
+                     ++index) {
+                    const double learnedWeight = std::max(
+                        0.0,
+                        (*operatorSelectionWeights)[operator_index(
+                            session.activeOperators[index])])
+                        / learnedWeightTotal;
+                    cumulativeWeight +=
+                        uniformWeight
+                        + (1.0 - uniformExplorationRate)
+                            * learnedWeight;
+                    if (selectedWeight <= cumulativeWeight
+                        || index + 1
+                            == session.activeOperators.size()) {
+                        selectedIndex = index;
+                        break;
+                    }
+                }
+            }
+        }
         const LocalSearchOperator selectedOperator =
             session.activeOperators[selectedIndex];
         const Neighborhood selectedNeighborhood =

@@ -169,7 +169,13 @@ public:
         LocalSearchWorkspace& workspace,
         double gammaUpperBound,
         std::uint64_t cumulativeDistanceCallLimit =
-            std::numeric_limits<std::uint64_t>::max());
+            std::numeric_limits<std::uint64_t>::max(),
+        const std::array<
+            double,
+            LOCAL_SEARCH_OPERATOR_COUNT>* operatorSelectionWeights =
+                nullptr,
+        std::mt19937* operatorSelectionEngine = nullptr,
+        double operatorUniformExplorationRate = 0.0);
     static int move_limit_for_intensity(
         const Individual& individual,
         const Case& instance,

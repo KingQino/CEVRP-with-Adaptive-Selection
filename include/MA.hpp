@@ -16,6 +16,7 @@
 #include "initializer.hpp"
 #include "leader.hpp"
 #include "local_search_allocation.hpp"
+#include "operator_learning.hpp"
 #include "parameters.hpp"
 #include "reproduction.hpp"
 
@@ -34,6 +35,10 @@ public:
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
+    static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
+        "iter\toperator\tcalls\taccepts\tevals\tupper_gain\t"
+        "gamma_crosses\tcredited_reward\tavg_cost_units\t"
+        "avg_score\tavg_selection_probability";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -55,19 +60,28 @@ public:
     void accumulate_local_search_allocation_stats(
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();
+    void accumulate_operator_learning_stats(
+        const OnlineOperatorLearner::GenerationStats& stats);
+    void write_operator_learning_snapshot();
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
+    std::ostringstream operatorLearningRows;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
+    std::ofstream logOperatorLearning;
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};
+    OnlineOperatorLearner::GenerationStats
+        pendingOperatorLearningStats{};
+    int pendingOperatorLearningGenerations{};
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;
     std::mt19937 localSearchAllocationEngine;
+    std::mt19937 operatorSelectionEngine;
     std::uniform_real_distribution<double> uniformRealDis;
     std::vector<std::shared_ptr<Individual>> population;
     std::vector<std::shared_ptr<Individual>> populationBuffer;
@@ -80,6 +94,7 @@ public:
     LocalSearchWorkspace localSearchWorkspace;
     std::vector<LocalSearchWorkspace> mixedLocalSearchWorkspaces;
     OnlineIntensityLearner localSearchAllocator;
+    OnlineOperatorLearner operatorLearner;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;
@@ -90,6 +105,7 @@ public:
     int tournamentSize;
     LocalSearchIntensity localSearchIntensity;
     LocalSearchPolicy localSearchPolicy;
+    OperatorSelectionPolicy operatorSelectionPolicy;
     double parentPoolRatio;
     double qualityRatio;
     double verifiedUpperRatio;

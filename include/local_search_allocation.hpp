@@ -158,6 +158,9 @@ struct AllocatedLocalSearchRecord {
     double selectionScore{};
     double parentCredit{};
     double lowerCredit{};
+    double parentReward{};
+    double lowerReward{};
+    double gammaReward{};
     double normalizedContinuationGain{};
     double reward{};
     double incrementalCostUnits{};
@@ -195,7 +198,13 @@ public:
         std::mt19937& localSearchEngine,
         std::mt19937& allocationEngine,
         std::vector<LocalSearchWorkspace>& workspaces,
-        const OnlineIntensityLearner& learner);
+        const OnlineIntensityLearner& learner,
+        const std::array<
+            double,
+            LOCAL_SEARCH_OPERATOR_COUNT>* continuationOperatorWeights =
+                nullptr,
+        std::mt19937* operatorSelectionEngine = nullptr,
+        double operatorUniformExplorationRate = 0.0);
 
     static void assign_parent_use_feedback(
         LocalSearchAllocationRun& run,

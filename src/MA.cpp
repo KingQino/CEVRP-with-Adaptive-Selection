@@ -67,6 +67,27 @@ void add_allocation_stats(
     destination.selectionScore += source.selectionScore;
 }
 
+void add_operator_learning_stats(
+    OperatorLearningStats& destination,
+    const OperatorLearningStats& source) {
+    destination.operatorStats.calls +=
+        source.operatorStats.calls;
+    destination.operatorStats.accepts +=
+        source.operatorStats.accepts;
+    destination.operatorStats.distanceCalls +=
+        source.operatorStats.distanceCalls;
+    destination.operatorStats.upperGain +=
+        source.operatorStats.upperGain;
+    destination.operatorStats.gammaCrosses +=
+        source.operatorStats.gammaCrosses;
+    destination.creditedReward += source.creditedReward;
+    destination.normalizedCostUnits +=
+        source.normalizedCostUnits;
+    destination.score += source.score;
+    destination.selectionProbability +=
+        source.selectionProbability;
+}
+
 }  // namespace
 
 using std::endl;
@@ -92,6 +113,11 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->localSearchEngine.seed(localSearchSeed);
     std::seed_seq allocationSeed{parameters.seed, 0x4C53, 0x414C4C4F};
     this->localSearchAllocationEngine.seed(allocationSeed);
+    std::seed_seq operatorSelectionSeed{
+        parameters.seed,
+        0x4C53,
+        0x4F504552};
+    this->operatorSelectionEngine.seed(operatorSelectionSeed);
     this->seed = parameters.seed;
     this->isMaxEvals = parameters.stopCriteria;
     this->enableLogging = parameters.enableLogging;
@@ -107,6 +133,8 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->tournamentSize = parameters.tournamentSize;
     this->localSearchIntensity = parameters.localSearchIntensity;
     this->localSearchPolicy = parameters.localSearchPolicy;
+    this->operatorSelectionPolicy =
+        parameters.operatorSelectionPolicy;
     this->parentPoolRatio = parameters.parentPoolRatio;
     this->qualityRatio = parameters.qualityRatio;
     this->verifiedUpperRatio = parameters.verifiedUpperRatio;
@@ -264,6 +292,13 @@ void MA::open_log_for_local_search() {
         logLocalSearchAllocation
             << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
     }
+    if (operatorSelectionPolicy
+        == OperatorSelectionPolicy::Online) {
+        logOperatorLearning.open(
+            directoryPath / "operator-learning.tsv");
+        logOperatorLearning
+            << OPERATOR_LEARNING_LOG_HEADER << "\n";
+    }
 }
 
 void MA::flush_local_search_log() {
@@ -276,6 +311,11 @@ void MA::flush_local_search_log() {
         logLocalSearchAllocation << localSearchAllocationRows.str();
         localSearchAllocationRows.str("");
         localSearchAllocationRows.clear();
+    }
+    if (logOperatorLearning.is_open()) {
+        logOperatorLearning << operatorLearningRows.str();
+        operatorLearningRows.str("");
+        operatorLearningRows.clear();
     }
 }
 
@@ -343,11 +383,64 @@ void MA::write_local_search_allocation_snapshot() {
     pendingLocalSearchAllocationGenerations = 0;
 }
 
+void MA::accumulate_operator_learning_stats(
+    const OnlineOperatorLearner::GenerationStats& stats) {
+    for (std::size_t index = 0; index < stats.size(); ++index) {
+        add_operator_learning_stats(
+            pendingOperatorLearningStats[index],
+            stats[index]);
+    }
+    ++pendingOperatorLearningGenerations;
+}
+
+void MA::write_operator_learning_snapshot() {
+    if (pendingOperatorLearningGenerations == 0
+        || operatorSelectionPolicy
+            != OperatorSelectionPolicy::Online) {
+        return;
+    }
+
+    const double generationCount = static_cast<double>(
+        pendingOperatorLearningGenerations);
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        const auto localSearchOperator =
+            static_cast<LocalSearchOperator>(index);
+        const auto& stats =
+            pendingOperatorLearningStats[index];
+        const double callCount = static_cast<double>(
+            stats.operatorStats.calls);
+        operatorLearningRows
+            << setprecision(12)
+            << generation << "\t"
+            << Leader::operator_name(localSearchOperator) << "\t"
+            << stats.operatorStats.calls << "\t"
+            << stats.operatorStats.accepts << "\t"
+            << instance->distance_calls_to_evals(
+                stats.operatorStats.distanceCalls) << "\t"
+            << stats.operatorStats.upperGain << "\t"
+            << stats.operatorStats.gammaCrosses << "\t"
+            << stats.creditedReward << "\t"
+            << (stats.operatorStats.calls > 0
+                ? stats.normalizedCostUnits / callCount
+                : 0.0) << "\t"
+            << stats.score / generationCount << "\t"
+            << stats.selectionProbability / generationCount
+            << "\n";
+    }
+
+    pendingOperatorLearningStats = {};
+    pendingOperatorLearningGenerations = 0;
+}
+
 void MA::close_log_for_local_search() {
     write_local_search_allocation_snapshot();
+    write_operator_learning_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
+    logOperatorLearning.close();
 }
 
 void MA::save_log_for_solution() {
@@ -368,8 +461,11 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     localSearchAllocator.reset();
+    operatorLearner.reset();
     pendingLocalSearchAllocationStats = {};
     pendingLocalSearchAllocationGenerations = 0;
+    pendingOperatorLearningStats = {};
+    pendingOperatorLearningGenerations = 0;
     retainedLowerElite.reset();
     upperBestIndividual.reset();
     population.clear();
@@ -411,6 +507,8 @@ void MA::run_generation() {
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
+    OnlineOperatorLearner::GenerationStats
+        generationOperatorLearningStats{};
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     const ParentCandidate frozenUpperReference =
         Reproduction::make_parent_candidate(*upperBestIndividual);
@@ -504,7 +602,20 @@ void MA::run_generation() {
             localSearchEngine,
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
-            localSearchAllocator);
+            localSearchAllocator,
+            operatorSelectionPolicy
+                    == OperatorSelectionPolicy::Online
+                ? &operatorLearner.selection_weights()
+                : nullptr,
+            operatorSelectionPolicy
+                    == OperatorSelectionPolicy::Online
+                ? &operatorSelectionEngine
+                : nullptr,
+            operatorSelectionPolicy
+                    == OperatorSelectionPolicy::Online
+                ? OnlineOperatorLearner::
+                    UNIFORM_EXPLORATION_RATE
+                : 0.0);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
     }
@@ -605,6 +716,11 @@ void MA::run_generation() {
             mixedLocalSearch,
             localSearchPolicy,
             localSearchAllocator);
+        if (operatorSelectionPolicy
+            == OperatorSelectionPolicy::Online) {
+            generationOperatorLearningStats =
+                operatorLearner.update(mixedLocalSearch);
+        }
         const int gammaEntries = static_cast<int>(std::count_if(
             mixedLocalSearch.records.begin(),
             mixedLocalSearch.records.end(),
@@ -642,6 +758,15 @@ void MA::run_generation() {
             if (pendingLocalSearchAllocationGenerations
                 == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
                 write_local_search_allocation_snapshot();
+            }
+        }
+        if (operatorSelectionPolicy
+            == OperatorSelectionPolicy::Online) {
+            accumulate_operator_learning_stats(
+                generationOperatorLearningStats);
+            if (pendingOperatorLearningGenerations
+                == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
+                write_operator_learning_snapshot();
             }
         }
         flush_local_search_log();

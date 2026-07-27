@@ -505,7 +505,12 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     std::mt19937& localSearchEngine,
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
-    const OnlineIntensityLearner& learner) {
+    const OnlineIntensityLearner& learner,
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>* continuationOperatorWeights,
+    std::mt19937* operatorSelectionEngine,
+    double operatorUniformExplorationRate) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
             "static local search does not use the allocation runner");
@@ -684,7 +689,10 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             boundedStrong
                                 ? record.boundedStrongDistanceCallLimit
                                 : std::numeric_limits<
-                                    std::uint64_t>::max());
+                                    std::uint64_t>::max(),
+                            continuationOperatorWeights,
+                            operatorSelectionEngine,
+                            operatorUniformExplorationRate);
                     record.totalResult = combine_results(
                         record.weakResult,
                         record.continuationResult,
@@ -764,7 +772,10 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                         useBoundedStrong
                             ? record.boundedStrongDistanceCallLimit
                             : std::numeric_limits<
-                                std::uint64_t>::max());
+                                std::uint64_t>::max(),
+                        continuationOperatorWeights,
+                        operatorSelectionEngine,
+                        operatorUniformExplorationRate);
                 record.totalResult = combine_results(
                     record.weakResult,
                     record.continuationResult,
@@ -800,7 +811,11 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     record.session,
                     mediumLimit,
                     workspaces[localIndex],
-                    triggerUpperBound);
+                    triggerUpperBound,
+                    std::numeric_limits<std::uint64_t>::max(),
+                    continuationOperatorWeights,
+                    operatorSelectionEngine,
+                    operatorUniformExplorationRate);
             record.totalResult = combine_results(
                 record.weakResult,
                 record.continuationResult,
@@ -850,7 +865,10 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     triggerUpperBound,
                     boundedStrong
                         ? record.boundedStrongDistanceCallLimit
-                        : std::numeric_limits<std::uint64_t>::max());
+                        : std::numeric_limits<std::uint64_t>::max(),
+                    continuationOperatorWeights,
+                    operatorSelectionEngine,
+                    operatorUniformExplorationRate);
             record.continuationResult = combine_results(
                 mediumResult,
                 strongResult,
@@ -959,13 +977,13 @@ void LocalSearchAllocationRunner::finalize_feedback(
             bounded_nonnegative(
                 kContinuationGainScale
                     * continuationRelativeGain);
-        const double parentReward =
+        record.parentReward =
             kParentRewardWeight
             * std::clamp(record.parentCredit, 0.0, 1.0);
-        const double lowerReward =
+        record.lowerReward =
             kLowerRewardWeight
             * std::clamp(record.lowerCredit, 0.0, 1.0);
-        const double gammaReward =
+        record.gammaReward =
             record.postProbeGammaCross
             ? kGammaRewardWeight
             : 0.0;
@@ -973,9 +991,9 @@ void LocalSearchAllocationRunner::finalize_feedback(
             kContinuationGainSignalWeight
             * record.normalizedContinuationGain;
         record.reward =
-            parentReward
-            + lowerReward
-            + gammaReward;
+            record.parentReward
+            + record.lowerReward
+            + record.gammaReward;
 
         const std::uint64_t weakDistanceCalls =
             std::max<std::uint64_t>(
@@ -1018,9 +1036,9 @@ void LocalSearchAllocationRunner::finalize_feedback(
         stats.parentUses += record.parentUseCount;
         stats.lowerArchiveEntries +=
             record.lowerCredit > 0.0;
-        stats.parentReward += parentReward;
-        stats.lowerReward += lowerReward;
-        stats.gammaReward += gammaReward;
+        stats.parentReward += record.parentReward;
+        stats.lowerReward += record.lowerReward;
+        stats.gammaReward += record.gammaReward;
         stats.continuationGainSignal +=
             continuationGainSignal;
         stats.reward += record.reward;

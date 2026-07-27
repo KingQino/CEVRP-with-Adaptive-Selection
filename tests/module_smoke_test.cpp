@@ -904,6 +904,23 @@ int main(int argc, char* argv[]) {
     rewardRecord.postProbeGammaCross = true;
     rewardRecord.weakResult.distanceCallsUsed = 100;
     rewardRecord.continuationResult.distanceCallsUsed = 300;
+    auto& firstOperatorReward =
+        rewardRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    firstOperatorReward.calls = 2;
+    firstOperatorReward.accepts = 1;
+    firstOperatorReward.distanceCalls = 50;
+    firstOperatorReward.upperGain = 0.75;
+    firstOperatorReward.gammaCrosses = 1;
+    auto& secondOperatorReward =
+        rewardRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)];
+    secondOperatorReward.calls = 1;
+    secondOperatorReward.accepts = 1;
+    secondOperatorReward.distanceCalls = 250;
+    secondOperatorReward.upperGain = 0.25;
     rewardRun.records.push_back(std::move(rewardRecord));
     OnlineIntensityLearner unusedRewardLearner;
     LocalSearchAllocationRunner::finalize_feedback(
@@ -912,6 +929,9 @@ int main(int argc, char* argv[]) {
         unusedRewardLearner);
     const auto& finalizedReward = rewardRun.records.front();
     assert(std::fabs(finalizedReward.reward - 0.90) <= 1e-12);
+    assert(std::fabs(finalizedReward.parentReward - 0.20) <= 1e-12);
+    assert(std::fabs(finalizedReward.lowerReward - 0.45) <= 1e-12);
+    assert(std::fabs(finalizedReward.gammaReward - 0.25) <= 1e-12);
     assert(std::fabs(
         finalizedReward.incrementalCostUnits - 3.0) <= 1e-12);
     const auto& mediumRewardStats = rewardRun.stats[
@@ -926,6 +946,44 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(
         mediumRewardStats.continuationGainSignal - 0.05)
         <= 1e-12);
+
+    OnlineOperatorLearner operatorLearner;
+    operatorLearner.reset();
+    const double initialOperatorProbability =
+        1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT);
+    assert(std::fabs(
+        operatorLearner.selection_probability(
+            LocalSearchOperator::NodeShift)
+        - initialOperatorProbability) <= 1e-12);
+    const auto operatorLearningStats =
+        operatorLearner.update(rewardRun);
+    const auto& firstLearnedOperator = operatorLearningStats[
+        static_cast<std::size_t>(
+            LocalSearchOperator::NodeShift)];
+    const auto& secondLearnedOperator = operatorLearningStats[
+        static_cast<std::size_t>(
+            LocalSearchOperator::InterRouteRelocate)];
+    assert(firstLearnedOperator.operatorStats.calls == 2);
+    assert(secondLearnedOperator.operatorStats.calls == 1);
+    assert(std::fabs(
+        firstLearnedOperator.creditedReward - 0.7375)
+        <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.creditedReward - 0.1625)
+        <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.creditedReward
+        + secondLearnedOperator.creditedReward
+        - finalizedReward.reward) <= 1e-12);
+    assert(
+        operatorLearner.selection_probability(
+            LocalSearchOperator::NodeShift)
+        > operatorLearner.selection_probability(
+            LocalSearchOperator::InterRouteRelocate));
+    assert(
+        std::string(operator_selection_policy_name(
+            OperatorSelectionPolicy::Online))
+        == "online");
 
     LocalSearchAllocationContext syntheticContext;
     syntheticContext.qualityGap = 0.01;
