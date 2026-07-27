@@ -231,6 +231,12 @@ void initialize_active_route_pair_pool(
     const int pairCount = directed
         ? routeCount * (routeCount - 1)
         : routeCount * (routeCount - 1) / 2;
+    workspace.currentOperatorWorkUnits +=
+        static_cast<std::uint64_t>(
+            workspace.routePairCacheStride)
+            * workspace.routePairCacheStride
+        + static_cast<std::uint64_t>(pairCount)
+        + static_cast<std::uint64_t>(routeCount);
     routePairPool.pairs.reserve(static_cast<std::size_t>(pairCount));
 
     for (int firstRoute = 0; firstRoute < routeCount; ++firstRoute) {
@@ -264,7 +270,11 @@ void initialize_active_route_pair_pool(
 void reactivate_incident_route_pairs(
     LocalSearchWorkspace::ActiveRoutePairPool& routePairPool,
     int changedRoute,
-    const LocalSearchWorkspace& workspace) {
+    LocalSearchWorkspace& workspace) {
+    workspace.currentOperatorWorkUnits +=
+        static_cast<std::uint64_t>(
+            std::max(0, routePairPool.routeCount - 1))
+        * (routePairPool.directed ? 2U : 1U);
     for (int otherRoute = 0;
          otherRoute < routePairPool.routeCount;
          ++otherRoute) {
@@ -309,6 +319,8 @@ LocalSearchWorkspace::ActiveRoutePairPool& synchronize_active_route_pairs(
             directed,
             workspace);
     } else {
+        workspace.currentOperatorWorkUnits +=
+            static_cast<std::uint64_t>(routeCount);
         for (int routeIndex = 0; routeIndex < routeCount; ++routeIndex) {
             const std::size_t versionIndex =
                 static_cast<std::size_t>(routeIndex);
@@ -1210,6 +1222,8 @@ const std::vector<int>& shuffled_route_order(
     int routeCount,
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
+    workspace.currentOperatorWorkUnits +=
+        static_cast<std::uint64_t>(routeCount);
     auto& routeOrder = workspace.routeOrder;
     routeOrder.resize(routeCount);
     std::iota(routeOrder.begin(), routeOrder.end(), 0);
@@ -1247,6 +1261,7 @@ bool improve_with_node_shift_one_move(
 
         for (int fromIndex = 1; fromIndex < length - 1; ++fromIndex) {
             for (int toIndex = 1; toIndex < length - 1; ++toIndex) {
+                ++workspace.currentOperatorWorkUnits;
                 double improvement = 0.0;
                 if (fromIndex < toIndex) {
                     const double oldCost =
@@ -1273,6 +1288,9 @@ bool improve_with_node_shift_one_move(
                 if (improvement <= kImprovementTolerance) {
                     continue;
                 }
+                workspace.currentOperatorWorkUnits +=
+                    static_cast<std::uint64_t>(
+                        std::abs(toIndex - fromIndex));
                 move_node(route, fromIndex, toIndex);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 record_changed_route(routeIndex, workspace);
@@ -1313,6 +1331,7 @@ bool improve_with_inter_route_relocate_one_move(
         const int sourceLength = individual.node_num[sourceRoute];
         const int targetLength = individual.node_num[targetRoute];
         for (int sourceNode = 1; sourceNode < sourceLength - 1; ++sourceNode) {
+            ++workspace.currentOperatorWorkUnits;
             const int customer = individual.routes[sourceRoute][sourceNode];
             const int customerDemand = instance.get_customer_demand(customer);
             if (individual.demand_sum[targetRoute] + customerDemand > instance.maxC) {
@@ -1330,6 +1349,7 @@ bool improve_with_inter_route_relocate_one_move(
                     individual.routes[sourceRoute][sourceNode - 1],
                     individual.routes[sourceRoute][sourceNode + 1]);
             for (int targetEdge = 0; targetEdge < targetLength - 1; ++targetEdge) {
+                ++workspace.currentOperatorWorkUnits;
                 const int targetFrom = individual.routes[targetRoute][targetEdge];
                 const int targetTo = individual.routes[targetRoute][targetEdge + 1];
                 const double improvement = sourceImprovement
@@ -1340,6 +1360,9 @@ bool improve_with_inter_route_relocate_one_move(
                     continue;
                 }
 
+                workspace.currentOperatorWorkUnits +=
+                    static_cast<std::uint64_t>(
+                        sourceLength + targetLength);
                 relocate_customer(
                     individual,
                     sourceRoute,
@@ -1401,6 +1424,7 @@ bool improve_with_intra_route_swap_one_move(
             for (int secondNode = firstNode + 2;
                  secondNode < length - 1;
                  ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 const double oldCost =
                     instance.get_distance(route[firstNode - 1], route[firstNode])
                     + instance.get_distance(route[firstNode], route[firstNode + 1])
@@ -1461,6 +1485,7 @@ bool improve_with_inter_route_swap_one_move(
             for (int secondNode = 1;
                  secondNode < individual.node_num[secondRoute] - 1;
                  ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 const int secondCustomer = individual.routes[secondRoute][secondNode];
                 const int secondDemand = instance.get_customer_demand(secondCustomer);
                 if (individual.demand_sum[firstRoute] - firstDemand + secondDemand > instance.maxC
@@ -1708,6 +1733,17 @@ bool improve_with_swap_star_one_move(
             routePairPool.pairs[pairIndex];
         const int firstLength = individual.node_num[firstRoute];
         const int secondLength = individual.node_num[secondRoute];
+        const std::uint64_t firstCustomerCount =
+            static_cast<std::uint64_t>(firstLength - 2);
+        const std::uint64_t secondCustomerCount =
+            static_cast<std::uint64_t>(secondLength - 2);
+        workspace.currentOperatorWorkUnits +=
+            firstCustomerCount
+                * static_cast<std::uint64_t>(secondLength - 1)
+            + secondCustomerCount
+                * static_cast<std::uint64_t>(firstLength - 1)
+            + firstCustomerCount
+            + secondCustomerCount;
         cache_top_three_insertions(
             individual.routes[firstRoute],
             firstLength,
@@ -1749,6 +1785,7 @@ bool improve_with_swap_star_one_move(
             for (int secondNode = 1;
                  secondNode < secondLength - 1;
                  ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 const int secondCustomer =
                     individual.routes[secondRoute][secondNode];
                 const int secondDemand =
@@ -1823,6 +1860,9 @@ bool improve_with_swap_star_one_move(
             secondCustomer,
             bestFirstInsertion,
             workspace.firstRouteBuffer);
+        workspace.currentOperatorWorkUnits +=
+            static_cast<std::uint64_t>(
+                firstLength + secondLength);
         build_route_after_swap_star(
             individual.routes[secondRoute],
             secondLength,
@@ -1875,6 +1915,7 @@ bool improve_with_two_opt_one_move(
             for (int secondNode = firstNode + 1;
                  secondNode < length - 1;
                  ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 const double oldCost =
                     instance.get_distance(route[firstNode - 1], route[firstNode])
                     + instance.get_distance(route[secondNode], route[secondNode + 1]);
@@ -1886,6 +1927,9 @@ bool improve_with_two_opt_one_move(
                     continue;
                 }
 
+                workspace.currentOperatorWorkUnits +=
+                    static_cast<std::uint64_t>(
+                        secondNode - firstNode + 1);
                 std::reverse(route + firstNode, route + secondNode + 1);
                 individual.set_upper_cost(individual.get_upper_cost() - improvement);
                 record_changed_route(routeIndex, workspace);
@@ -2000,6 +2044,7 @@ bool improve_with_two_opt_star_head_to_head_one_move(
                 individual.routes[firstRoute][firstNode]);
             int secondPrefixDemand = 0;
             for (int secondNode = 0; secondNode < secondLength - 1; ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 secondPrefixDemand += instance.get_customer_demand(
                     individual.routes[secondRoute][secondNode]);
                 const bool leavesRoutesUnchanged =
@@ -2037,6 +2082,9 @@ bool improve_with_two_opt_star_head_to_head_one_move(
                     continue;
                 }
 
+                workspace.currentOperatorWorkUnits +=
+                    static_cast<std::uint64_t>(
+                        firstLength + secondLength);
                 build_two_opt_star_head_to_head_routes(
                     individual.routes[firstRoute],
                     firstLength,
@@ -2111,6 +2159,7 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
                 individual.routes[firstRoute][firstNode]);
             int secondPrefixDemand = 0;
             for (int secondNode = 0; secondNode < secondLength - 1; ++secondNode) {
+                ++workspace.currentOperatorWorkUnits;
                 secondPrefixDemand += instance.get_customer_demand(
                     individual.routes[secondRoute][secondNode]);
                 const bool leavesRoutesUnchanged =
@@ -2149,6 +2198,9 @@ bool improve_with_two_opt_star_head_to_tail_one_move(
                     continue;
                 }
 
+                workspace.currentOperatorWorkUnits +=
+                    static_cast<std::uint64_t>(
+                        firstLength + secondLength);
                 build_two_opt_star_head_to_tail_routes(
                     individual.routes[firstRoute],
                     firstLength,
@@ -2360,6 +2412,7 @@ LocalSearchResult improve_with_rvnd_one_move(
         ++result.neighborhoodCalls;
         ++operatorStats.calls;
         reset_move_impact(workspace);
+        workspace.currentOperatorWorkUnits = 1;
         const bool improved = improve_with_neighborhood_one_move(
             activeNeighborhoods[selectedIndex],
             individual,
@@ -2369,6 +2422,8 @@ LocalSearchResult improve_with_rvnd_one_move(
         operatorStats.distanceCalls +=
             instance.get_distance_calls()
             - operatorDistanceCallsBefore;
+        operatorStats.workUnits +=
+            workspace.currentOperatorWorkUnits;
 
         if (improved) {
             invalidate_failure_cache_after_move(
@@ -2831,6 +2886,7 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
         ++session.totalNeighborhoodCalls;
         ++operatorStats.calls;
         reset_move_impact(workspace);
+        workspace.currentOperatorWorkUnits = 1;
         const bool improved = improve_with_neighborhood_one_move(
             selectedNeighborhood,
             individual,
@@ -2841,6 +2897,8 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
             instance.get_distance_calls()
             - operatorDistanceCallsBefore;
         operatorStats.distanceCalls += operatorDistanceCalls;
+        operatorStats.workUnits +=
+            workspace.currentOperatorWorkUnits;
         session.totalDistanceCalls += operatorDistanceCalls;
 
         if (improved) {

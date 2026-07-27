@@ -51,6 +51,7 @@ struct LocalSearchOperatorStats {
     int calls{};
     int accepts{};
     std::uint64_t distanceCalls{};
+    std::uint64_t workUnits{};
     double upperGain{};
     int gammaCrosses{};
 };
@@ -122,6 +123,7 @@ struct LocalSearchWorkspace {
     std::array<int, 2> changedRoutes{-1, -1};
     int changedRouteCount{};
     bool allRoutesChanged{};
+    std::uint64_t currentOperatorWorkUnits{};
 };
 
 class Leader {

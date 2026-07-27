@@ -19,6 +19,8 @@ const char* operator_selection_policy_name(
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
     double creditedReward{};
+    double normalizedDistanceCostUnits{};
+    double normalizedWorkCostUnits{};
     double normalizedCostUnits{};
     double score{};
     double selectionProbability{};

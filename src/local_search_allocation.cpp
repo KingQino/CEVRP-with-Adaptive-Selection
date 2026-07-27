@@ -54,6 +54,7 @@ void add_operator_stats(
         destinationStats.calls += sourceStats.calls;
         destinationStats.accepts += sourceStats.accepts;
         destinationStats.distanceCalls += sourceStats.distanceCalls;
+        destinationStats.workUnits += sourceStats.workUnits;
         destinationStats.upperGain += sourceStats.upperGain;
         destinationStats.gammaCrosses += sourceStats.gammaCrosses;
     }

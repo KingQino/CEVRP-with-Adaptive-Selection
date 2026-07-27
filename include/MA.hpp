@@ -22,14 +22,17 @@
 
 class MA : public StatsInterface{
 public:
-    static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
+    static constexpr int EVOLUTION_LOG_INTERVAL = 10;
+    static constexpr int LOCAL_SEARCH_OPERATOR_LOG_INTERVAL = 50;
+    static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 50;
     static constexpr int OPERATOR_LEARNING_LOG_INTERVAL = 50;
     static constexpr const char* EVOLUTION_LOG_HEADER =
         "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
-        "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses";
+        "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
+        "work_units\tupper_gain\tgamma_crosses";
     static constexpr const char* LOCAL_SEARCH_ALLOCATION_LOG_HEADER =
-        "iter\tpolicy\taction\tselections\tforced_local_optima\t"
+        "iter\tgenerations\tpolicy\taction\tselections\tforced_local_optima\t"
         "exploratory_selections\treached_local_optimum\t"
         "hit_move_limit\thit_distance_limit\taccepted_moves\t"
         "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\tparent_uses\t"
@@ -37,9 +40,10 @@ public:
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
-        "iter\toperator\tcalls\taccepts\tevals\tupper_gain\t"
-        "gamma_crosses\tcredited_reward\tavg_cost_units\t"
-        "avg_score\tavg_selection_probability";
+        "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
+        "work_units\tupper_gain\tgamma_crosses\tcredited_reward\t"
+        "avg_distance_cost_units\tavg_work_cost_units\t"
+        "avg_cost_units\tavg_score\tavg_selection_probability";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -58,6 +62,11 @@ public:
     void open_log_for_local_search();
     void flush_local_search_log();
     void close_log_for_local_search();
+    void accumulate_local_search_operator_stats(
+        const std::array<
+            LocalSearchOperatorStats,
+            LOCAL_SEARCH_OPERATOR_COUNT>& stats);
+    void write_local_search_operator_snapshot();
     void accumulate_local_search_allocation_stats(
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();
@@ -72,6 +81,11 @@ public:
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
     std::ofstream logOperatorLearning;
+    std::array<
+        LocalSearchOperatorStats,
+        LOCAL_SEARCH_OPERATOR_COUNT>
+        pendingLocalSearchOperatorStats{};
+    int pendingLocalSearchOperatorGenerations{};
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};

@@ -32,6 +32,7 @@ void add_operator_stats(
         destination.calls += source.calls;
         destination.accepts += source.accepts;
         destination.distanceCalls += source.distanceCalls;
+        destination.workUnits += source.workUnits;
         destination.upperGain += source.upperGain;
         destination.gammaCrosses += source.gammaCrosses;
     }
@@ -76,11 +77,17 @@ void add_operator_learning_stats(
         source.operatorStats.accepts;
     destination.operatorStats.distanceCalls +=
         source.operatorStats.distanceCalls;
+    destination.operatorStats.workUnits +=
+        source.operatorStats.workUnits;
     destination.operatorStats.upperGain +=
         source.operatorStats.upperGain;
     destination.operatorStats.gammaCrosses +=
         source.operatorStats.gammaCrosses;
     destination.creditedReward += source.creditedReward;
+    destination.normalizedDistanceCostUnits +=
+        source.normalizedDistanceCostUnits;
+    destination.normalizedWorkCostUnits +=
+        source.normalizedWorkCostUnits;
     destination.normalizedCostUnits +=
         source.normalizedCostUnits;
     destination.score += source.score;
@@ -174,7 +181,14 @@ void MA::run() {
         run_generation();
         duration = std::chrono::high_resolution_clock::now() - start;
         if (enableLogging) {
-            flush_row_into_evol_log();
+            const bool stopping =
+                isMaxEvals == 1
+                ? reached_evaluation_limit()
+                : reached_time_limit(duration);
+            if (generation % EVOLUTION_LOG_INTERVAL == 0
+                || stopping) {
+                flush_row_into_evol_log();
+            }
         }
     }
 
@@ -319,6 +333,53 @@ void MA::flush_local_search_log() {
     }
 }
 
+void MA::accumulate_local_search_operator_stats(
+    const std::array<
+        LocalSearchOperatorStats,
+        LOCAL_SEARCH_OPERATOR_COUNT>& stats) {
+    for (std::size_t index = 0; index < stats.size(); ++index) {
+        auto& destination = pendingLocalSearchOperatorStats[index];
+        const auto& source = stats[index];
+        destination.calls += source.calls;
+        destination.accepts += source.accepts;
+        destination.distanceCalls += source.distanceCalls;
+        destination.workUnits += source.workUnits;
+        destination.upperGain += source.upperGain;
+        destination.gammaCrosses += source.gammaCrosses;
+    }
+    ++pendingLocalSearchOperatorGenerations;
+}
+
+void MA::write_local_search_operator_snapshot() {
+    if (pendingLocalSearchOperatorGenerations == 0) {
+        return;
+    }
+
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        const auto localSearchOperator =
+            static_cast<LocalSearchOperator>(index);
+        const auto& stats =
+            pendingLocalSearchOperatorStats[index];
+        localSearchOperatorRows
+            << setprecision(12)
+            << generation << "\t"
+            << pendingLocalSearchOperatorGenerations << "\t"
+            << Leader::operator_name(localSearchOperator) << "\t"
+            << stats.calls << "\t"
+            << stats.accepts << "\t"
+            << instance->distance_calls_to_evals(
+                stats.distanceCalls) << "\t"
+            << stats.workUnits << "\t"
+            << stats.upperGain << "\t"
+            << stats.gammaCrosses << "\n";
+    }
+
+    pendingLocalSearchOperatorStats = {};
+    pendingLocalSearchOperatorGenerations = 0;
+}
+
 void MA::accumulate_local_search_allocation_stats(
     const std::array<LocalSearchAllocationStats, 3>& stats) {
     for (std::size_t index = 0; index < stats.size(); ++index) {
@@ -349,6 +410,7 @@ void MA::write_local_search_allocation_snapshot() {
         localSearchAllocationRows
             << setprecision(12)
             << generation << "\t"
+            << pendingLocalSearchAllocationGenerations << "\t"
             << local_search_policy_name(localSearchPolicy) << "\t"
             << LocalSearchAllocationRunner::intensity_name(
                 intensity) << "\t"
@@ -414,14 +476,22 @@ void MA::write_operator_learning_snapshot() {
         operatorLearningRows
             << setprecision(12)
             << generation << "\t"
+            << pendingOperatorLearningGenerations << "\t"
             << Leader::operator_name(localSearchOperator) << "\t"
             << stats.operatorStats.calls << "\t"
             << stats.operatorStats.accepts << "\t"
             << instance->distance_calls_to_evals(
                 stats.operatorStats.distanceCalls) << "\t"
+            << stats.operatorStats.workUnits << "\t"
             << stats.operatorStats.upperGain << "\t"
             << stats.operatorStats.gammaCrosses << "\t"
             << stats.creditedReward << "\t"
+            << (stats.operatorStats.calls > 0
+                ? stats.normalizedDistanceCostUnits / callCount
+                : 0.0) << "\t"
+            << (stats.operatorStats.calls > 0
+                ? stats.normalizedWorkCostUnits / callCount
+                : 0.0) << "\t"
             << (stats.operatorStats.calls > 0
                 ? stats.normalizedCostUnits / callCount
                 : 0.0) << "\t"
@@ -435,6 +505,7 @@ void MA::write_operator_learning_snapshot() {
 }
 
 void MA::close_log_for_local_search() {
+    write_local_search_operator_snapshot();
     write_local_search_allocation_snapshot();
     write_operator_learning_snapshot();
     flush_local_search_log();
@@ -462,6 +533,8 @@ void MA::save_log_for_solution() {
 void MA::initialize_search() {
     localSearchAllocator.reset();
     operatorLearner.reset();
+    pendingLocalSearchOperatorStats = {};
+    pendingLocalSearchOperatorGenerations = 0;
     pendingLocalSearchAllocationStats = {};
     pendingLocalSearchAllocationGenerations = 0;
     pendingOperatorLearningStats = {};
@@ -740,23 +813,11 @@ void MA::run_generation() {
     }
 
     if (enableLogging) {
-        for (std::size_t operatorIndex = 0;
-             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
-             ++operatorIndex) {
-            const auto localSearchOperator =
-                static_cast<LocalSearchOperator>(operatorIndex);
-            const auto& operatorStats =
-                generationOperatorStats[operatorIndex];
-            localSearchOperatorRows
-                << setprecision(12)
-                << generation << "\t"
-                << Leader::operator_name(localSearchOperator) << "\t"
-                << operatorStats.calls << "\t"
-                << operatorStats.accepts << "\t"
-                << instance->distance_calls_to_evals(
-                    operatorStats.distanceCalls) << "\t"
-                << operatorStats.upperGain << "\t"
-                << operatorStats.gammaCrosses << "\n";
+        accumulate_local_search_operator_stats(
+            generationOperatorStats);
+        if (pendingLocalSearchOperatorGenerations
+            == LOCAL_SEARCH_OPERATOR_LOG_INTERVAL) {
+            write_local_search_operator_snapshot();
         }
         if (localSearchPolicy != LocalSearchPolicy::Static) {
             accumulate_local_search_allocation_stats(
@@ -775,7 +836,9 @@ void MA::run_generation() {
                 write_operator_learning_snapshot();
             }
         }
-        flush_local_search_log();
+        if (generation % LOCAL_SEARCH_OPERATOR_LOG_INTERVAL == 0) {
+            flush_local_search_log();
+        }
     }
 
     // All information needed from the old population is now materialized.

@@ -12,6 +12,8 @@ namespace {
 constexpr double kDiscountFactor = 0.95;
 constexpr double kExplorationScale = 0.08;
 constexpr double kNormalizedCostWeight = 1.0;
+constexpr double kDistanceCostShare = 0.5;
+constexpr double kWorkCostShare = 0.5;
 constexpr double kSoftmaxTemperature = 1.0;
 constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
@@ -32,6 +34,7 @@ void add_operator_stats(
     destination.calls += source.calls;
     destination.accepts += source.accepts;
     destination.distanceCalls += source.distanceCalls;
+    destination.workUnits += source.workUnits;
     destination.upperGain += source.upperGain;
     destination.gammaCrosses += source.gammaCrosses;
 }
@@ -146,6 +149,13 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
             std::max<std::uint64_t>(
                 1,
                 record.weakResult.distanceCallsUsed));
+        std::uint64_t weakWorkUnits = 0;
+        for (const auto& operatorStats :
+             record.weakResult.operatorStats) {
+            weakWorkUnits += operatorStats.workUnits;
+        }
+        const double weakWorkCost = static_cast<double>(
+            std::max<std::uint64_t>(1, weakWorkUnits));
 
         for (std::size_t index = 0;
              index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -171,15 +181,29 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 : 0.0;
             const double creditedReward =
                 gainCredit + gammaCredit;
-            const double normalizedCostUnits =
+            const double normalizedDistanceCostUnits =
                 static_cast<double>(operatorStats.distanceCalls)
                 / weakDistanceCalls;
+            const double normalizedWorkCostUnits =
+                static_cast<double>(operatorStats.workUnits)
+                / weakWorkCost;
+            // Separate weak-probe normalization keeps either raw counter from
+            // dominating solely because it has a larger numerical scale.
+            const double normalizedCostUnits =
+                kDistanceCostShare
+                    * normalizedDistanceCostUnits
+                + kWorkCostShare
+                    * normalizedWorkCostUnits;
 
             add_operator_stats(
                 generationStats[index].operatorStats,
                 operatorStats);
             generationStats[index].creditedReward +=
                 creditedReward;
+            generationStats[index].normalizedDistanceCostUnits +=
+                normalizedDistanceCostUnits;
+            generationStats[index].normalizedWorkCostUnits +=
+                normalizedWorkCostUnits;
             generationStats[index].normalizedCostUnits +=
                 normalizedCostUnits;
         }

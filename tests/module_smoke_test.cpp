@@ -274,6 +274,7 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
     int operatorAccepts = 0;
     int operatorGammaCrosses = 0;
     std::uint64_t operatorDistanceCalls = 0;
+    std::uint64_t operatorWorkUnits = 0;
     double operatorUpperGain = 0.0;
     for (const auto& operatorStats : firstEightResult.operatorStats) {
         assert(operatorStats.calls >= operatorStats.accepts);
@@ -282,12 +283,14 @@ void assert_swap_star_improves_a_seven_neighborhood_local_optimum() {
         operatorCalls += operatorStats.calls;
         operatorAccepts += operatorStats.accepts;
         operatorDistanceCalls += operatorStats.distanceCalls;
+        operatorWorkUnits += operatorStats.workUnits;
         operatorUpperGain += operatorStats.upperGain;
         operatorGammaCrosses += operatorStats.gammaCrosses;
     }
     assert(operatorCalls == firstEightResult.neighborhoodCalls);
     assert(operatorAccepts == firstEightResult.acceptedMoves);
     assert(operatorDistanceCalls == firstEightResult.distanceCallsUsed);
+    assert(operatorWorkUnits > 0);
     assert(std::fabs(
         operatorUpperGain
         - (sevenNeighborhoodCost
@@ -903,6 +906,9 @@ int main(int argc, char* argv[]) {
     rewardRecord.lowerCredit = 1.0;
     rewardRecord.postProbeGammaCross = true;
     rewardRecord.weakResult.distanceCallsUsed = 100;
+    rewardRecord.weakResult.operatorStats[
+        static_cast<std::size_t>(
+            LocalSearchOperator::NodeShift)].workUnits = 100;
     rewardRecord.continuationResult.distanceCallsUsed = 300;
     auto& firstOperatorReward =
         rewardRecord.continuationResult.operatorStats[
@@ -911,6 +917,7 @@ int main(int argc, char* argv[]) {
     firstOperatorReward.calls = 2;
     firstOperatorReward.accepts = 1;
     firstOperatorReward.distanceCalls = 50;
+    firstOperatorReward.workUnits = 100;
     firstOperatorReward.upperGain = 0.75;
     firstOperatorReward.gammaCrosses = 1;
     auto& secondOperatorReward =
@@ -920,6 +927,7 @@ int main(int argc, char* argv[]) {
     secondOperatorReward.calls = 1;
     secondOperatorReward.accepts = 1;
     secondOperatorReward.distanceCalls = 250;
+    secondOperatorReward.workUnits = 500;
     secondOperatorReward.upperGain = 0.25;
     rewardRun.records.push_back(std::move(rewardRecord));
     OnlineIntensityLearner unusedRewardLearner;
@@ -975,6 +983,15 @@ int main(int argc, char* argv[]) {
         firstLearnedOperator.creditedReward
         + secondLearnedOperator.creditedReward
         - finalizedReward.reward) <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.normalizedDistanceCostUnits - 0.5)
+        <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.normalizedWorkCostUnits - 1.0)
+        <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.normalizedCostUnits - 0.75)
+        <= 1e-12);
     assert(
         operatorLearner.selection_probability(
             LocalSearchOperator::NodeShift)
@@ -996,6 +1013,7 @@ int main(int argc, char* argv[]) {
         operatorStats.calls *= 100;
         operatorStats.accepts *= 100;
         operatorStats.distanceCalls *= 100;
+        operatorStats.workUnits *= 100;
     }
     OnlineOperatorLearner scaledOperatorLearner;
     scaledOperatorLearner.reset();
@@ -1022,6 +1040,48 @@ int main(int argc, char* argv[]) {
                 localSearchOperator)) <= 1e-12);
     }
     assert(std::fabs(operatorProbabilitySum - 1.0) <= 1e-12);
+
+    LocalSearchAllocationRun workCostRun;
+    AllocatedLocalSearchRecord workCostRecord;
+    workCostRecord.parentReward = 1.0;
+    workCostRecord.weakResult.distanceCallsUsed = 100;
+    workCostRecord.weakResult.operatorStats[
+        static_cast<std::size_t>(
+            LocalSearchOperator::NodeShift)].workUnits = 100;
+    auto& lowWorkOperator =
+        workCostRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    lowWorkOperator.calls = 1;
+    lowWorkOperator.distanceCalls = 100;
+    lowWorkOperator.workUnits = 10;
+    lowWorkOperator.upperGain = 1.0;
+    auto& highWorkOperator =
+        workCostRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)];
+    highWorkOperator.calls = 1;
+    highWorkOperator.distanceCalls = 100;
+    highWorkOperator.workUnits = 1000;
+    highWorkOperator.upperGain = 1.0;
+    workCostRun.records.push_back(std::move(workCostRecord));
+    OnlineOperatorLearner workCostLearner;
+    workCostLearner.reset();
+    const auto workCostStats = workCostLearner.update(workCostRun);
+    assert(std::fabs(
+        workCostStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)]
+            .creditedReward
+        - workCostStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)]
+            .creditedReward) <= 1e-12);
+    assert(
+        workCostLearner.selection_probability(
+            LocalSearchOperator::NodeShift)
+        > workCostLearner.selection_probability(
+            LocalSearchOperator::InterRouteRelocate));
 
     OnlineOperatorLearner::SelectionWeights
         dominantOperatorWeights{};
@@ -1159,7 +1219,9 @@ int main(int argc, char* argv[]) {
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
     std::string localSearchRow;
     assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
-           == "iter\toperator\tcalls\taccepts\tevals\tupper_gain\tgamma_crosses");
+           == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
+              "work_units\tupper_gain\tgamma_crosses");
+    algorithm.write_local_search_operator_snapshot();
     const std::string operatorRows = algorithm.localSearchOperatorRows.str();
     std::istringstream operatorStream(operatorRows);
     std::string operatorRow;
@@ -1169,22 +1231,25 @@ int main(int argc, char* argv[]) {
     int aggregateOperatorAccepts = 0;
     int aggregateOperatorGammaCrosses = 0;
     double aggregateOperatorEvals = 0.0;
+    std::uint64_t aggregateOperatorWorkUnits = 0;
     while (std::getline(operatorStream, operatorRow)) {
-        assert(std::count(operatorRow.begin(), operatorRow.end(), '\t') == 6);
+        assert(std::count(operatorRow.begin(), operatorRow.end(), '\t') == 8);
         std::istringstream rowStream(operatorRow);
         std::vector<std::string> columns;
         std::string column;
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 7);
+        assert(columns.size() == 9);
         assert(std::stoi(columns[0]) == 1);
-        assert(loggedOperators.insert(columns[1]).second);
-        const int calls = std::stoi(columns[2]);
-        const int accepts = std::stoi(columns[3]);
-        const double evals = std::stod(columns[4]);
-        const double upperGain = std::stod(columns[5]);
-        const int gammaCrosses = std::stoi(columns[6]);
+        assert(std::stoi(columns[1]) == 1);
+        assert(loggedOperators.insert(columns[2]).second);
+        const int calls = std::stoi(columns[3]);
+        const int accepts = std::stoi(columns[4]);
+        const double evals = std::stod(columns[5]);
+        const auto workUnits = std::stoull(columns[6]);
+        const double upperGain = std::stod(columns[7]);
+        const int gammaCrosses = std::stoi(columns[8]);
         assert(calls >= accepts);
         assert(accepts >= gammaCrosses);
         assert(evals >= 0.0);
@@ -1192,6 +1257,7 @@ int main(int argc, char* argv[]) {
         aggregateOperatorCalls += calls;
         aggregateOperatorAccepts += accepts;
         aggregateOperatorEvals += evals;
+        aggregateOperatorWorkUnits += workUnits;
         aggregateOperatorGammaCrosses += gammaCrosses;
         ++operatorRowCount;
     }
@@ -1200,6 +1266,7 @@ int main(int argc, char* argv[]) {
     assert(aggregateOperatorCalls > 0);
     assert(aggregateOperatorAccepts > 0);
     assert(aggregateOperatorEvals > 0.0);
+    assert(aggregateOperatorWorkUnits > 0);
     assert(aggregateOperatorGammaCrosses >= 0);
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
@@ -1238,12 +1305,13 @@ int main(int argc, char* argv[]) {
     for (int iter = 0; iter < 31; ++iter) {
         fullPopulationAlgorithm.run_generation();
     }
+    fullPopulationAlgorithm.write_local_search_operator_snapshot();
     const std::string fullPopulationOperatorRows =
         fullPopulationAlgorithm.localSearchOperatorRows.str();
     assert(std::count(
         fullPopulationOperatorRows.begin(),
         fullPopulationOperatorRows.end(),
-        '\n') == 31 * static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
+        '\n') == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
 
     Case gammaOnlyInstance(instancePath, 3);
     Parameters gammaOnlyParameters;
@@ -1255,6 +1323,7 @@ int main(int argc, char* argv[]) {
     gammaOnlyAlgorithm.initialize_search();
     gammaOnlyAlgorithm.globalBestUpperCost = 0.0;
     gammaOnlyAlgorithm.run_generation();
+    gammaOnlyAlgorithm.write_local_search_operator_snapshot();
     assert(std::isinf(gammaOnlyAlgorithm.verifiedBest->get_lower_cost()));
     for (const auto& individual : gammaOnlyAlgorithm.population) {
         assert(std::isinf(individual->get_lower_cost()));
@@ -1309,8 +1378,12 @@ int main(int argc, char* argv[]) {
         retainedEliteInstance.get_distance_calls();
     retainedEliteAlgorithm.localSearchOperatorRows.str("");
     retainedEliteAlgorithm.localSearchOperatorRows.clear();
+    retainedEliteAlgorithm.write_local_search_operator_snapshot();
+    retainedEliteAlgorithm.localSearchOperatorRows.str("");
+    retainedEliteAlgorithm.localSearchOperatorRows.clear();
 
     retainedEliteAlgorithm.run_generation();
+    retainedEliteAlgorithm.write_local_search_operator_snapshot();
 
     assert(retainedEliteInstance.get_distance_calls() == callsBeforeReuse);
     assert(retainedEliteAlgorithm.population.size() == 1);
@@ -1336,11 +1409,13 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 7);
+        assert(columns.size() == 9);
         assert(std::stoi(columns[0]) == 2);
-        assert(std::stoi(columns[2]) == 0);
+        assert(std::stoi(columns[1]) == 1);
         assert(std::stoi(columns[3]) == 0);
-        assert(std::fabs(std::stod(columns[4])) <= 1e-12);
+        assert(std::stoi(columns[4]) == 0);
+        assert(std::fabs(std::stod(columns[5])) <= 1e-12);
+        assert(std::stoull(columns[6]) == 0);
         ++retainedEliteOperatorRowCount;
     }
     assert(
@@ -1379,26 +1454,27 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
-        assert(columns[1] == "random");
+        assert(columns.size() == 24);
+        assert(columns[1] == "1");
+        assert(columns[2] == "random");
         const double rewardComponentSum =
-            std::stod(columns[16])
-            + std::stod(columns[17])
-            + std::stod(columns[18]);
+            std::stod(columns[17])
+            + std::stod(columns[18])
+            + std::stod(columns[19]);
         assert(std::fabs(
-            rewardComponentSum - std::stod(columns[20]))
+            rewardComponentSum - std::stod(columns[21]))
             <= 1e-8);
-        assert(std::stod(columns[19]) >= 0.0);
-        assert(std::stod(columns[21]) >= 0.0);
-        if (columns[2] == "weak") {
-            assert(std::fabs(std::stod(columns[21])) <= 1e-12);
+        assert(std::stod(columns[20]) >= 0.0);
+        assert(std::stod(columns[22]) >= 0.0);
+        if (columns[3] == "weak") {
+            assert(std::fabs(std::stod(columns[22])) <= 1e-12);
         }
         const int terminationCount =
-            std::stoi(columns[6])
-            + std::stoi(columns[7])
-            + std::stoi(columns[8]);
-        assert(terminationCount == std::stoi(columns[3]));
-        selectionCount += std::stoi(columns[3]);
+            std::stoi(columns[7])
+            + std::stoi(columns[8])
+            + std::stoi(columns[9]);
+        assert(terminationCount == std::stoi(columns[4]));
+        selectionCount += std::stoi(columns[4]);
         ++allocationRowCount;
     }
     assert(allocationRowCount == 3);
@@ -1458,14 +1534,15 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
-        assert(columns[1] == "matched_random");
+        assert(columns.size() == 24);
+        assert(columns[1] == "1");
+        assert(columns[2] == "matched_random");
         const int terminationCount =
-            std::stoi(columns[6])
-            + std::stoi(columns[7])
-            + std::stoi(columns[8]);
-        assert(terminationCount == std::stoi(columns[3]));
-        matchedSelectionCount += std::stoi(columns[3]);
+            std::stoi(columns[7])
+            + std::stoi(columns[8])
+            + std::stoi(columns[9]);
+        assert(terminationCount == std::stoi(columns[4]));
+        matchedSelectionCount += std::stoi(columns[4]);
         ++matchedRowCount;
     }
     assert(matchedRowCount == 3);
