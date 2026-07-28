@@ -946,6 +946,9 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(
         mediumRewardStats.continuationGainSignal - 0.05)
         <= 1e-12);
+    assert(std::fabs(
+        finalizedReward.normalizedContinuationGain - 0.5)
+        <= 1e-12);
 
     OnlineOperatorLearner operatorLearner;
     operatorLearner.reset();
@@ -966,15 +969,25 @@ int main(int argc, char* argv[]) {
     assert(firstLearnedOperator.operatorStats.calls == 2);
     assert(secondLearnedOperator.operatorStats.calls == 1);
     assert(std::fabs(
-        firstLearnedOperator.creditedReward - 0.7375)
+        firstLearnedOperator.creditedGainReward - 0.01875)
         <= 1e-12);
     assert(std::fabs(
-        secondLearnedOperator.creditedReward - 0.1625)
+        secondLearnedOperator.creditedGainReward - 0.00625)
+        <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.creditedReward - 0.75625)
+        <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.creditedReward - 0.16875)
         <= 1e-12);
     assert(std::fabs(
         firstLearnedOperator.creditedReward
         + secondLearnedOperator.creditedReward
-        - finalizedReward.reward) <= 1e-12);
+        - finalizedReward.reward
+        - OnlineOperatorLearner::
+            CONTINUATION_GAIN_REWARD_WEIGHT
+            * finalizedReward.normalizedContinuationGain)
+        <= 1e-12);
     assert(
         operatorLearner.selection_probability(
             LocalSearchOperator::NodeShift)

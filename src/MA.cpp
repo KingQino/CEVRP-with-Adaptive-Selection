@@ -81,6 +81,8 @@ void add_operator_learning_stats(
     destination.operatorStats.gammaCrosses +=
         source.operatorStats.gammaCrosses;
     destination.creditedReward += source.creditedReward;
+    destination.creditedGainReward +=
+        source.creditedGainReward;
     destination.normalizedCostUnits +=
         source.normalizedCostUnits;
     destination.score += source.score;
@@ -476,6 +478,7 @@ void MA::write_operator_learning_snapshot() {
             << stats.operatorStats.upperGain << "\t"
             << stats.operatorStats.gammaCrosses << "\t"
             << stats.creditedReward << "\t"
+            << stats.creditedGainReward << "\t"
             << (stats.operatorStats.calls > 0
                 ? stats.normalizedCostUnits / callCount
                 : 0.0) << "\t"

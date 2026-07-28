@@ -19,6 +19,7 @@ const char* operator_selection_policy_name(
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
     double creditedReward{};
+    double creditedGainReward{};
     double normalizedCostUnits{};
     double score{};
     double selectionProbability{};
@@ -27,6 +28,7 @@ struct OperatorLearningStats {
 class OnlineOperatorLearner {
 public:
     static constexpr double UNIFORM_EXPLORATION_RATE = 0.05;
+    static constexpr double CONTINUATION_GAIN_REWARD_WEIGHT = 0.05;
     using SelectionWeights =
         std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>;
     using GenerationStats =

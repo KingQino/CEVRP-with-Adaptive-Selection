@@ -41,8 +41,8 @@ public:
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
         "iter\tgenerations\toperator\tcalls\taccepts\tevals\tupper_gain\t"
-        "gamma_crosses\tcredited_reward\tavg_cost_units\t"
-        "avg_score\tavg_selection_probability";
+        "gamma_crosses\tcredited_reward\tcredited_gain_reward\t"
+        "avg_cost_units\tavg_score\tavg_selection_probability";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;

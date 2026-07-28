@@ -142,6 +142,12 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
 
         const double downstreamReward =
             record.parentReward + record.lowerReward;
+        const double continuationGainReward =
+            CONTINUATION_GAIN_REWARD_WEIGHT
+            * std::clamp(
+                record.normalizedContinuationGain,
+                0.0,
+                1.0);
         const double weakDistanceCalls = static_cast<double>(
             std::max<std::uint64_t>(
                 1,
@@ -156,11 +162,13 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 continue;
             }
 
-            const double gainCredit = totalUpperGain > 0.0
-                ? downstreamReward
-                    * operatorStats.upperGain
-                    / totalUpperGain
+            const double gainShare = totalUpperGain > 0.0
+                ? operatorStats.upperGain / totalUpperGain
                 : 0.0;
+            const double downstreamCredit =
+                downstreamReward * gainShare;
+            const double continuationGainCredit =
+                continuationGainReward * gainShare;
             // Gamma credit is kept separate so crossing the follower
             // threshold is attributed to the operator that caused it.
             const double gammaCredit = totalGammaCrosses > 0
@@ -170,7 +178,9 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                     / static_cast<double>(totalGammaCrosses)
                 : 0.0;
             const double creditedReward =
-                gainCredit + gammaCredit;
+                downstreamCredit
+                + continuationGainCredit
+                + gammaCredit;
             const double normalizedCostUnits =
                 static_cast<double>(operatorStats.distanceCalls)
                 / weakDistanceCalls;
@@ -180,6 +190,8 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 operatorStats);
             generationStats[index].creditedReward +=
                 creditedReward;
+            generationStats[index].creditedGainReward +=
+                continuationGainCredit;
             generationStats[index].normalizedCostUnits +=
                 normalizedCostUnits;
         }
