@@ -83,6 +83,8 @@ void add_operator_learning_stats(
     destination.creditedReward += source.creditedReward;
     destination.normalizedCostUnits +=
         source.normalizedCostUnits;
+    destination.effectiveObservations +=
+        source.effectiveObservations;
     destination.score += source.score;
     destination.selectionProbability +=
         source.selectionProbability;
@@ -438,10 +440,17 @@ void MA::write_local_search_allocation_snapshot() {
 
 void MA::accumulate_operator_learning_stats(
     const OnlineOperatorLearner::GenerationStats& stats) {
-    for (std::size_t index = 0; index < stats.size(); ++index) {
-        add_operator_learning_stats(
-            pendingOperatorLearningStats[index],
-            stats[index]);
+    for (std::size_t contextIndex = 0;
+         contextIndex < stats.size();
+         ++contextIndex) {
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < stats[contextIndex].size();
+             ++operatorIndex) {
+            add_operator_learning_stats(
+                pendingOperatorLearningStats[contextIndex]
+                    [operatorIndex],
+                stats[contextIndex][operatorIndex]);
+        }
     }
     ++pendingOperatorLearningGenerations;
 }
@@ -455,33 +464,48 @@ void MA::write_operator_learning_snapshot() {
 
     const double generationCount = static_cast<double>(
         pendingOperatorLearningGenerations);
-    for (std::size_t index = 0;
-         index < LOCAL_SEARCH_OPERATOR_COUNT;
-         ++index) {
-        const auto localSearchOperator =
-            static_cast<LocalSearchOperator>(index);
-        const auto& stats =
-            pendingOperatorLearningStats[index];
-        const double callCount = static_cast<double>(
-            stats.operatorStats.calls);
-        operatorLearningRows
-            << setprecision(12)
-            << generation << "\t"
-            << pendingOperatorLearningGenerations << "\t"
-            << Leader::operator_name(localSearchOperator) << "\t"
-            << stats.operatorStats.calls << "\t"
-            << stats.operatorStats.accepts << "\t"
-            << instance->distance_calls_to_evals(
-                stats.operatorStats.distanceCalls) << "\t"
-            << stats.operatorStats.upperGain << "\t"
-            << stats.operatorStats.gammaCrosses << "\t"
-            << stats.creditedReward << "\t"
-            << (stats.operatorStats.calls > 0
-                ? stats.normalizedCostUnits / callCount
-                : 0.0) << "\t"
-            << stats.score / generationCount << "\t"
-            << stats.selectionProbability / generationCount
-            << "\n";
+    for (std::size_t contextIndex = 0;
+         contextIndex < OPERATOR_LEARNING_CONTEXT_COUNT;
+         ++contextIndex) {
+        const auto context =
+            static_cast<OperatorLearningContext>(
+                contextIndex);
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            const auto localSearchOperator =
+                static_cast<LocalSearchOperator>(
+                    operatorIndex);
+            const auto& stats =
+                pendingOperatorLearningStats[contextIndex]
+                    [operatorIndex];
+            const double callCount = static_cast<double>(
+                stats.operatorStats.calls);
+            operatorLearningRows
+                << setprecision(12)
+                << generation << "\t"
+                << pendingOperatorLearningGenerations << "\t"
+                << operator_learning_context_name(context)
+                << "\t"
+                << Leader::operator_name(
+                    localSearchOperator) << "\t"
+                << stats.operatorStats.calls << "\t"
+                << stats.operatorStats.accepts << "\t"
+                << instance->distance_calls_to_evals(
+                    stats.operatorStats.distanceCalls) << "\t"
+                << stats.operatorStats.upperGain << "\t"
+                << stats.operatorStats.gammaCrosses << "\t"
+                << stats.creditedReward << "\t"
+                << (stats.operatorStats.calls > 0
+                    ? stats.normalizedCostUnits / callCount
+                    : 0.0) << "\t"
+                << stats.effectiveObservations
+                    / generationCount << "\t"
+                << stats.score / generationCount << "\t"
+                << stats.selectionProbability
+                    / generationCount
+                << "\n";
+        }
     }
 
     pendingOperatorLearningStats = {};
@@ -566,19 +590,28 @@ void MA::run_generation() {
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
     OnlineOperatorLearner::GenerationStats
         generationOperatorLearningStats{};
-    LocalSearchOperatorSelectionTable
-        generationOperatorSelectionTable;
-    const LocalSearchOperatorSelectionTable*
-        generationOperatorSelectionTablePointer = nullptr;
+    OnlineOperatorLearner::SelectionTables
+        generationOperatorSelectionTables;
+    const OnlineOperatorLearner::SelectionTables*
+        generationOperatorSelectionTablesPointer = nullptr;
     if (operatorSelectionPolicy
         == OperatorSelectionPolicy::Online) {
-        generationOperatorSelectionTable =
-            Leader::build_operator_selection_table(
-                operatorLearner.selection_weights(),
-                OnlineOperatorLearner::
-                    UNIFORM_EXPLORATION_RATE);
-        generationOperatorSelectionTablePointer =
-            &generationOperatorSelectionTable;
+        for (std::size_t contextIndex = 0;
+             contextIndex < OPERATOR_LEARNING_CONTEXT_COUNT;
+             ++contextIndex) {
+            const auto context =
+                static_cast<OperatorLearningContext>(
+                    contextIndex);
+            generationOperatorSelectionTables[
+                contextIndex] =
+                    Leader::build_operator_selection_table(
+                        operatorLearner.selection_weights(
+                            context),
+                        OnlineOperatorLearner::
+                            UNIFORM_EXPLORATION_RATE);
+        }
+        generationOperatorSelectionTablesPointer =
+            &generationOperatorSelectionTables;
     }
     shared_ptr<Individual> bestUpperCandidate = Reproduction::best_by_upper_cost(population);
     const ParentCandidate frozenUpperReference =
@@ -674,7 +707,7 @@ void MA::run_generation() {
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
             localSearchAllocator,
-            generationOperatorSelectionTablePointer,
+            generationOperatorSelectionTablesPointer,
             operatorSelectionPolicy
                     == OperatorSelectionPolicy::Online
                 ? &operatorSelectionEngine

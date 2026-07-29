@@ -28,6 +28,19 @@ constexpr double kStrongSelectionRatio = 0.50;
 constexpr double kMatchedMediumRatio = 0.033;
 constexpr double kMatchedDeepestRatio = 0.079;
 
+const LocalSearchOperatorSelectionTable*
+operator_selection_table_for_intensity(
+    const OnlineOperatorLearner::SelectionTables* tables,
+    LocalSearchIntensity intensity) {
+    if (tables == nullptr) {
+        return nullptr;
+    }
+    const std::size_t contextIndex = static_cast<std::size_t>(
+        OnlineOperatorLearner::context_for_intensity(
+            intensity));
+    return &(*tables)[contextIndex];
+}
+
 double bounded_nonnegative(double value) {
     const double nonnegative = std::max(0.0, value);
     return nonnegative / (1.0 + nonnegative);
@@ -506,8 +519,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
     const OnlineIntensityLearner& learner,
-    const LocalSearchOperatorSelectionTable*
-        continuationOperatorSelectionTable,
+    const OnlineOperatorLearner::SelectionTables*
+        continuationOperatorSelectionTables,
     std::mt19937* operatorSelectionEngine) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
@@ -688,7 +701,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                                 ? record.boundedStrongDistanceCallLimit
                                 : std::numeric_limits<
                                     std::uint64_t>::max(),
-                            continuationOperatorSelectionTable,
+                            operator_selection_table_for_intensity(
+                                continuationOperatorSelectionTables,
+                                decision.intensity),
                             operatorSelectionEngine);
                     record.totalResult = combine_results(
                         record.weakResult,
@@ -770,7 +785,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             ? record.boundedStrongDistanceCallLimit
                             : std::numeric_limits<
                                 std::uint64_t>::max(),
-                        continuationOperatorSelectionTable,
+                        operator_selection_table_for_intensity(
+                            continuationOperatorSelectionTables,
+                            record.terminalIntensity),
                         operatorSelectionEngine);
                 record.totalResult = combine_results(
                     record.weakResult,
@@ -809,7 +826,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     workspaces[localIndex],
                     triggerUpperBound,
                     std::numeric_limits<std::uint64_t>::max(),
-                    continuationOperatorSelectionTable,
+                    operator_selection_table_for_intensity(
+                        continuationOperatorSelectionTables,
+                        LocalSearchIntensity::Medium),
                     operatorSelectionEngine);
             record.totalResult = combine_results(
                 record.weakResult,
@@ -861,7 +880,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     boundedStrong
                         ? record.boundedStrongDistanceCallLimit
                         : std::numeric_limits<std::uint64_t>::max(),
-                    continuationOperatorSelectionTable,
+                    operator_selection_table_for_intensity(
+                        continuationOperatorSelectionTables,
+                        deepestIntensity),
                     operatorSelectionEngine);
             record.continuationResult = combine_results(
                 mediumResult,

@@ -949,20 +949,34 @@ int main(int argc, char* argv[]) {
 
     OnlineOperatorLearner operatorLearner;
     operatorLearner.reset();
+    constexpr OperatorLearningContext mediumOperatorContext =
+        OperatorLearningContext::MediumContinuation;
+    constexpr OperatorLearningContext deepOperatorContext =
+        OperatorLearningContext::DeepContinuation;
+    constexpr std::size_t mediumOperatorContextIndex =
+        static_cast<std::size_t>(mediumOperatorContext);
     const double initialOperatorProbability =
         1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT);
     assert(std::fabs(
         operatorLearner.selection_probability(
+            mediumOperatorContext,
+            LocalSearchOperator::NodeShift)
+        - initialOperatorProbability) <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.selection_probability(
+            deepOperatorContext,
             LocalSearchOperator::NodeShift)
         - initialOperatorProbability) <= 1e-12);
     const auto operatorLearningStats =
         operatorLearner.update(rewardRun);
-    const auto& firstLearnedOperator = operatorLearningStats[
-        static_cast<std::size_t>(
-            LocalSearchOperator::NodeShift)];
-    const auto& secondLearnedOperator = operatorLearningStats[
-        static_cast<std::size_t>(
-            LocalSearchOperator::InterRouteRelocate)];
+    const auto& firstLearnedOperator =
+        operatorLearningStats[mediumOperatorContextIndex]
+            [static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    const auto& secondLearnedOperator =
+        operatorLearningStats[mediumOperatorContextIndex]
+            [static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)];
     assert(firstLearnedOperator.operatorStats.calls == 2);
     assert(secondLearnedOperator.operatorStats.calls == 1);
     assert(std::fabs(
@@ -977,17 +991,73 @@ int main(int argc, char* argv[]) {
         - finalizedReward.reward) <= 1e-12);
     assert(
         operatorLearner.selection_probability(
+            mediumOperatorContext,
             LocalSearchOperator::NodeShift)
         > operatorLearner.selection_probability(
+            mediumOperatorContext,
             LocalSearchOperator::InterRouteRelocate));
     assert(std::fabs(
         operatorLearner.effective_observations(
+            mediumOperatorContext,
             LocalSearchOperator::NodeShift)
         - 1.0) <= 1e-12);
     assert(std::fabs(
         operatorLearner.effective_observations(
+            mediumOperatorContext,
             LocalSearchOperator::InterRouteRelocate)
         - 1.0) <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.effective_observations(
+            deepOperatorContext,
+            LocalSearchOperator::NodeShift)) <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.selection_probability(
+            deepOperatorContext,
+            LocalSearchOperator::NodeShift)
+        - initialOperatorProbability) <= 1e-12);
+    assert(
+        OnlineOperatorLearner::context_for_intensity(
+            LocalSearchIntensity::Medium)
+        == mediumOperatorContext);
+    assert(
+        OnlineOperatorLearner::context_for_intensity(
+            LocalSearchIntensity::BoundedStrong)
+        == deepOperatorContext);
+
+    LocalSearchAllocationRun deepRewardRun = rewardRun;
+    deepRewardRun.records.front().terminalIntensity =
+        LocalSearchIntensity::BoundedStrong;
+    OnlineOperatorLearner deepContextOperatorLearner;
+    deepContextOperatorLearner.reset();
+    const auto deepOperatorLearningStats =
+        deepContextOperatorLearner.update(deepRewardRun);
+    const auto& deepLearnedOperator =
+        deepOperatorLearningStats[
+            static_cast<std::size_t>(deepOperatorContext)]
+            [static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    assert(deepLearnedOperator.operatorStats.calls == 2);
+    assert(std::fabs(
+        deepContextOperatorLearner.effective_observations(
+            deepOperatorContext,
+            LocalSearchOperator::NodeShift)
+        - 1.0) <= 1e-12);
+    assert(std::fabs(
+        deepContextOperatorLearner.effective_observations(
+            deepOperatorContext,
+            LocalSearchOperator::InterRouteRelocate)
+        - 1.0) <= 1e-12);
+    assert(
+        deepContextOperatorLearner.selection_probability(
+            deepOperatorContext,
+            LocalSearchOperator::NodeShift)
+        > deepContextOperatorLearner.selection_probability(
+            deepOperatorContext,
+            LocalSearchOperator::InterRouteRelocate));
+    assert(std::fabs(
+        deepContextOperatorLearner.effective_observations(
+            mediumOperatorContext,
+            LocalSearchOperator::NodeShift)) <= 1e-12);
 
     LocalSearchAllocationRun scaledRewardRun = rewardRun;
     for (auto& operatorStats :
@@ -1002,11 +1072,12 @@ int main(int argc, char* argv[]) {
     const auto scaledOperatorLearningStats =
         scaledOperatorLearner.update(scaledRewardRun);
     assert(
-        scaledOperatorLearningStats[
-            static_cast<std::size_t>(
+        scaledOperatorLearningStats[mediumOperatorContextIndex]
+            [static_cast<std::size_t>(
                 LocalSearchOperator::NodeShift)]
             .operatorStats.calls == 200);
     double operatorProbabilitySum = 0.0;
+    double deepOperatorProbabilitySum = 0.0;
     for (std::size_t operatorIndex = 0;
          operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
          ++operatorIndex) {
@@ -1014,14 +1085,23 @@ int main(int argc, char* argv[]) {
             static_cast<LocalSearchOperator>(operatorIndex);
         operatorProbabilitySum +=
             operatorLearner.selection_probability(
+                mediumOperatorContext,
+                localSearchOperator);
+        deepOperatorProbabilitySum +=
+            operatorLearner.selection_probability(
+                deepOperatorContext,
                 localSearchOperator);
         assert(std::fabs(
             operatorLearner.selection_probability(
+                mediumOperatorContext,
                 localSearchOperator)
             - scaledOperatorLearner.selection_probability(
+                mediumOperatorContext,
                 localSearchOperator)) <= 1e-12);
     }
     assert(std::fabs(operatorProbabilitySum - 1.0) <= 1e-12);
+    assert(std::fabs(
+        deepOperatorProbabilitySum - 1.0) <= 1e-12);
 
     OnlineOperatorLearner::SelectionWeights
         dominantOperatorWeights{};
@@ -1161,6 +1241,11 @@ int main(int argc, char* argv[]) {
     assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
            == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
               "upper_gain\tgamma_crosses");
+    assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
+           == "iter\tgenerations\tcontext\toperator\tcalls\taccepts\t"
+              "evals\tupper_gain\tgamma_crosses\tcredited_reward\t"
+              "avg_cost_units\tavg_effective_observations\tavg_score\t"
+              "avg_selection_probability");
     algorithm.write_local_search_operator_snapshot();
     const std::string operatorRows = algorithm.localSearchOperatorRows.str();
     std::istringstream operatorStream(operatorRows);

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "leader.hpp"
+#include "operator_learning.hpp"
 #include "reproduction.hpp"
 
 class Case;
@@ -199,8 +200,8 @@ public:
         std::mt19937& allocationEngine,
         std::vector<LocalSearchWorkspace>& workspaces,
         const OnlineIntensityLearner& learner,
-        const LocalSearchOperatorSelectionTable*
-            continuationOperatorSelectionTable = nullptr,
+        const OnlineOperatorLearner::SelectionTables*
+            continuationOperatorSelectionTables = nullptr,
         std::mt19937* operatorSelectionEngine = nullptr);
 
     static void assign_parent_use_feedback(

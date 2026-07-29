@@ -26,6 +26,14 @@ std::size_t operator_index(LocalSearchOperator localSearchOperator) {
     return index;
 }
 
+std::size_t context_index(OperatorLearningContext context) {
+    const std::size_t index = static_cast<std::size_t>(context);
+    if (index >= OPERATOR_LEARNING_CONTEXT_COUNT) {
+        throw std::logic_error("invalid operator-learning context");
+    }
+    return index;
+}
+
 void add_operator_stats(
     LocalSearchOperatorStats& destination,
     const LocalSearchOperatorStats& source) {
@@ -103,35 +111,82 @@ const char* operator_selection_policy_name(
     return "unknown";
 }
 
+const char* operator_learning_context_name(
+    OperatorLearningContext context) {
+    switch (context) {
+        case OperatorLearningContext::MediumContinuation:
+            return "medium_continuation";
+        case OperatorLearningContext::DeepContinuation:
+            return "deep_continuation";
+        case OperatorLearningContext::Count:
+            break;
+    }
+    return "unknown";
+}
+
 void OnlineOperatorLearner::reset() {
-    arms = {};
-    scores = {};
-    selectionWeights.fill(
-        1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT));
-    selectionProbabilities = selectionWeights;
-    recompute_selection_weights();
+    contexts = {};
+    for (std::size_t contextIndex = 0;
+         contextIndex < OPERATOR_LEARNING_CONTEXT_COUNT;
+         ++contextIndex) {
+        auto& state = contexts[contextIndex];
+        state.selectionWeights.fill(
+            1.0 / static_cast<double>(
+                LOCAL_SEARCH_OPERATOR_COUNT));
+        state.selectionProbabilities =
+            state.selectionWeights;
+        recompute_selection_weights(
+            static_cast<OperatorLearningContext>(
+                contextIndex));
+    }
 }
 
 const OnlineOperatorLearner::SelectionWeights&
-OnlineOperatorLearner::selection_weights() const {
-    return selectionWeights;
+OnlineOperatorLearner::selection_weights(
+    OperatorLearningContext context) const {
+    return contexts[context_index(context)].selectionWeights;
 }
 
 OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
     const LocalSearchAllocationRun& run) {
     GenerationStats generationStats{};
-    for (std::size_t index = 0;
-         index < LOCAL_SEARCH_OPERATOR_COUNT;
-         ++index) {
-        generationStats[index].score = scores[index];
-        generationStats[index].selectionProbability =
-            selectionProbabilities[index];
-        arms[index].effectiveObservations *= kDiscountFactor;
-        arms[index].rewardRateSum *= kDiscountFactor;
-        arms[index].logCostRateSum *= kDiscountFactor;
+    for (std::size_t contextIndex = 0;
+         contextIndex < OPERATOR_LEARNING_CONTEXT_COUNT;
+         ++contextIndex) {
+        auto& state = contexts[contextIndex];
+        auto& contextStats = generationStats[contextIndex];
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            contextStats[operatorIndex].effectiveObservations =
+                state.arms[operatorIndex].effectiveObservations;
+            contextStats[operatorIndex].score =
+                state.scores[operatorIndex];
+            contextStats[operatorIndex].selectionProbability =
+                state.selectionProbabilities[operatorIndex];
+            state.arms[operatorIndex].effectiveObservations *=
+                kDiscountFactor;
+            state.arms[operatorIndex].rewardRateSum *=
+                kDiscountFactor;
+            state.arms[operatorIndex].logCostRateSum *=
+                kDiscountFactor;
+        }
     }
 
     for (const auto& record : run.records) {
+        if (record.terminalIntensity
+                != LocalSearchIntensity::Medium
+            && record.terminalIntensity
+                != LocalSearchIntensity::BoundedStrong
+            && record.terminalIntensity
+                != LocalSearchIntensity::Strong) {
+            continue;
+        }
+        const OperatorLearningContext context =
+            context_for_intensity(record.terminalIntensity);
+        const std::size_t contextIndex = context_index(context);
+        auto& contextStats = generationStats[contextIndex];
+
         double totalUpperGain = 0.0;
         int totalGammaCrosses = 0;
         for (const auto& stats :
@@ -176,59 +231,98 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 / weakDistanceCalls;
 
             add_operator_stats(
-                generationStats[index].operatorStats,
+                contextStats[index].operatorStats,
                 operatorStats);
-            generationStats[index].creditedReward +=
+            contextStats[index].creditedReward +=
                 creditedReward;
-            generationStats[index].normalizedCostUnits +=
+            contextStats[index].normalizedCostUnits +=
                 normalizedCostUnits;
         }
     }
 
-    for (std::size_t index = 0;
-         index < LOCAL_SEARCH_OPERATOR_COUNT;
-         ++index) {
-        const double callCount = static_cast<double>(
-            generationStats[index].operatorStats.calls);
-        if (callCount <= 0.0) {
-            continue;
+    for (std::size_t contextIndex = 0;
+         contextIndex < OPERATOR_LEARNING_CONTEXT_COUNT;
+         ++contextIndex) {
+        auto& state = contexts[contextIndex];
+        const auto& contextStats =
+            generationStats[contextIndex];
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            const double callCount = static_cast<double>(
+                contextStats[operatorIndex]
+                    .operatorStats.calls);
+            if (callCount <= 0.0) {
+                continue;
+            }
+            const double rewardPerCall =
+                contextStats[operatorIndex].creditedReward
+                / callCount;
+            const double costPerCall =
+                contextStats[operatorIndex]
+                    .normalizedCostUnits
+                / callCount;
+            state.arms[operatorIndex].effectiveObservations +=
+                1.0;
+            state.arms[operatorIndex].rewardRateSum +=
+                rewardPerCall;
+            state.arms[operatorIndex].logCostRateSum +=
+                std::log1p(costPerCall);
         }
-        const double rewardPerCall =
-            generationStats[index].creditedReward / callCount;
-        const double costPerCall =
-            generationStats[index].normalizedCostUnits
-            / callCount;
-        arms[index].effectiveObservations += 1.0;
-        arms[index].rewardRateSum += rewardPerCall;
-        arms[index].logCostRateSum +=
-            std::log1p(costPerCall);
+        recompute_selection_weights(
+            static_cast<OperatorLearningContext>(
+                contextIndex));
     }
 
-    recompute_selection_weights();
     return generationStats;
 }
 
 double OnlineOperatorLearner::score(
+    OperatorLearningContext context,
     LocalSearchOperator localSearchOperator) const {
-    return scores[operator_index(localSearchOperator)];
+    return contexts[context_index(context)]
+        .scores[operator_index(localSearchOperator)];
 }
 
 double OnlineOperatorLearner::selection_probability(
+    OperatorLearningContext context,
     LocalSearchOperator localSearchOperator) const {
-    return selectionProbabilities[
-        operator_index(localSearchOperator)];
+    return contexts[context_index(context)]
+        .selectionProbabilities[
+            operator_index(localSearchOperator)];
 }
 
 double OnlineOperatorLearner::effective_observations(
+    OperatorLearningContext context,
     LocalSearchOperator localSearchOperator) const {
-    return arms[operator_index(localSearchOperator)]
+    return contexts[context_index(context)]
+        .arms[operator_index(localSearchOperator)]
         .effectiveObservations;
 }
 
-void OnlineOperatorLearner::recompute_selection_weights() {
+OperatorLearningContext
+OnlineOperatorLearner::context_for_intensity(
+    LocalSearchIntensity intensity) {
+    switch (intensity) {
+        case LocalSearchIntensity::Medium:
+            return OperatorLearningContext::MediumContinuation;
+        case LocalSearchIntensity::BoundedStrong:
+        case LocalSearchIntensity::Strong:
+            return OperatorLearningContext::DeepContinuation;
+        case LocalSearchIntensity::Skip:
+        case LocalSearchIntensity::Weak:
+            break;
+    }
+    throw std::logic_error(
+        "operator learning requires a continuation intensity");
+}
+
+void OnlineOperatorLearner::recompute_selection_weights(
+    OperatorLearningContext context) {
+    auto& state = contexts[context_index(context)];
     const double totalEffectiveObservations = std::accumulate(
-        arms.begin(),
-        arms.end(),
+        state.arms.begin(),
+        state.arms.end(),
         0.0,
         [](double total, const ArmState& arm) {
             return total + arm.effectiveObservations;
@@ -240,13 +334,13 @@ void OnlineOperatorLearner::recompute_selection_weights() {
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
         const double effectiveObservations =
-            arms[index].effectiveObservations;
+            state.arms[index].effectiveObservations;
         if (effectiveObservations > kMinimumScale) {
             rewardSignals[index] =
-                arms[index].rewardRateSum
+                state.arms[index].rewardRateSum
                 / effectiveObservations;
             costSignals[index] =
-                arms[index].logCostRateSum
+                state.arms[index].logCostRateSum
                 / effectiveObservations;
         }
     }
@@ -260,8 +354,9 @@ void OnlineOperatorLearner::recompute_selection_weights() {
          ++index) {
         const double uncertainty = std::sqrt(
             std::log(totalEffectiveObservations + 2.0)
-            / (arms[index].effectiveObservations + 1.0));
-        scores[index] =
+            / (state.arms[index].effectiveObservations
+                + 1.0));
+        state.scores[index] =
             standardizedReward[index]
             - kNormalizedCostWeight
                 * standardizedCost[index]
@@ -269,15 +364,15 @@ void OnlineOperatorLearner::recompute_selection_weights() {
     }
 
     const double maximumScore = *std::max_element(
-        scores.begin(),
-        scores.end());
+        state.scores.begin(),
+        state.scores.end());
     SelectionWeights softmaxWeights{};
     double softmaxTotal = 0.0;
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
         softmaxWeights[index] = std::exp(
-            (scores[index] - maximumScore)
+            (state.scores[index] - maximumScore)
             / kSoftmaxTemperature);
         softmaxTotal += softmaxWeights[index];
     }
@@ -291,8 +386,9 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             softmaxTotal > 0.0
             ? softmaxWeights[index] / softmaxTotal
             : uniformProbability;
-        selectionWeights[index] = exploitationProbability;
-        selectionProbabilities[index] =
+        state.selectionWeights[index] =
+            exploitationProbability;
+        state.selectionProbabilities[index] =
             UNIFORM_EXPLORATION_RATE * uniformProbability
             + (1.0 - UNIFORM_EXPLORATION_RATE)
                 * exploitationProbability;
