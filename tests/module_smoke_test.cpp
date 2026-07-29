@@ -965,6 +965,8 @@ int main(int argc, char* argv[]) {
             LocalSearchOperator::InterRouteRelocate)];
     assert(firstLearnedOperator.operatorStats.calls == 2);
     assert(secondLearnedOperator.operatorStats.calls == 1);
+    assert(firstLearnedOperator.opportunities == 1);
+    assert(secondLearnedOperator.opportunities == 1);
     assert(std::fabs(
         firstLearnedOperator.creditedReward - 0.7375)
         <= 1e-12);
@@ -975,6 +977,19 @@ int main(int argc, char* argv[]) {
         firstLearnedOperator.creditedReward
         + secondLearnedOperator.creditedReward
         - finalizedReward.reward) <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.normalizedCostUnits - 0.5)
+        <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.normalizedCostUnits - 2.5)
+        <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.roi(LocalSearchOperator::NodeShift)
+        - 1.475) <= 1e-12);
+    assert(std::fabs(
+        operatorLearner.roi(
+            LocalSearchOperator::InterRouteRelocate)
+        - 0.065) <= 1e-12);
     assert(
         operatorLearner.selection_probability(
             LocalSearchOperator::NodeShift)
@@ -1006,7 +1021,30 @@ int main(int argc, char* argv[]) {
             static_cast<std::size_t>(
                 LocalSearchOperator::NodeShift)]
             .operatorStats.calls == 200);
+    assert(
+        scaledOperatorLearningStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)]
+            .opportunities == 1);
+    assert(std::fabs(
+        scaledOperatorLearner.effective_observations(
+            LocalSearchOperator::NodeShift)
+        - 1.0) <= 1e-12);
+    assert(std::fabs(
+        scaledOperatorLearner.roi(
+            LocalSearchOperator::NodeShift)
+        - 0.01475) <= 1e-12);
+    assert(std::fabs(
+        scaledOperatorLearner.roi(
+            LocalSearchOperator::InterRouteRelocate)
+        - 0.00065) <= 1e-12);
+    assert(
+        scaledOperatorLearner.selection_probability(
+            LocalSearchOperator::NodeShift)
+        > scaledOperatorLearner.selection_probability(
+            LocalSearchOperator::InterRouteRelocate));
     double operatorProbabilitySum = 0.0;
+    double scaledOperatorProbabilitySum = 0.0;
     for (std::size_t operatorIndex = 0;
          operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
          ++operatorIndex) {
@@ -1015,13 +1053,13 @@ int main(int argc, char* argv[]) {
         operatorProbabilitySum +=
             operatorLearner.selection_probability(
                 localSearchOperator);
-        assert(std::fabs(
-            operatorLearner.selection_probability(
-                localSearchOperator)
-            - scaledOperatorLearner.selection_probability(
-                localSearchOperator)) <= 1e-12);
+        scaledOperatorProbabilitySum +=
+            scaledOperatorLearner.selection_probability(
+                localSearchOperator);
     }
     assert(std::fabs(operatorProbabilitySum - 1.0) <= 1e-12);
+    assert(std::fabs(
+        scaledOperatorProbabilitySum - 1.0) <= 1e-12);
 
     OnlineOperatorLearner::SelectionWeights
         dominantOperatorWeights{};
@@ -1161,6 +1199,11 @@ int main(int argc, char* argv[]) {
     assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
            == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
               "upper_gain\tgamma_crosses");
+    assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
+           == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
+              "upper_gain\tgamma_crosses\topportunities\t"
+              "credited_reward\tnormalized_cost_units\tavg_roi\t"
+              "avg_score\tavg_selection_probability");
     algorithm.write_local_search_operator_snapshot();
     const std::string operatorRows = algorithm.localSearchOperatorRows.str();
     std::istringstream operatorStream(operatorRows);

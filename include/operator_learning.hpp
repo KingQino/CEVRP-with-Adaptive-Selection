@@ -18,8 +18,10 @@ const char* operator_selection_policy_name(
 
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
+    int opportunities{};
     double creditedReward{};
     double normalizedCostUnits{};
+    double roi{};
     double score{};
     double selectionProbability{};
 };
@@ -39,17 +41,20 @@ public:
     [[nodiscard]] double score(LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double selection_probability(
         LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double roi(
+        LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double effective_observations(
         LocalSearchOperator localSearchOperator) const;
 
 private:
     struct ArmState {
         double effectiveObservations{};
-        double rewardRateSum{};
-        double logCostRateSum{};
+        double creditedRewardSum{};
+        double normalizedCostSum{};
     };
 
     std::array<ArmState, LOCAL_SEARCH_OPERATOR_COUNT> arms{};
+    SelectionWeights rois{};
     SelectionWeights scores{};
     SelectionWeights selectionWeights{};
     SelectionWeights selectionProbabilities{};

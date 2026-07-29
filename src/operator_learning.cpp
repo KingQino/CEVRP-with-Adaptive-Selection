@@ -11,7 +11,6 @@ namespace {
 
 constexpr double kDiscountFactor = 0.95;
 constexpr double kExplorationScale = 0.08;
-constexpr double kNormalizedCostWeight = 1.0;
 constexpr double kSoftmaxTemperature = 1.0;
 constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
@@ -105,6 +104,7 @@ const char* operator_selection_policy_name(
 
 void OnlineOperatorLearner::reset() {
     arms = {};
+    rois = {};
     scores = {};
     selectionWeights.fill(
         1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT));
@@ -123,12 +123,13 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
+        generationStats[index].roi = rois[index];
         generationStats[index].score = scores[index];
         generationStats[index].selectionProbability =
             selectionProbabilities[index];
         arms[index].effectiveObservations *= kDiscountFactor;
-        arms[index].rewardRateSum *= kDiscountFactor;
-        arms[index].logCostRateSum *= kDiscountFactor;
+        arms[index].creditedRewardSum *= kDiscountFactor;
+        arms[index].normalizedCostSum *= kDiscountFactor;
     }
 
     for (const auto& record : run.records) {
@@ -182,26 +183,11 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 creditedReward;
             generationStats[index].normalizedCostUnits +=
                 normalizedCostUnits;
+            ++generationStats[index].opportunities;
+            arms[index].effectiveObservations += 1.0;
+            arms[index].creditedRewardSum += creditedReward;
+            arms[index].normalizedCostSum += normalizedCostUnits;
         }
-    }
-
-    for (std::size_t index = 0;
-         index < LOCAL_SEARCH_OPERATOR_COUNT;
-         ++index) {
-        const double callCount = static_cast<double>(
-            generationStats[index].operatorStats.calls);
-        if (callCount <= 0.0) {
-            continue;
-        }
-        const double rewardPerCall =
-            generationStats[index].creditedReward / callCount;
-        const double costPerCall =
-            generationStats[index].normalizedCostUnits
-            / callCount;
-        arms[index].effectiveObservations += 1.0;
-        arms[index].rewardRateSum += rewardPerCall;
-        arms[index].logCostRateSum +=
-            std::log1p(costPerCall);
     }
 
     recompute_selection_weights();
@@ -219,6 +205,11 @@ double OnlineOperatorLearner::selection_probability(
         operator_index(localSearchOperator)];
 }
 
+double OnlineOperatorLearner::roi(
+    LocalSearchOperator localSearchOperator) const {
+    return rois[operator_index(localSearchOperator)];
+}
+
 double OnlineOperatorLearner::effective_observations(
     LocalSearchOperator localSearchOperator) const {
     return arms[operator_index(localSearchOperator)]
@@ -234,26 +225,18 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             return total + arm.effectiveObservations;
         });
 
-    SelectionWeights rewardSignals{};
-    SelectionWeights costSignals{};
+    SelectionWeights logRoiSignals{};
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
-        const double effectiveObservations =
-            arms[index].effectiveObservations;
-        if (effectiveObservations > kMinimumScale) {
-            rewardSignals[index] =
-                arms[index].rewardRateSum
-                / effectiveObservations;
-            costSignals[index] =
-                arms[index].logCostRateSum
-                / effectiveObservations;
-        }
+        rois[index] = arms[index].normalizedCostSum > kMinimumScale
+            ? arms[index].creditedRewardSum
+                / arms[index].normalizedCostSum
+            : 0.0;
+        logRoiSignals[index] = std::log1p(rois[index]);
     }
-    const SelectionWeights standardizedReward =
-        robust_standardize(rewardSignals);
-    const SelectionWeights standardizedCost =
-        robust_standardize(costSignals);
+    const SelectionWeights standardizedRoi =
+        robust_standardize(logRoiSignals);
 
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -262,9 +245,7 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             std::log(totalEffectiveObservations + 2.0)
             / (arms[index].effectiveObservations + 1.0));
         scores[index] =
-            standardizedReward[index]
-            - kNormalizedCostWeight
-                * standardizedCost[index]
+            standardizedRoi[index]
             + kExplorationScale * uncertainty;
     }
 

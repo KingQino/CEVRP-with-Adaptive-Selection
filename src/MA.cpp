@@ -80,9 +80,11 @@ void add_operator_learning_stats(
         source.operatorStats.upperGain;
     destination.operatorStats.gammaCrosses +=
         source.operatorStats.gammaCrosses;
+    destination.opportunities += source.opportunities;
     destination.creditedReward += source.creditedReward;
     destination.normalizedCostUnits +=
         source.normalizedCostUnits;
+    destination.roi += source.roi;
     destination.score += source.score;
     destination.selectionProbability +=
         source.selectionProbability;
@@ -462,8 +464,6 @@ void MA::write_operator_learning_snapshot() {
             static_cast<LocalSearchOperator>(index);
         const auto& stats =
             pendingOperatorLearningStats[index];
-        const double callCount = static_cast<double>(
-            stats.operatorStats.calls);
         operatorLearningRows
             << setprecision(12)
             << generation << "\t"
@@ -475,10 +475,10 @@ void MA::write_operator_learning_snapshot() {
                 stats.operatorStats.distanceCalls) << "\t"
             << stats.operatorStats.upperGain << "\t"
             << stats.operatorStats.gammaCrosses << "\t"
+            << stats.opportunities << "\t"
             << stats.creditedReward << "\t"
-            << (stats.operatorStats.calls > 0
-                ? stats.normalizedCostUnits / callCount
-                : 0.0) << "\t"
+            << stats.normalizedCostUnits << "\t"
+            << stats.roi / generationCount << "\t"
             << stats.score / generationCount << "\t"
             << stats.selectionProbability / generationCount
             << "\n";
