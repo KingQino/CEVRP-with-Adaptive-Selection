@@ -11,7 +11,6 @@ namespace {
 
 constexpr double kDiscountFactor = 0.95;
 constexpr double kExplorationScale = 0.08;
-constexpr double kNormalizedCostWeight = 1.0;
 constexpr double kSoftmaxTemperature = 1.0;
 constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
@@ -103,7 +102,13 @@ const char* operator_selection_policy_name(
     return "unknown";
 }
 
-void OnlineOperatorLearner::reset() {
+void OnlineOperatorLearner::reset(double newCostWeight) {
+    if (!std::isfinite(newCostWeight)
+        || newCostWeight < 0.0) {
+        throw std::invalid_argument(
+            "operator cost weight must be finite and non-negative");
+    }
+    costWeight = newCostWeight;
     arms = {};
     scores = {};
     selectionWeights.fill(
@@ -142,11 +147,6 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
 
         const double downstreamReward =
             record.parentReward + record.lowerReward;
-        const double weakDistanceCalls = static_cast<double>(
-            std::max<std::uint64_t>(
-                1,
-                record.weakResult.distanceCallsUsed));
-
         for (std::size_t index = 0;
              index < LOCAL_SEARCH_OPERATOR_COUNT;
              ++index) {
@@ -171,17 +171,12 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 : 0.0;
             const double creditedReward =
                 gainCredit + gammaCredit;
-            const double normalizedCostUnits =
-                static_cast<double>(operatorStats.distanceCalls)
-                / weakDistanceCalls;
 
             add_operator_stats(
                 generationStats[index].operatorStats,
                 operatorStats);
             generationStats[index].creditedReward +=
                 creditedReward;
-            generationStats[index].normalizedCostUnits +=
-                normalizedCostUnits;
         }
     }
 
@@ -196,7 +191,9 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
         const double rewardPerCall =
             generationStats[index].creditedReward / callCount;
         const double costPerCall =
-            generationStats[index].normalizedCostUnits
+            static_cast<double>(
+                generationStats[index]
+                    .operatorStats.distanceCalls)
             / callCount;
         arms[index].effectiveObservations += 1.0;
         arms[index].rewardRateSum += rewardPerCall;
@@ -263,8 +260,7 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             / (arms[index].effectiveObservations + 1.0));
         scores[index] =
             standardizedReward[index]
-            - kNormalizedCostWeight
-                * standardizedCost[index]
+            - costWeight * standardizedCost[index]
             + kExplorationScale * uncertainty;
     }
 

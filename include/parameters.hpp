@@ -24,6 +24,8 @@ struct Parameters {
     LocalSearchPolicy localSearchPolicy = LocalSearchPolicy::Static;
     OperatorSelectionPolicy operatorSelectionPolicy =
         OperatorSelectionPolicy::Uniform;
+    double operatorCostWeight =
+        OnlineOperatorLearner::DEFAULT_COST_WEIGHT;
     double parentPoolRatio = 0.10;
     double qualityRatio = 0.50;
     double verifiedUpperRatio = 0.05;

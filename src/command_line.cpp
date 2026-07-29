@@ -151,6 +151,7 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "ls",
         "ls_policy",
         "op_policy",
+        "op_cost_weight",
         "parent_pool_ratio",
         "quality_ratio",
         "verified_upper_ratio",
@@ -184,6 +185,9 @@ void CommandLine::parse_parameters(Parameters& params) const {
     params.operatorSelectionPolicy =
         parse_operator_selection_policy(
             get_string("op_policy", "uniform"));
+    params.operatorCostWeight = get_double(
+        "op_cost_weight",
+        params.operatorCostWeight);
     params.parentPoolRatio = get_double(
         "parent_pool_ratio",
         params.parentPoolRatio);
@@ -220,6 +224,8 @@ void CommandLine::display_help() {
         << "                                  (default: static)\n"
         << "  -op_policy <uniform|online>     Continuation operator policy\n"
         << "                                  (default: uniform)\n"
+        << "  -op_cost_weight <double>        Operator distance-cost penalty\n"
+        << "                                  (default: 1.0)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"

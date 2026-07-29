@@ -81,8 +81,6 @@ void add_operator_learning_stats(
     destination.operatorStats.gammaCrosses +=
         source.operatorStats.gammaCrosses;
     destination.creditedReward += source.creditedReward;
-    destination.normalizedCostUnits +=
-        source.normalizedCostUnits;
     destination.score += source.score;
     destination.selectionProbability +=
         source.selectionProbability;
@@ -135,6 +133,8 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->localSearchPolicy = parameters.localSearchPolicy;
     this->operatorSelectionPolicy =
         parameters.operatorSelectionPolicy;
+    this->operatorCostWeight =
+        parameters.operatorCostWeight;
     this->parentPoolRatio = parameters.parentPoolRatio;
     this->qualityRatio = parameters.qualityRatio;
     this->verifiedUpperRatio = parameters.verifiedUpperRatio;
@@ -477,7 +477,9 @@ void MA::write_operator_learning_snapshot() {
             << stats.operatorStats.gammaCrosses << "\t"
             << stats.creditedReward << "\t"
             << (stats.operatorStats.calls > 0
-                ? stats.normalizedCostUnits / callCount
+                ? static_cast<double>(
+                    stats.operatorStats.distanceCalls)
+                    / callCount
                 : 0.0) << "\t"
             << stats.score / generationCount << "\t"
             << stats.selectionProbability / generationCount
@@ -516,7 +518,7 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     localSearchAllocator.reset();
-    operatorLearner.reset();
+    operatorLearner.reset(operatorCostWeight);
     pendingLocalSearchOperatorStats = {};
     pendingLocalSearchOperatorGenerations = 0;
     pendingLocalSearchAllocationStats = {};

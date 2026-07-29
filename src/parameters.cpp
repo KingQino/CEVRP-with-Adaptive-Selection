@@ -46,6 +46,11 @@ void Parameters::validate() const {
             "online op_policy requires -ls bounded_strong "
             "and -ls_policy online");
     }
+    if (!std::isfinite(operatorCostWeight)
+        || operatorCostWeight < 0.0) {
+        throw std::invalid_argument(
+            "op_cost_weight must be finite and non-negative");
+    }
 
     require_probability(mutationProb, "mutation_prob");
     require_probability(mutationIndProb, "mutation_ind_prob");

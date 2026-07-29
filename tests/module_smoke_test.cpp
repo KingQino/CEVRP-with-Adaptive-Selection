@@ -964,7 +964,9 @@ int main(int argc, char* argv[]) {
         static_cast<std::size_t>(
             LocalSearchOperator::InterRouteRelocate)];
     assert(firstLearnedOperator.operatorStats.calls == 2);
+    assert(firstLearnedOperator.operatorStats.distanceCalls == 50);
     assert(secondLearnedOperator.operatorStats.calls == 1);
+    assert(secondLearnedOperator.operatorStats.distanceCalls == 250);
     assert(std::fabs(
         firstLearnedOperator.creditedReward - 0.7375)
         <= 1e-12);
@@ -988,6 +990,31 @@ int main(int argc, char* argv[]) {
         operatorLearner.effective_observations(
             LocalSearchOperator::InterRouteRelocate)
         - 1.0) <= 1e-12);
+
+    OnlineOperatorLearner rewardOnlyOperatorLearner;
+    rewardOnlyOperatorLearner.reset(0.0);
+    const auto rewardOnlyOperatorStats =
+        rewardOnlyOperatorLearner.update(rewardRun);
+    assert(
+        rewardOnlyOperatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)]
+            .operatorStats.distanceCalls == 50);
+    const double costAwareScoreGap =
+        operatorLearner.score(LocalSearchOperator::NodeShift)
+        - operatorLearner.score(
+            LocalSearchOperator::InterRouteRelocate);
+    const double rewardOnlyScoreGap =
+        rewardOnlyOperatorLearner.score(
+            LocalSearchOperator::NodeShift)
+        - rewardOnlyOperatorLearner.score(
+            LocalSearchOperator::InterRouteRelocate);
+    assert(costAwareScoreGap > rewardOnlyScoreGap);
+    try {
+        rewardOnlyOperatorLearner.reset(-0.1);
+        assert(false);
+    } catch (const std::invalid_argument&) {
+    }
 
     LocalSearchAllocationRun scaledRewardRun = rewardRun;
     for (auto& operatorStats :
@@ -1161,6 +1188,11 @@ int main(int argc, char* argv[]) {
     assert(std::string(MA::LOCAL_SEARCH_OPERATOR_LOG_HEADER)
            == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
               "upper_gain\tgamma_crosses");
+    assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
+           == "iter\tgenerations\toperator\tcalls\taccepts\tevals\t"
+              "upper_gain\tgamma_crosses\tcredited_reward\t"
+              "avg_distance_calls_per_call\tavg_score\t"
+              "avg_selection_probability");
     algorithm.write_local_search_operator_snapshot();
     const std::string operatorRows = algorithm.localSearchOperatorRows.str();
     std::istringstream operatorStream(operatorRows);

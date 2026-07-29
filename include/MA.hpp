@@ -41,7 +41,7 @@ public:
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
         "iter\tgenerations\toperator\tcalls\taccepts\tevals\tupper_gain\t"
-        "gamma_crosses\tcredited_reward\tavg_cost_units\t"
+        "gamma_crosses\tcredited_reward\tavg_distance_calls_per_call\t"
         "avg_score\tavg_selection_probability";
 
     MA(Case* instance, const Parameters& parameters);
@@ -120,6 +120,7 @@ public:
     LocalSearchIntensity localSearchIntensity;
     LocalSearchPolicy localSearchPolicy;
     OperatorSelectionPolicy operatorSelectionPolicy;
+    double operatorCostWeight;
     double parentPoolRatio;
     double qualityRatio;
     double verifiedUpperRatio;

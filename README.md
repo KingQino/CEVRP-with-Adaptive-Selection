@@ -49,6 +49,8 @@ For details, please refer to the following paper:
 | `-tournament_size` | `2` | Upper-parent tournament size |
 | `-ls` | `strong` | `skip`, `weak`, `medium`, `bounded_strong`, or `strong` local-search intensity |
 | `-ls_policy` | `static` | Local-search allocation policy: `static`, `random`, `matched_random`, `non_contextual`, or `online` |
+| `-op_policy` | `uniform` | Continuation operator-selection policy: `uniform` or `online` |
+| `-op_cost_weight` | `1.0` | Weight of the standardized operator distance-call cost |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
@@ -118,6 +120,7 @@ includes the per-individual search context. The deepest action is selected by
 - The default `static` policy applies the selected intensity to the complete upper-level population. The `random` policy retains the fixed terminal mix of approximately 20% weak, 30% medium, and 50% strong as an ablation baseline.
 - The `online` policy gives every new individual a weak probe, then independently chooses whether it terminates at weak, medium, or the deepest intensity selected by `-ls`. Use `-ls bounded_strong` to learn among weak/medium/bounded-strong, or `-ls strong` to retain weak/medium/unlimited-strong. It has no fixed action quota. Context contains only changing search, individual, and probe feedback; instance size and route-count features are intentionally excluded because the model is reset for every run.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online reward combines lower-archive rank, post-probe gamma crossing, and reproduction parent usage. Continuation upper gain remains an aggregate diagnostic signal but is excluded from reward. Action cost contains only evaluations consumed after the common weak probe.
+- Online operator learning retains V1.1 reward attribution and discounts reward and cost separately. Cost V2 accumulates raw distance calls, averages them per operator call, and applies `-op_cost_weight` after robust cost standardization instead of normalizing every record by its weak-probe cost.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Evolution rows are sampled every 10 generations. Local-search operator, allocation, and operator-learning diagnostics are aggregated into 50-generation windows, with a final partial snapshot written at termination.

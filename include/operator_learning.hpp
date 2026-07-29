@@ -19,20 +19,20 @@ const char* operator_selection_policy_name(
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
     double creditedReward{};
-    double normalizedCostUnits{};
     double score{};
     double selectionProbability{};
 };
 
 class OnlineOperatorLearner {
 public:
+    static constexpr double DEFAULT_COST_WEIGHT = 1.0;
     static constexpr double UNIFORM_EXPLORATION_RATE = 0.05;
     using SelectionWeights =
         std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>;
     using GenerationStats =
         std::array<OperatorLearningStats, LOCAL_SEARCH_OPERATOR_COUNT>;
 
-    void reset();
+    void reset(double costWeight = DEFAULT_COST_WEIGHT);
     [[nodiscard]] const SelectionWeights& selection_weights() const;
     [[nodiscard]] GenerationStats update(
         const LocalSearchAllocationRun& run);
@@ -53,6 +53,7 @@ private:
     SelectionWeights scores{};
     SelectionWeights selectionWeights{};
     SelectionWeights selectionProbabilities{};
+    double costWeight{DEFAULT_COST_WEIGHT};
 
     void recompute_selection_weights();
 };

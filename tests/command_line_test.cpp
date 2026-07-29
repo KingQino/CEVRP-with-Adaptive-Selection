@@ -44,6 +44,7 @@ int main() {
         "-ls", "medium",
         "-ls_policy", "static",
         "-op_policy", "uniform",
+        "-op_cost_weight", "0.5",
         "-parent_pool_ratio", "0.15",
         "-quality_ratio", "0.4",
         "-verified_upper_ratio", "0.10",
@@ -67,6 +68,8 @@ int main() {
     assert(
         namedParameters.operatorSelectionPolicy
         == OperatorSelectionPolicy::Uniform);
+    assert(std::fabs(
+        namedParameters.operatorCostWeight - 0.5) <= 1e-12);
     assert(std::fabs(namedParameters.parentPoolRatio - 0.15) <= 1e-12);
     assert(std::fabs(namedParameters.qualityRatio - 0.4) <= 1e-12);
     assert(std::fabs(namedParameters.verifiedUpperRatio - 0.10) <= 1e-12);
@@ -200,6 +203,12 @@ int main() {
     Parameters invalidQualityRatio;
     invalidQualityRatio.qualityRatio = 1.0;
     assert(validation_fails(invalidQualityRatio, "strictly between 0 and 1"));
+
+    Parameters invalidOperatorCostWeight;
+    invalidOperatorCostWeight.operatorCostWeight = -0.1;
+    assert(validation_fails(
+        invalidOperatorCostWeight,
+        "op_cost_weight"));
 
     std::vector<std::string> invalidBooleanArguments = {
         "build/command_line_test",
