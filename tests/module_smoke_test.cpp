@@ -1070,6 +1070,16 @@ int main(int argc, char* argv[]) {
         operatorScheduler.efficiency(
             LocalSearchOperator::NodeShift)
         < efficiencyBeforeFailure);
+    const auto uniformOperatorStats =
+        operatorScheduler.update(rewardRun, false);
+    for (const auto& stats : uniformOperatorStats) {
+        assert(std::fabs(
+            stats.targetBudgetShare
+            - initialOperatorProbability) <= 1e-12);
+        assert(std::fabs(
+            stats.selectionProbability
+            - initialOperatorProbability) <= 1e-12);
+    }
 
     BudgetAwareOperatorScheduler::SelectionWeights
         dominantOperatorWeights{};

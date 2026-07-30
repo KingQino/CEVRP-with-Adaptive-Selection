@@ -77,6 +77,8 @@ share for uniform exploration. It is available with `-ls bounded_strong` and
 either `-ls_policy matched_random` or `-ls_policy online`. Uniform and
 budget-aware continuation selection use the same dedicated random-number
 stream, so policy ablations do not perturb the random stream used inside moves.
+With logging enabled, both policies write the same compact continuation-only
+operator diagnostics for direct budget-utilization comparison.
 
 
 

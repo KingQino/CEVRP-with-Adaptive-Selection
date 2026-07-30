@@ -303,8 +303,7 @@ void MA::open_log_for_local_search() {
         logLocalSearchAllocation
             << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
     }
-    if (operatorSelectionPolicy
-        == OperatorSelectionPolicy::BudgetAware) {
+    if (localSearchPolicy != LocalSearchPolicy::Static) {
         logOperatorLearning.open(
             directoryPath / "operator-learning.tsv");
         logOperatorLearning
@@ -452,8 +451,7 @@ void MA::accumulate_operator_learning_stats(
 
 void MA::write_operator_learning_snapshot() {
     if (pendingOperatorLearningGenerations == 0
-        || operatorSelectionPolicy
-            != OperatorSelectionPolicy::BudgetAware) {
+        || localSearchPolicy == LocalSearchPolicy::Static) {
         return;
     }
 
@@ -802,9 +800,13 @@ void MA::run_generation() {
             localSearchPolicy,
             localSearchAllocator);
         if (operatorSelectionPolicy
-            == OperatorSelectionPolicy::BudgetAware) {
+                == OperatorSelectionPolicy::BudgetAware
+            || enableLogging) {
             generationOperatorLearningStats =
-                operatorScheduler.update(mixedLocalSearch);
+                operatorScheduler.update(
+                    mixedLocalSearch,
+                    operatorSelectionPolicy
+                        == OperatorSelectionPolicy::BudgetAware);
         }
         const int gammaEntries = static_cast<int>(std::count_if(
             mixedLocalSearch.records.begin(),
@@ -833,8 +835,7 @@ void MA::run_generation() {
                 write_local_search_allocation_snapshot();
             }
         }
-        if (operatorSelectionPolicy
-            == OperatorSelectionPolicy::BudgetAware) {
+        if (localSearchPolicy != LocalSearchPolicy::Static) {
             accumulate_operator_learning_stats(
                 generationOperatorLearningStats);
             if (pendingOperatorLearningGenerations

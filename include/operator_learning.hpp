@@ -37,7 +37,8 @@ public:
     [[nodiscard]] const SelectionWeights&
     call_selection_weights() const;
     [[nodiscard]] GenerationStats update(
-        const LocalSearchAllocationRun& run);
+        const LocalSearchAllocationRun& run,
+        bool budgetAwareSelection = true);
     [[nodiscard]] double estimated_cost_per_call(
         LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double efficiency(

@@ -122,8 +122,11 @@ BudgetAwareOperatorScheduler::call_selection_weights() const {
 
 BudgetAwareOperatorScheduler::GenerationStats
 BudgetAwareOperatorScheduler::update(
-    const LocalSearchAllocationRun& run) {
+    const LocalSearchAllocationRun& run,
+    bool budgetAwareSelection) {
     GenerationStats generationStats{};
+    const double uniformProbability =
+        1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT);
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
@@ -132,9 +135,13 @@ BudgetAwareOperatorScheduler::update(
         generationStats[index].efficiency =
             efficiencies[index];
         generationStats[index].targetBudgetShare =
-            targetBudgetShares[index];
+            budgetAwareSelection
+            ? targetBudgetShares[index]
+            : uniformProbability;
         generationStats[index].selectionProbability =
-            selectionProbabilities[index];
+            budgetAwareSelection
+            ? selectionProbabilities[index]
+            : uniformProbability;
         arms[index].effectiveObservations *= kDiscountFactor;
         arms[index].calls *= kDiscountFactor;
         arms[index].distanceCalls *= kDiscountFactor;
