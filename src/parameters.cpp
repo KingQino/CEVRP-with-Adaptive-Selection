@@ -37,14 +37,17 @@ void Parameters::validate() const {
         throw std::invalid_argument(
             "allocated ls_policy requires -ls strong or bounded_strong");
     }
-    if (operatorSelectionPolicy == OperatorSelectionPolicy::Online
-        && (localSearchPolicy
-                != LocalSearchPolicy::OnlineIndividual
+    if (operatorSelectionPolicy
+            == OperatorSelectionPolicy::BudgetAware
+        && ((localSearchPolicy
+                != LocalSearchPolicy::MatchedRandom
+             && localSearchPolicy
+                != LocalSearchPolicy::OnlineIndividual)
             || localSearchIntensity
                 != LocalSearchIntensity::BoundedStrong)) {
         throw std::invalid_argument(
-            "online op_policy requires -ls bounded_strong "
-            "and -ls_policy online");
+            "budget_aware op_policy requires -ls bounded_strong "
+            "and -ls_policy matched_random or online");
     }
 
     require_probability(mutationProb, "mutation_prob");

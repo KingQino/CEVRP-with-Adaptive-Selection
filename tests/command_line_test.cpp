@@ -125,26 +125,27 @@ int main() {
         boundedOnlineParameters.localSearchIntensity
         == LocalSearchIntensity::BoundedStrong);
 
-    std::vector<std::string> operatorOnlineArguments = {
+    std::vector<std::string> budgetAwareArguments = {
         "build/command_line_test",
         "-ls", "bounded_strong",
         "-ls_policy", "online",
-        "-op_policy", "online",
+        "-op_policy", "budget_aware",
     };
-    CommandLine operatorOnlineCommandLine = make_command_line(
-        operatorOnlineArguments);
-    Parameters operatorOnlineParameters;
-    operatorOnlineCommandLine.parse_parameters(
-        operatorOnlineParameters);
-    operatorOnlineParameters.validate();
+    CommandLine budgetAwareCommandLine = make_command_line(
+        budgetAwareArguments);
+    Parameters budgetAwareParameters;
+    budgetAwareCommandLine.parse_parameters(
+        budgetAwareParameters);
+    budgetAwareParameters.validate();
     assert(
-        operatorOnlineParameters.operatorSelectionPolicy
-        == OperatorSelectionPolicy::Online);
+        budgetAwareParameters.operatorSelectionPolicy
+        == OperatorSelectionPolicy::BudgetAware);
 
     std::vector<std::string> matchedRandomArguments = {
         "build/command_line_test",
         "-ls", "bounded_strong",
         "-ls_policy", "matched-random",
+        "-op_policy", "budget-aware",
     };
     CommandLine matchedRandomCommandLine = make_command_line(
         matchedRandomArguments);
@@ -155,6 +156,9 @@ int main() {
     assert(
         matchedRandomParameters.localSearchPolicy
         == LocalSearchPolicy::MatchedRandom);
+    assert(
+        matchedRandomParameters.operatorSelectionPolicy
+        == OperatorSelectionPolicy::BudgetAware);
 
     std::vector<std::string> nonContextualArguments = {
         "build/command_line_test",
@@ -182,10 +186,10 @@ int main() {
 
     Parameters invalidOperatorPolicy;
     invalidOperatorPolicy.operatorSelectionPolicy =
-        OperatorSelectionPolicy::Online;
+        OperatorSelectionPolicy::BudgetAware;
     assert(validation_fails(
         invalidOperatorPolicy,
-        "online op_policy requires"));
+        "budget_aware op_policy requires"));
 
     Parameters invalidMix;
     invalidMix.verifiedUpperRatio = 0.11;

@@ -947,16 +947,16 @@ int main(int argc, char* argv[]) {
         mediumRewardStats.continuationGainSignal - 0.05)
         <= 1e-12);
 
-    OnlineOperatorLearner operatorLearner;
-    operatorLearner.reset();
+    BudgetAwareOperatorScheduler operatorScheduler;
+    operatorScheduler.reset();
     const double initialOperatorProbability =
         1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT);
     assert(std::fabs(
-        operatorLearner.selection_probability(
+        operatorScheduler.selection_probability(
             LocalSearchOperator::NodeShift)
         - initialOperatorProbability) <= 1e-12);
     const auto operatorLearningStats =
-        operatorLearner.update(rewardRun);
+        operatorScheduler.update(rewardRun);
     const auto& firstLearnedOperator = operatorLearningStats[
         static_cast<std::size_t>(
             LocalSearchOperator::NodeShift)];
@@ -966,64 +966,112 @@ int main(int argc, char* argv[]) {
     assert(firstLearnedOperator.operatorStats.calls == 2);
     assert(secondLearnedOperator.operatorStats.calls == 1);
     assert(std::fabs(
-        firstLearnedOperator.creditedReward - 0.7375)
+        firstLearnedOperator.relativeUpperGain - 0.0075)
         <= 1e-12);
     assert(std::fabs(
-        secondLearnedOperator.creditedReward - 0.1625)
+        secondLearnedOperator.relativeUpperGain - 0.0025)
         <= 1e-12);
     assert(std::fabs(
-        firstLearnedOperator.creditedReward
-        + secondLearnedOperator.creditedReward
-        - finalizedReward.reward) <= 1e-12);
+        operatorScheduler.estimated_cost_per_call(
+            LocalSearchOperator::NodeShift) - 25.0)
+        <= 1e-12);
+    assert(std::fabs(
+        operatorScheduler.estimated_cost_per_call(
+            LocalSearchOperator::InterRouteRelocate) - 250.0)
+        <= 1e-12);
+    assert(std::fabs(
+        operatorScheduler.efficiency(
+            LocalSearchOperator::NodeShift) - 0.00015)
+        <= 1e-12);
+    assert(std::fabs(
+        operatorScheduler.efficiency(
+            LocalSearchOperator::InterRouteRelocate) - 0.00001)
+        <= 1e-12);
     assert(
-        operatorLearner.selection_probability(
+        operatorScheduler.target_budget_share(
             LocalSearchOperator::NodeShift)
-        > operatorLearner.selection_probability(
+        > operatorScheduler.target_budget_share(
+            LocalSearchOperator::InterRouteRelocate));
+    assert(
+        operatorScheduler.selection_probability(
+            LocalSearchOperator::NodeShift)
+        > operatorScheduler.selection_probability(
             LocalSearchOperator::InterRouteRelocate));
     assert(std::fabs(
-        operatorLearner.effective_observations(
+        operatorScheduler.effective_observations(
             LocalSearchOperator::NodeShift)
         - 1.0) <= 1e-12);
     assert(std::fabs(
-        operatorLearner.effective_observations(
+        operatorScheduler.effective_observations(
             LocalSearchOperator::InterRouteRelocate)
         - 1.0) <= 1e-12);
 
-    LocalSearchAllocationRun scaledRewardRun = rewardRun;
-    for (auto& operatorStats :
-         scaledRewardRun.records.front()
-             .continuationResult.operatorStats) {
-        operatorStats.calls *= 100;
-        operatorStats.accepts *= 100;
-        operatorStats.distanceCalls *= 100;
-    }
-    OnlineOperatorLearner scaledOperatorLearner;
-    scaledOperatorLearner.reset();
-    const auto scaledOperatorLearningStats =
-        scaledOperatorLearner.update(scaledRewardRun);
-    assert(
-        scaledOperatorLearningStats[
-            static_cast<std::size_t>(
-                LocalSearchOperator::NodeShift)]
-            .operatorStats.calls == 200);
     double operatorProbabilitySum = 0.0;
+    double targetBudgetShareSum = 0.0;
+    double impliedBudgetTotal = 0.0;
     for (std::size_t operatorIndex = 0;
          operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
          ++operatorIndex) {
         const auto localSearchOperator =
             static_cast<LocalSearchOperator>(operatorIndex);
         operatorProbabilitySum +=
-            operatorLearner.selection_probability(
+            operatorScheduler.selection_probability(
                 localSearchOperator);
-        assert(std::fabs(
-            operatorLearner.selection_probability(
+        targetBudgetShareSum +=
+            operatorScheduler.target_budget_share(
+                localSearchOperator);
+        impliedBudgetTotal +=
+            operatorScheduler.selection_probability(
                 localSearchOperator)
-            - scaledOperatorLearner.selection_probability(
-                localSearchOperator)) <= 1e-12);
+            * operatorScheduler.estimated_cost_per_call(
+                localSearchOperator);
     }
     assert(std::fabs(operatorProbabilitySum - 1.0) <= 1e-12);
+    assert(std::fabs(targetBudgetShareSum - 1.0) <= 1e-12);
+    for (std::size_t operatorIndex = 0;
+         operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++operatorIndex) {
+        const auto localSearchOperator =
+            static_cast<LocalSearchOperator>(operatorIndex);
+        const double impliedBudgetShare =
+            operatorScheduler.selection_probability(
+                localSearchOperator)
+            * operatorScheduler.estimated_cost_per_call(
+                localSearchOperator)
+            / impliedBudgetTotal;
+        assert(std::fabs(
+            impliedBudgetShare
+            - operatorScheduler.target_budget_share(
+                localSearchOperator)) <= 1e-12);
+    }
 
-    OnlineOperatorLearner::SelectionWeights
+    LocalSearchAllocationRun failedOperatorRun;
+    AllocatedLocalSearchRecord failedOperatorRecord;
+    failedOperatorRecord.costAfterWeak = 100.0;
+    auto& failedOperatorStats =
+        failedOperatorRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    failedOperatorStats.calls = 4;
+    failedOperatorStats.distanceCalls = 100;
+    failedOperatorRun.records.push_back(
+        std::move(failedOperatorRecord));
+    const double efficiencyBeforeFailure =
+        operatorScheduler.efficiency(
+            LocalSearchOperator::NodeShift);
+    const auto failedOperatorLearningStats =
+        operatorScheduler.update(failedOperatorRun);
+    assert(
+        failedOperatorLearningStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)]
+            .operatorStats.calls == 4);
+    assert(
+        operatorScheduler.efficiency(
+            LocalSearchOperator::NodeShift)
+        < efficiencyBeforeFailure);
+
+    BudgetAwareOperatorScheduler::SelectionWeights
         dominantOperatorWeights{};
     dominantOperatorWeights[
         static_cast<std::size_t>(
@@ -1031,7 +1079,7 @@ int main(int argc, char* argv[]) {
     const LocalSearchOperatorSelectionTable selectionTable =
         Leader::build_operator_selection_table(
             dominantOperatorWeights,
-            OnlineOperatorLearner::UNIFORM_EXPLORATION_RATE);
+            0.0);
     const auto& fullSelectionEntry =
         selectionTable.entries[
             LOCAL_SEARCH_ALL_OPERATOR_MASK];
@@ -1040,7 +1088,7 @@ int main(int argc, char* argv[]) {
         == LOCAL_SEARCH_OPERATOR_COUNT);
     assert(std::fabs(
         fullSelectionEntry.cumulativeProbabilities.front()
-        - 0.95625) <= 1e-12);
+        - 1.0) <= 1e-12);
     const std::size_t firstTwoOperatorMask =
         (1U << static_cast<std::size_t>(
             LocalSearchOperator::NodeShift))
@@ -1052,15 +1100,15 @@ int main(int argc, char* argv[]) {
     assert(std::fabs(
         twoOperatorSelectionEntry
             .cumulativeProbabilities[0]
-        - 0.975) <= 1e-12);
+        - 1.0) <= 1e-12);
     assert(std::fabs(
         twoOperatorSelectionEntry
             .cumulativeProbabilities[1]
         - 1.0) <= 1e-12);
     assert(
         std::string(operator_selection_policy_name(
-            OperatorSelectionPolicy::Online))
-        == "online");
+            OperatorSelectionPolicy::BudgetAware))
+        == "budget_aware");
 
     LocalSearchAllocationContext syntheticContext;
     syntheticContext.qualityGap = 0.01;
@@ -1449,6 +1497,8 @@ int main(int argc, char* argv[]) {
     matchedAllocationParameters.seed = 46;
     matchedAllocationParameters.localSearchPolicy =
         LocalSearchPolicy::MatchedRandom;
+    matchedAllocationParameters.operatorSelectionPolicy =
+        OperatorSelectionPolicy::BudgetAware;
     MA matchedAllocationAlgorithm(
         &matchedAllocationInstance,
         matchedAllocationParameters);
@@ -1492,6 +1542,46 @@ int main(int argc, char* argv[]) {
         + matchedAllocationAlgorithm.localSearchAllocator
             .observation_count(LocalSearchIntensity::Strong)
         == 0);
+    assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
+           == "iter\tgenerations\toperator\tcalls\taccepts\t"
+              "distance_calls\tupper_gain\trelative_upper_gain\t"
+              "gamma_crosses\t"
+              "relative_gain_per_million_distance_calls\t"
+              "avg_estimated_cost_per_call\tavg_efficiency\t"
+              "avg_target_budget_share\trealized_budget_share\t"
+              "avg_selection_probability");
+    matchedAllocationAlgorithm.write_operator_learning_snapshot();
+    std::istringstream operatorLearningRows(
+        matchedAllocationAlgorithm.operatorLearningRows.str());
+    int operatorLearningRowCount = 0;
+    double loggedTargetBudgetShare = 0.0;
+    double loggedSelectionProbability = 0.0;
+    while (std::getline(
+        operatorLearningRows,
+        localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 15);
+        assert(columns[1] == "1");
+        assert(
+            std::stoull(columns[5])
+            <= matchedAllocationInstance.get_distance_calls());
+        assert(std::stod(columns[9]) >= 0.0);
+        assert(std::stod(columns[10]) >= 1.0);
+        assert(std::stod(columns[11]) >= 0.0);
+        loggedTargetBudgetShare += std::stod(columns[12]);
+        loggedSelectionProbability += std::stod(columns[14]);
+        ++operatorLearningRowCount;
+    }
+    assert(
+        operatorLearningRowCount
+        == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
+    assert(std::fabs(loggedTargetBudgetShare - 1.0) <= 1e-8);
+    assert(std::fabs(loggedSelectionProbability - 1.0) <= 1e-8);
 
     Case onlineAllocationInstance(instancePath, 47);
     Parameters onlineAllocationParameters =

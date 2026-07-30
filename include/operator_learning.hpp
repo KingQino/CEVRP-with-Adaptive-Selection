@@ -10,7 +10,7 @@ struct LocalSearchAllocationRun;
 
 enum class OperatorSelectionPolicy {
     Uniform,
-    Online,
+    BudgetAware,
 };
 
 const char* operator_selection_policy_name(
@@ -18,25 +18,32 @@ const char* operator_selection_policy_name(
 
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
-    double creditedReward{};
-    double normalizedCostUnits{};
-    double score{};
+    double relativeUpperGain{};
+    double estimatedCostPerCall{};
+    double efficiency{};
+    double targetBudgetShare{};
     double selectionProbability{};
 };
 
-class OnlineOperatorLearner {
+class BudgetAwareOperatorScheduler {
 public:
-    static constexpr double UNIFORM_EXPLORATION_RATE = 0.05;
+    static constexpr double BUDGET_EXPLORATION_RATE = 0.20;
     using SelectionWeights =
         std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>;
     using GenerationStats =
         std::array<OperatorLearningStats, LOCAL_SEARCH_OPERATOR_COUNT>;
 
     void reset();
-    [[nodiscard]] const SelectionWeights& selection_weights() const;
+    [[nodiscard]] const SelectionWeights&
+    call_selection_weights() const;
     [[nodiscard]] GenerationStats update(
         const LocalSearchAllocationRun& run);
-    [[nodiscard]] double score(LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double estimated_cost_per_call(
+        LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double efficiency(
+        LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double target_budget_share(
+        LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double selection_probability(
         LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double effective_observations(
@@ -45,16 +52,20 @@ public:
 private:
     struct ArmState {
         double effectiveObservations{};
-        double rewardRateSum{};
-        double logCostRateSum{};
+        double calls{};
+        double distanceCalls{};
+        double relativeUpperGain{};
     };
 
     std::array<ArmState, LOCAL_SEARCH_OPERATOR_COUNT> arms{};
     SelectionWeights scores{};
-    SelectionWeights selectionWeights{};
+    SelectionWeights estimatedCostsPerCall{};
+    SelectionWeights efficiencies{};
+    SelectionWeights targetBudgetShares{};
+    SelectionWeights callSelectionWeights{};
     SelectionWeights selectionProbabilities{};
 
-    void recompute_selection_weights();
+    void recompute_scheduler();
 };
 
 #endif

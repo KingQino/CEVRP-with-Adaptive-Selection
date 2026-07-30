@@ -10,12 +10,12 @@
 namespace {
 
 constexpr double kDiscountFactor = 0.95;
-constexpr double kExplorationScale = 0.08;
-constexpr double kNormalizedCostWeight = 1.0;
+constexpr double kExplorationScale = 0.20;
 constexpr double kSoftmaxTemperature = 1.0;
 constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
 constexpr double kMinimumScale = 1e-12;
+constexpr double kMinimumEstimatedCostPerCall = 1.0;
 
 std::size_t operator_index(LocalSearchOperator localSearchOperator) {
     const std::size_t index =
@@ -97,55 +97,56 @@ const char* operator_selection_policy_name(
     switch (policy) {
         case OperatorSelectionPolicy::Uniform:
             return "uniform";
-        case OperatorSelectionPolicy::Online:
-            return "online";
+        case OperatorSelectionPolicy::BudgetAware:
+            return "budget_aware";
     }
     return "unknown";
 }
 
-void OnlineOperatorLearner::reset() {
+void BudgetAwareOperatorScheduler::reset() {
     arms = {};
     scores = {};
-    selectionWeights.fill(
+    estimatedCostsPerCall.fill(kMinimumEstimatedCostPerCall);
+    efficiencies = {};
+    targetBudgetShares.fill(
         1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT));
-    selectionProbabilities = selectionWeights;
-    recompute_selection_weights();
+    callSelectionWeights = targetBudgetShares;
+    selectionProbabilities = targetBudgetShares;
+    recompute_scheduler();
 }
 
-const OnlineOperatorLearner::SelectionWeights&
-OnlineOperatorLearner::selection_weights() const {
-    return selectionWeights;
+const BudgetAwareOperatorScheduler::SelectionWeights&
+BudgetAwareOperatorScheduler::call_selection_weights() const {
+    return callSelectionWeights;
 }
 
-OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
+BudgetAwareOperatorScheduler::GenerationStats
+BudgetAwareOperatorScheduler::update(
     const LocalSearchAllocationRun& run) {
     GenerationStats generationStats{};
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
-        generationStats[index].score = scores[index];
+        generationStats[index].estimatedCostPerCall =
+            estimatedCostsPerCall[index];
+        generationStats[index].efficiency =
+            efficiencies[index];
+        generationStats[index].targetBudgetShare =
+            targetBudgetShares[index];
         generationStats[index].selectionProbability =
             selectionProbabilities[index];
         arms[index].effectiveObservations *= kDiscountFactor;
-        arms[index].rewardRateSum *= kDiscountFactor;
-        arms[index].logCostRateSum *= kDiscountFactor;
+        arms[index].calls *= kDiscountFactor;
+        arms[index].distanceCalls *= kDiscountFactor;
+        arms[index].relativeUpperGain *= kDiscountFactor;
     }
 
     for (const auto& record : run.records) {
-        double totalUpperGain = 0.0;
-        int totalGammaCrosses = 0;
-        for (const auto& stats :
-             record.continuationResult.operatorStats) {
-            totalUpperGain += stats.upperGain;
-            totalGammaCrosses += stats.gammaCrosses;
-        }
-
-        const double downstreamReward =
-            record.parentReward + record.lowerReward;
-        const double weakDistanceCalls = static_cast<double>(
-            std::max<std::uint64_t>(
-                1,
-                record.weakResult.distanceCallsUsed));
+        // Downstream parent/lower rewards belong to intensity allocation.
+        // The operator layer learns only its immediate continuation gain.
+        const double upperCostScale = std::max(
+            std::fabs(record.costAfterWeak),
+            kMinimumScale);
 
         for (std::size_t index = 0;
              index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -156,32 +157,11 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
                 continue;
             }
 
-            const double gainCredit = totalUpperGain > 0.0
-                ? downstreamReward
-                    * operatorStats.upperGain
-                    / totalUpperGain
-                : 0.0;
-            // Gamma credit is kept separate so crossing the follower
-            // threshold is attributed to the operator that caused it.
-            const double gammaCredit = totalGammaCrosses > 0
-                ? record.gammaReward
-                    * static_cast<double>(
-                        operatorStats.gammaCrosses)
-                    / static_cast<double>(totalGammaCrosses)
-                : 0.0;
-            const double creditedReward =
-                gainCredit + gammaCredit;
-            const double normalizedCostUnits =
-                static_cast<double>(operatorStats.distanceCalls)
-                / weakDistanceCalls;
-
             add_operator_stats(
                 generationStats[index].operatorStats,
                 operatorStats);
-            generationStats[index].creditedReward +=
-                creditedReward;
-            generationStats[index].normalizedCostUnits +=
-                normalizedCostUnits;
+            generationStats[index].relativeUpperGain +=
+                operatorStats.upperGain / upperCostScale;
         }
     }
 
@@ -193,39 +173,47 @@ OnlineOperatorLearner::GenerationStats OnlineOperatorLearner::update(
         if (callCount <= 0.0) {
             continue;
         }
-        const double rewardPerCall =
-            generationStats[index].creditedReward / callCount;
-        const double costPerCall =
-            generationStats[index].normalizedCostUnits
-            / callCount;
+
         arms[index].effectiveObservations += 1.0;
-        arms[index].rewardRateSum += rewardPerCall;
-        arms[index].logCostRateSum +=
-            std::log1p(costPerCall);
+        arms[index].calls += callCount;
+        arms[index].distanceCalls += static_cast<double>(
+            generationStats[index].operatorStats.distanceCalls);
+        arms[index].relativeUpperGain +=
+            generationStats[index].relativeUpperGain;
     }
 
-    recompute_selection_weights();
+    recompute_scheduler();
     return generationStats;
 }
 
-double OnlineOperatorLearner::score(
+double BudgetAwareOperatorScheduler::estimated_cost_per_call(
     LocalSearchOperator localSearchOperator) const {
-    return scores[operator_index(localSearchOperator)];
+    return estimatedCostsPerCall[operator_index(localSearchOperator)];
 }
 
-double OnlineOperatorLearner::selection_probability(
+double BudgetAwareOperatorScheduler::efficiency(
+    LocalSearchOperator localSearchOperator) const {
+    return efficiencies[operator_index(localSearchOperator)];
+}
+
+double BudgetAwareOperatorScheduler::target_budget_share(
+    LocalSearchOperator localSearchOperator) const {
+    return targetBudgetShares[operator_index(localSearchOperator)];
+}
+
+double BudgetAwareOperatorScheduler::selection_probability(
     LocalSearchOperator localSearchOperator) const {
     return selectionProbabilities[
         operator_index(localSearchOperator)];
 }
 
-double OnlineOperatorLearner::effective_observations(
+double BudgetAwareOperatorScheduler::effective_observations(
     LocalSearchOperator localSearchOperator) const {
     return arms[operator_index(localSearchOperator)]
         .effectiveObservations;
 }
 
-void OnlineOperatorLearner::recompute_selection_weights() {
+void BudgetAwareOperatorScheduler::recompute_scheduler() {
     const double totalEffectiveObservations = std::accumulate(
         arms.begin(),
         arms.end(),
@@ -234,26 +222,60 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             return total + arm.effectiveObservations;
         });
 
-    SelectionWeights rewardSignals{};
-    SelectionWeights costSignals{};
+    SelectionWeights observedCostsPerCall{};
+    std::array<bool, LOCAL_SEARCH_OPERATOR_COUNT> hasCostObservation{};
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
-        const double effectiveObservations =
-            arms[index].effectiveObservations;
-        if (effectiveObservations > kMinimumScale) {
-            rewardSignals[index] =
-                arms[index].rewardRateSum
-                / effectiveObservations;
-            costSignals[index] =
-                arms[index].logCostRateSum
-                / effectiveObservations;
+        if (arms[index].calls > kMinimumScale) {
+            observedCostsPerCall[index] =
+                arms[index].distanceCalls / arms[index].calls;
+            hasCostObservation[index] = true;
         }
     }
-    const SelectionWeights standardizedReward =
-        robust_standardize(rewardSignals);
-    const SelectionWeights standardizedCost =
-        robust_standardize(costSignals);
+
+    SelectionWeights observedCosts{};
+    std::size_t observedCostCount = 0;
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        if (hasCostObservation[index]) {
+            observedCosts[observedCostCount++] =
+                observedCostsPerCall[index];
+        }
+    }
+    double fallbackCostPerCall = kMinimumEstimatedCostPerCall;
+    if (observedCostCount > 0) {
+        std::sort(
+            observedCosts.begin(),
+            observedCosts.begin() + observedCostCount);
+        const std::size_t middle = observedCostCount / 2;
+        fallbackCostPerCall = observedCostCount % 2 == 0
+            ? 0.5
+                * (observedCosts[middle - 1]
+                   + observedCosts[middle])
+            : observedCosts[middle];
+        fallbackCostPerCall = std::max(
+            fallbackCostPerCall,
+            kMinimumEstimatedCostPerCall);
+    }
+
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
+        estimatedCostsPerCall[index] = std::max(
+            hasCostObservation[index]
+                ? observedCostsPerCall[index]
+                : fallbackCostPerCall,
+            kMinimumEstimatedCostPerCall);
+        efficiencies[index] =
+            arms[index].distanceCalls > kMinimumScale
+            ? arms[index].relativeUpperGain
+                / arms[index].distanceCalls
+            : 0.0;
+    }
+    const SelectionWeights standardizedEfficiency =
+        robust_standardize(efficiencies);
 
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -262,9 +284,7 @@ void OnlineOperatorLearner::recompute_selection_weights() {
             std::log(totalEffectiveObservations + 2.0)
             / (arms[index].effectiveObservations + 1.0));
         scores[index] =
-            standardizedReward[index]
-            - kNormalizedCostWeight
-                * standardizedCost[index]
+            standardizedEfficiency[index]
             + kExplorationScale * uncertainty;
     }
 
@@ -287,14 +307,30 @@ void OnlineOperatorLearner::recompute_selection_weights() {
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
-        const double exploitationProbability =
+        const double learnedBudgetShare =
             softmaxTotal > 0.0
             ? softmaxWeights[index] / softmaxTotal
             : uniformProbability;
-        selectionWeights[index] = exploitationProbability;
+        targetBudgetShares[index] =
+            BUDGET_EXPLORATION_RATE * uniformProbability
+            + (1.0 - BUDGET_EXPLORATION_RATE)
+                * learnedBudgetShare;
+        // Convert a desired cost share into a call weight.
+        callSelectionWeights[index] =
+            targetBudgetShares[index]
+            / estimatedCostsPerCall[index];
+    }
+
+    const double callWeightTotal = std::accumulate(
+        callSelectionWeights.begin(),
+        callSelectionWeights.end(),
+        0.0);
+    for (std::size_t index = 0;
+         index < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++index) {
         selectionProbabilities[index] =
-            UNIFORM_EXPLORATION_RATE * uniformProbability
-            + (1.0 - UNIFORM_EXPLORATION_RATE)
-                * exploitationProbability;
+            callWeightTotal > kMinimumScale
+            ? callSelectionWeights[index] / callWeightTotal
+            : uniformProbability;
     }
 }

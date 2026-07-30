@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <numeric>
 #include <stdexcept>
 
 namespace {
@@ -80,10 +81,13 @@ void add_operator_learning_stats(
         source.operatorStats.upperGain;
     destination.operatorStats.gammaCrosses +=
         source.operatorStats.gammaCrosses;
-    destination.creditedReward += source.creditedReward;
-    destination.normalizedCostUnits +=
-        source.normalizedCostUnits;
-    destination.score += source.score;
+    destination.relativeUpperGain +=
+        source.relativeUpperGain;
+    destination.estimatedCostPerCall +=
+        source.estimatedCostPerCall;
+    destination.efficiency += source.efficiency;
+    destination.targetBudgetShare +=
+        source.targetBudgetShare;
     destination.selectionProbability +=
         source.selectionProbability;
 }
@@ -300,7 +304,7 @@ void MA::open_log_for_local_search() {
             << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
     }
     if (operatorSelectionPolicy
-        == OperatorSelectionPolicy::Online) {
+        == OperatorSelectionPolicy::BudgetAware) {
         logOperatorLearning.open(
             directoryPath / "operator-learning.tsv");
         logOperatorLearning
@@ -437,7 +441,7 @@ void MA::write_local_search_allocation_snapshot() {
 }
 
 void MA::accumulate_operator_learning_stats(
-    const OnlineOperatorLearner::GenerationStats& stats) {
+    const BudgetAwareOperatorScheduler::GenerationStats& stats) {
     for (std::size_t index = 0; index < stats.size(); ++index) {
         add_operator_learning_stats(
             pendingOperatorLearningStats[index],
@@ -449,12 +453,19 @@ void MA::accumulate_operator_learning_stats(
 void MA::write_operator_learning_snapshot() {
     if (pendingOperatorLearningGenerations == 0
         || operatorSelectionPolicy
-            != OperatorSelectionPolicy::Online) {
+            != OperatorSelectionPolicy::BudgetAware) {
         return;
     }
 
     const double generationCount = static_cast<double>(
         pendingOperatorLearningGenerations);
+    const std::uint64_t totalDistanceCalls = std::accumulate(
+        pendingOperatorLearningStats.begin(),
+        pendingOperatorLearningStats.end(),
+        std::uint64_t{0},
+        [](std::uint64_t total, const OperatorLearningStats& stats) {
+            return total + stats.operatorStats.distanceCalls;
+        });
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
          ++index) {
@@ -462,8 +473,8 @@ void MA::write_operator_learning_snapshot() {
             static_cast<LocalSearchOperator>(index);
         const auto& stats =
             pendingOperatorLearningStats[index];
-        const double callCount = static_cast<double>(
-            stats.operatorStats.calls);
+        const double distanceCalls = static_cast<double>(
+            stats.operatorStats.distanceCalls);
         operatorLearningRows
             << setprecision(12)
             << generation << "\t"
@@ -471,15 +482,20 @@ void MA::write_operator_learning_snapshot() {
             << Leader::operator_name(localSearchOperator) << "\t"
             << stats.operatorStats.calls << "\t"
             << stats.operatorStats.accepts << "\t"
-            << instance->distance_calls_to_evals(
-                stats.operatorStats.distanceCalls) << "\t"
+            << stats.operatorStats.distanceCalls << "\t"
             << stats.operatorStats.upperGain << "\t"
+            << stats.relativeUpperGain << "\t"
             << stats.operatorStats.gammaCrosses << "\t"
-            << stats.creditedReward << "\t"
-            << (stats.operatorStats.calls > 0
-                ? stats.normalizedCostUnits / callCount
+            << (stats.operatorStats.distanceCalls > 0
+                ? 1e6 * stats.relativeUpperGain / distanceCalls
                 : 0.0) << "\t"
-            << stats.score / generationCount << "\t"
+            << stats.estimatedCostPerCall / generationCount << "\t"
+            << stats.efficiency / generationCount << "\t"
+            << stats.targetBudgetShare / generationCount << "\t"
+            << (totalDistanceCalls > 0
+                ? distanceCalls
+                    / static_cast<double>(totalDistanceCalls)
+                : 0.0) << "\t"
             << stats.selectionProbability / generationCount
             << "\n";
     }
@@ -516,7 +532,7 @@ void MA::save_log_for_solution() {
 
 void MA::initialize_search() {
     localSearchAllocator.reset();
-    operatorLearner.reset();
+    operatorScheduler.reset();
     pendingLocalSearchOperatorStats = {};
     pendingLocalSearchOperatorGenerations = 0;
     pendingLocalSearchAllocationStats = {};
@@ -564,19 +580,18 @@ void MA::run_generation() {
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> generationOperatorStats{};
-    OnlineOperatorLearner::GenerationStats
+    BudgetAwareOperatorScheduler::GenerationStats
         generationOperatorLearningStats{};
     LocalSearchOperatorSelectionTable
         generationOperatorSelectionTable;
     const LocalSearchOperatorSelectionTable*
         generationOperatorSelectionTablePointer = nullptr;
     if (operatorSelectionPolicy
-        == OperatorSelectionPolicy::Online) {
+        == OperatorSelectionPolicy::BudgetAware) {
         generationOperatorSelectionTable =
             Leader::build_operator_selection_table(
-                operatorLearner.selection_weights(),
-                OnlineOperatorLearner::
-                    UNIFORM_EXPLORATION_RATE);
+                operatorScheduler.call_selection_weights(),
+                0.0);
         generationOperatorSelectionTablePointer =
             &generationOperatorSelectionTable;
     }
@@ -676,7 +691,7 @@ void MA::run_generation() {
             localSearchAllocator,
             generationOperatorSelectionTablePointer,
             operatorSelectionPolicy
-                    == OperatorSelectionPolicy::Online
+                    == OperatorSelectionPolicy::BudgetAware
                 ? &operatorSelectionEngine
                 : nullptr);
         generationOperatorStats =
@@ -780,9 +795,9 @@ void MA::run_generation() {
             localSearchPolicy,
             localSearchAllocator);
         if (operatorSelectionPolicy
-            == OperatorSelectionPolicy::Online) {
+            == OperatorSelectionPolicy::BudgetAware) {
             generationOperatorLearningStats =
-                operatorLearner.update(mixedLocalSearch);
+                operatorScheduler.update(mixedLocalSearch);
         }
         const int gammaEntries = static_cast<int>(std::count_if(
             mixedLocalSearch.records.begin(),
@@ -812,7 +827,7 @@ void MA::run_generation() {
             }
         }
         if (operatorSelectionPolicy
-            == OperatorSelectionPolicy::Online) {
+            == OperatorSelectionPolicy::BudgetAware) {
             accumulate_operator_learning_stats(
                 generationOperatorLearningStats);
             if (pendingOperatorLearningGenerations

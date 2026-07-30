@@ -40,9 +40,12 @@ public:
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
-        "iter\tgenerations\toperator\tcalls\taccepts\tevals\tupper_gain\t"
-        "gamma_crosses\tcredited_reward\tavg_cost_units\t"
-        "avg_score\tavg_selection_probability";
+        "iter\tgenerations\toperator\tcalls\taccepts\tdistance_calls\t"
+        "upper_gain\trelative_upper_gain\tgamma_crosses\t"
+        "relative_gain_per_million_distance_calls\t"
+        "avg_estimated_cost_per_call\tavg_efficiency\t"
+        "avg_target_budget_share\trealized_budget_share\t"
+        "avg_selection_probability";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -70,7 +73,7 @@ public:
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();
     void accumulate_operator_learning_stats(
-        const OnlineOperatorLearner::GenerationStats& stats);
+        const BudgetAwareOperatorScheduler::GenerationStats& stats);
     void write_operator_learning_snapshot();
 
     std::ostringstream evolutionRows;
@@ -88,7 +91,7 @@ public:
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};
-    OnlineOperatorLearner::GenerationStats
+    BudgetAwareOperatorScheduler::GenerationStats
         pendingOperatorLearningStats{};
     int pendingOperatorLearningGenerations{};
     Case* instance;
@@ -108,7 +111,7 @@ public:
     LocalSearchWorkspace localSearchWorkspace;
     std::vector<LocalSearchWorkspace> mixedLocalSearchWorkspaces;
     OnlineIntensityLearner localSearchAllocator;
-    OnlineOperatorLearner operatorLearner;
+    BudgetAwareOperatorScheduler operatorScheduler;
     int seed;
     int isMaxEvals; // stop criteria, 1 for max-evals, others for max-exec-time
     bool enableLogging;

@@ -87,11 +87,13 @@ OperatorSelectionPolicy parse_operator_selection_policy(
     if (normalized == "uniform") {
         return OperatorSelectionPolicy::Uniform;
     }
-    if (normalized == "online") {
-        return OperatorSelectionPolicy::Online;
+    if (normalized == "budget_aware"
+        || normalized == "budget-aware"
+        || normalized == "online") {
+        return OperatorSelectionPolicy::BudgetAware;
     }
     throw std::invalid_argument(
-        "op_policy must be one of: uniform, online");
+        "op_policy must be one of: uniform, budget_aware");
 }
 
 }  // namespace
@@ -218,7 +220,8 @@ void CommandLine::display_help() {
         << "  -ls_policy <static|random|matched_random|non_contextual|online>\n"
         << "                                  Local-search allocation policy\n"
         << "                                  (default: static)\n"
-        << "  -op_policy <uniform|online>     Continuation operator policy\n"
+        << "  -op_policy <uniform|budget_aware>\n"
+        << "                                  Continuation operator policy\n"
         << "                                  (default: uniform)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
         << "  -quality_ratio <double>        Quality share in parent pool (default: 0.50)\n"
