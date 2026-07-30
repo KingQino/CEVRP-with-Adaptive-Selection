@@ -586,11 +586,19 @@ void MA::run_generation() {
         generationOperatorSelectionTable;
     const LocalSearchOperatorSelectionTable*
         generationOperatorSelectionTablePointer = nullptr;
-    if (operatorSelectionPolicy
-        == OperatorSelectionPolicy::BudgetAware) {
+    if (localSearchPolicy != LocalSearchPolicy::Static) {
+        BudgetAwareOperatorScheduler::SelectionWeights
+            operatorSelectionWeights{};
+        if (operatorSelectionPolicy
+            == OperatorSelectionPolicy::BudgetAware) {
+            operatorSelectionWeights =
+                operatorScheduler.call_selection_weights();
+        } else {
+            operatorSelectionWeights.fill(1.0);
+        }
         generationOperatorSelectionTable =
             Leader::build_operator_selection_table(
-                operatorScheduler.call_selection_weights(),
+                operatorSelectionWeights,
                 0.0);
         generationOperatorSelectionTablePointer =
             &generationOperatorSelectionTable;
@@ -690,8 +698,7 @@ void MA::run_generation() {
             mixedLocalSearchWorkspaces,
             localSearchAllocator,
             generationOperatorSelectionTablePointer,
-            operatorSelectionPolicy
-                    == OperatorSelectionPolicy::BudgetAware
+            generationOperatorSelectionTablePointer != nullptr
                 ? &operatorSelectionEngine
                 : nullptr);
         generationOperatorStats =

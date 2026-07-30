@@ -74,7 +74,9 @@ than raw call count. It learns each operator's discounted relative upper gain
 per distance call, converts the learned target budget shares into call
 probabilities using the estimated cost per call, and reserves 20% of the budget
 share for uniform exploration. It is available with `-ls bounded_strong` and
-either `-ls_policy matched_random` or `-ls_policy online`.
+either `-ls_policy matched_random` or `-ls_policy online`. Uniform and
+budget-aware continuation selection use the same dedicated random-number
+stream, so policy ablations do not perturb the random stream used inside moves.
 
 
 
