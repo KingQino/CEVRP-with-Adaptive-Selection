@@ -41,9 +41,12 @@ public:
         "avg_incremental_cost_units\tavg_score";
     static constexpr const char* OPERATOR_LEARNING_LOG_HEADER =
         "iter\tgenerations\toperator\tcalls\taccepts\tdistance_calls\t"
-        "upper_gain\trelative_upper_gain\tgamma_crosses\t"
+        "upper_gain\trelative_upper_gain\tepisode_advantage_credit\t"
+        "gamma_crosses\t"
         "relative_gain_per_million_distance_calls\t"
-        "avg_estimated_cost_per_call\tavg_efficiency\t"
+        "episode_advantage_per_million_distance_calls\t"
+        "avg_estimated_cost_per_call\tavg_immediate_efficiency\t"
+        "avg_episode_efficiency\tavg_score\t"
         "avg_target_budget_share\trealized_budget_share\t"
         "avg_selection_probability";
 

@@ -11,6 +11,7 @@ namespace {
 
 constexpr double kDiscountFactor = 0.95;
 constexpr double kExplorationScale = 0.20;
+constexpr double kEpisodeAdvantageWeight = 0.25;
 constexpr double kSoftmaxTemperature = 1.0;
 constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
@@ -108,6 +109,7 @@ void BudgetAwareOperatorScheduler::reset() {
     scores = {};
     estimatedCostsPerCall.fill(kMinimumEstimatedCostPerCall);
     efficiencies = {};
+    episodeEfficiencies = {};
     targetBudgetShares.fill(
         1.0 / static_cast<double>(LOCAL_SEARCH_OPERATOR_COUNT));
     callSelectionWeights = targetBudgetShares;
@@ -134,6 +136,9 @@ BudgetAwareOperatorScheduler::update(
             estimatedCostsPerCall[index];
         generationStats[index].efficiency =
             efficiencies[index];
+        generationStats[index].episodeEfficiency =
+            episodeEfficiencies[index];
+        generationStats[index].score = scores[index];
         generationStats[index].targetBudgetShare =
             budgetAwareSelection
             ? targetBudgetShares[index]
@@ -146,14 +151,56 @@ BudgetAwareOperatorScheduler::update(
         arms[index].calls *= kDiscountFactor;
         arms[index].distanceCalls *= kDiscountFactor;
         arms[index].relativeUpperGain *= kDiscountFactor;
+        arms[index].episodeAdvantageCredit *= kDiscountFactor;
+    }
+
+    std::array<double, 3> episodeRewardSums{};
+    std::array<int, 3> episodeRewardCounts{};
+    for (const auto& record : run.records) {
+        const std::size_t intensityIndex =
+            LocalSearchAllocationRunner::intensity_index(
+                record.terminalIntensity);
+        episodeRewardSums[intensityIndex] +=
+            record.parentReward
+            + record.lowerReward
+            + record.gammaReward;
+        ++episodeRewardCounts[intensityIndex];
+    }
+
+    std::array<double, 3> meanEpisodeRewards{};
+    for (std::size_t intensityIndex = 0;
+         intensityIndex < meanEpisodeRewards.size();
+         ++intensityIndex) {
+        if (episodeRewardCounts[intensityIndex] > 0) {
+            meanEpisodeRewards[intensityIndex] =
+                episodeRewardSums[intensityIndex]
+                / static_cast<double>(
+                    episodeRewardCounts[intensityIndex]);
+        }
     }
 
     for (const auto& record : run.records) {
-        // Downstream parent/lower rewards belong to intensity allocation.
-        // The operator layer learns only its immediate continuation gain.
         const double upperCostScale = std::max(
             std::fabs(record.costAfterWeak),
             kMinimumScale);
+        std::size_t successfulOperatorCount = 0;
+        for (const auto& operatorStats :
+             record.continuationResult.operatorStats) {
+            successfulOperatorCount += operatorStats.accepts > 0;
+        }
+        const std::size_t intensityIndex =
+            LocalSearchAllocationRunner::intensity_index(
+                record.terminalIntensity);
+        const double episodeReward =
+            record.parentReward
+            + record.lowerReward
+            + record.gammaReward;
+        const double episodeCreditPerSuccessfulOperator =
+            successfulOperatorCount > 0
+            ? (episodeReward
+               - meanEpisodeRewards[intensityIndex])
+                / static_cast<double>(successfulOperatorCount)
+            : 0.0;
 
         for (std::size_t index = 0;
              index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -169,6 +216,10 @@ BudgetAwareOperatorScheduler::update(
                 operatorStats);
             generationStats[index].relativeUpperGain +=
                 operatorStats.upperGain / upperCostScale;
+            if (operatorStats.accepts > 0) {
+                generationStats[index].episodeAdvantageCredit +=
+                    episodeCreditPerSuccessfulOperator;
+            }
         }
     }
 
@@ -187,6 +238,8 @@ BudgetAwareOperatorScheduler::update(
             generationStats[index].operatorStats.distanceCalls);
         arms[index].relativeUpperGain +=
             generationStats[index].relativeUpperGain;
+        arms[index].episodeAdvantageCredit +=
+            generationStats[index].episodeAdvantageCredit;
     }
 
     recompute_scheduler();
@@ -201,6 +254,17 @@ double BudgetAwareOperatorScheduler::estimated_cost_per_call(
 double BudgetAwareOperatorScheduler::efficiency(
     LocalSearchOperator localSearchOperator) const {
     return efficiencies[operator_index(localSearchOperator)];
+}
+
+double BudgetAwareOperatorScheduler::episode_efficiency(
+    LocalSearchOperator localSearchOperator) const {
+    return episodeEfficiencies[
+        operator_index(localSearchOperator)];
+}
+
+double BudgetAwareOperatorScheduler::score(
+    LocalSearchOperator localSearchOperator) const {
+    return scores[operator_index(localSearchOperator)];
 }
 
 double BudgetAwareOperatorScheduler::target_budget_share(
@@ -280,9 +344,16 @@ void BudgetAwareOperatorScheduler::recompute_scheduler() {
             ? arms[index].relativeUpperGain
                 / arms[index].distanceCalls
             : 0.0;
+        episodeEfficiencies[index] =
+            arms[index].distanceCalls > kMinimumScale
+            ? arms[index].episodeAdvantageCredit
+                / arms[index].distanceCalls
+            : 0.0;
     }
     const SelectionWeights standardizedEfficiency =
         robust_standardize(efficiencies);
+    const SelectionWeights standardizedEpisodeEfficiency =
+        robust_standardize(episodeEfficiencies);
 
     for (std::size_t index = 0;
          index < LOCAL_SEARCH_OPERATOR_COUNT;
@@ -292,6 +363,8 @@ void BudgetAwareOperatorScheduler::recompute_scheduler() {
             / (arms[index].effectiveObservations + 1.0));
         scores[index] =
             standardizedEfficiency[index]
+            + kEpisodeAdvantageWeight
+                * standardizedEpisodeEfficiency[index]
             + kExplorationScale * uncertainty;
     }
 

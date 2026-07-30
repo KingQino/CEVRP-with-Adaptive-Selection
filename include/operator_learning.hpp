@@ -19,8 +19,11 @@ const char* operator_selection_policy_name(
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
     double relativeUpperGain{};
+    double episodeAdvantageCredit{};
     double estimatedCostPerCall{};
     double efficiency{};
+    double episodeEfficiency{};
+    double score{};
     double targetBudgetShare{};
     double selectionProbability{};
 };
@@ -43,6 +46,10 @@ public:
         LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double efficiency(
         LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double episode_efficiency(
+        LocalSearchOperator localSearchOperator) const;
+    [[nodiscard]] double score(
+        LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double target_budget_share(
         LocalSearchOperator localSearchOperator) const;
     [[nodiscard]] double selection_probability(
@@ -56,12 +63,14 @@ private:
         double calls{};
         double distanceCalls{};
         double relativeUpperGain{};
+        double episodeAdvantageCredit{};
     };
 
     std::array<ArmState, LOCAL_SEARCH_OPERATOR_COUNT> arms{};
     SelectionWeights scores{};
     SelectionWeights estimatedCostsPerCall{};
     SelectionWeights efficiencies{};
+    SelectionWeights episodeEfficiencies{};
     SelectionWeights targetBudgetShares{};
     SelectionWeights callSelectionWeights{};
     SelectionWeights selectionProbabilities{};

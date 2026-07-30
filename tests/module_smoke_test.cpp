@@ -972,6 +972,10 @@ int main(int argc, char* argv[]) {
         secondLearnedOperator.relativeUpperGain - 0.0025)
         <= 1e-12);
     assert(std::fabs(
+        firstLearnedOperator.episodeAdvantageCredit) <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.episodeAdvantageCredit) <= 1e-12);
+    assert(std::fabs(
         operatorScheduler.estimated_cost_per_call(
             LocalSearchOperator::NodeShift) - 25.0)
         <= 1e-12);
@@ -987,6 +991,9 @@ int main(int argc, char* argv[]) {
         operatorScheduler.efficiency(
             LocalSearchOperator::InterRouteRelocate) - 0.00001)
         <= 1e-12);
+    assert(std::fabs(
+        operatorScheduler.episode_efficiency(
+            LocalSearchOperator::NodeShift)) <= 1e-12);
     assert(
         operatorScheduler.target_budget_share(
             LocalSearchOperator::NodeShift)
@@ -1044,6 +1051,100 @@ int main(int argc, char* argv[]) {
             - operatorScheduler.target_budget_share(
                 localSearchOperator)) <= 1e-12);
     }
+
+    LocalSearchAllocationRun episodeRewardRun;
+    AllocatedLocalSearchRecord highEpisodeRecord;
+    highEpisodeRecord.terminalIntensity =
+        LocalSearchIntensity::Medium;
+    highEpisodeRecord.costAfterWeak = 100.0;
+    highEpisodeRecord.parentReward = 1.0;
+    auto& frequentSuccessfulOperator =
+        highEpisodeRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    frequentSuccessfulOperator.calls = 2;
+    frequentSuccessfulOperator.accepts = 2;
+    frequentSuccessfulOperator.distanceCalls = 100;
+    auto& singleSuccessfulOperator =
+        highEpisodeRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::IntraRouteSwap)];
+    singleSuccessfulOperator.calls = 1;
+    singleSuccessfulOperator.accepts = 1;
+    singleSuccessfulOperator.distanceCalls = 100;
+    episodeRewardRun.records.push_back(
+        std::move(highEpisodeRecord));
+
+    AllocatedLocalSearchRecord lowEpisodeRecord;
+    lowEpisodeRecord.terminalIntensity =
+        LocalSearchIntensity::Medium;
+    lowEpisodeRecord.costAfterWeak = 100.0;
+    auto& lowEpisodeOperator =
+        lowEpisodeRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)];
+    lowEpisodeOperator.calls = 3;
+    lowEpisodeOperator.accepts = 3;
+    lowEpisodeOperator.distanceCalls = 100;
+    episodeRewardRun.records.push_back(
+        std::move(lowEpisodeRecord));
+
+    AllocatedLocalSearchRecord separateIntensityRecord;
+    separateIntensityRecord.terminalIntensity =
+        LocalSearchIntensity::BoundedStrong;
+    separateIntensityRecord.costAfterWeak = 100.0;
+    separateIntensityRecord.lowerReward = 0.9;
+    auto& separateIntensityOperator =
+        separateIntensityRecord.continuationResult.operatorStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::SwapStar)];
+    separateIntensityOperator.calls = 1;
+    separateIntensityOperator.accepts = 1;
+    separateIntensityOperator.distanceCalls = 100;
+    episodeRewardRun.records.push_back(
+        std::move(separateIntensityRecord));
+
+    BudgetAwareOperatorScheduler episodeRewardScheduler;
+    episodeRewardScheduler.reset();
+    const auto episodeLearningStats =
+        episodeRewardScheduler.update(episodeRewardRun);
+    const auto nodeShiftIndex = static_cast<std::size_t>(
+        LocalSearchOperator::NodeShift);
+    const auto intraRouteSwapIndex = static_cast<std::size_t>(
+        LocalSearchOperator::IntraRouteSwap);
+    const auto interRouteRelocateIndex = static_cast<std::size_t>(
+        LocalSearchOperator::InterRouteRelocate);
+    const auto swapStarIndex = static_cast<std::size_t>(
+        LocalSearchOperator::SwapStar);
+    assert(std::fabs(
+        episodeLearningStats[nodeShiftIndex]
+            .episodeAdvantageCredit - 0.25) <= 1e-12);
+    assert(std::fabs(
+        episodeLearningStats[intraRouteSwapIndex]
+            .episodeAdvantageCredit - 0.25) <= 1e-12);
+    assert(std::fabs(
+        episodeLearningStats[interRouteRelocateIndex]
+            .episodeAdvantageCredit + 0.50) <= 1e-12);
+    assert(std::fabs(
+        episodeLearningStats[swapStarIndex]
+            .episodeAdvantageCredit) <= 1e-12);
+    assert(std::fabs(
+        episodeRewardScheduler.episode_efficiency(
+            LocalSearchOperator::NodeShift) - 0.0025)
+        <= 1e-12);
+    assert(std::fabs(
+        episodeRewardScheduler.episode_efficiency(
+            LocalSearchOperator::IntraRouteSwap) - 0.0025)
+        <= 1e-12);
+    assert(std::fabs(
+        episodeRewardScheduler.episode_efficiency(
+            LocalSearchOperator::InterRouteRelocate) + 0.005)
+        <= 1e-12);
+    assert(
+        episodeRewardScheduler.score(
+            LocalSearchOperator::NodeShift)
+        > episodeRewardScheduler.score(
+            LocalSearchOperator::InterRouteRelocate));
 
     LocalSearchAllocationRun failedOperatorRun;
     AllocatedLocalSearchRecord failedOperatorRecord;
@@ -1555,9 +1656,12 @@ int main(int argc, char* argv[]) {
     assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
            == "iter\tgenerations\toperator\tcalls\taccepts\t"
               "distance_calls\tupper_gain\trelative_upper_gain\t"
-              "gamma_crosses\t"
+              "episode_advantage_credit\tgamma_crosses\t"
               "relative_gain_per_million_distance_calls\t"
-              "avg_estimated_cost_per_call\tavg_efficiency\t"
+              "episode_advantage_per_million_distance_calls\t"
+              "avg_estimated_cost_per_call\t"
+              "avg_immediate_efficiency\tavg_episode_efficiency\t"
+              "avg_score\t"
               "avg_target_budget_share\trealized_budget_share\t"
               "avg_selection_probability");
     matchedAllocationAlgorithm.write_operator_learning_snapshot();
@@ -1575,16 +1679,16 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 15);
+        assert(columns.size() == 19);
         assert(columns[1] == "1");
         assert(
             std::stoull(columns[5])
             <= matchedAllocationInstance.get_distance_calls());
-        assert(std::stod(columns[9]) >= 0.0);
-        assert(std::stod(columns[10]) >= 1.0);
-        assert(std::stod(columns[11]) >= 0.0);
-        loggedTargetBudgetShare += std::stod(columns[12]);
-        loggedSelectionProbability += std::stod(columns[14]);
+        assert(std::stod(columns[10]) >= 0.0);
+        assert(std::stod(columns[12]) >= 1.0);
+        assert(std::stod(columns[13]) >= 0.0);
+        loggedTargetBudgetShare += std::stod(columns[16]);
+        loggedSelectionProbability += std::stod(columns[18]);
         ++operatorLearningRowCount;
     }
     assert(

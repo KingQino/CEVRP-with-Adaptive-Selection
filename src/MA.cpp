@@ -83,9 +83,14 @@ void add_operator_learning_stats(
         source.operatorStats.gammaCrosses;
     destination.relativeUpperGain +=
         source.relativeUpperGain;
+    destination.episodeAdvantageCredit +=
+        source.episodeAdvantageCredit;
     destination.estimatedCostPerCall +=
         source.estimatedCostPerCall;
     destination.efficiency += source.efficiency;
+    destination.episodeEfficiency +=
+        source.episodeEfficiency;
+    destination.score += source.score;
     destination.targetBudgetShare +=
         source.targetBudgetShare;
     destination.selectionProbability +=
@@ -483,12 +488,18 @@ void MA::write_operator_learning_snapshot() {
             << stats.operatorStats.distanceCalls << "\t"
             << stats.operatorStats.upperGain << "\t"
             << stats.relativeUpperGain << "\t"
+            << stats.episodeAdvantageCredit << "\t"
             << stats.operatorStats.gammaCrosses << "\t"
             << (stats.operatorStats.distanceCalls > 0
                 ? 1e6 * stats.relativeUpperGain / distanceCalls
                 : 0.0) << "\t"
+            << (stats.operatorStats.distanceCalls > 0
+                ? 1e6 * stats.episodeAdvantageCredit / distanceCalls
+                : 0.0) << "\t"
             << stats.estimatedCostPerCall / generationCount << "\t"
             << stats.efficiency / generationCount << "\t"
+            << stats.episodeEfficiency / generationCount << "\t"
+            << stats.score / generationCount << "\t"
             << stats.targetBudgetShare / generationCount << "\t"
             << (totalDistanceCalls > 0
                 ? distanceCalls
