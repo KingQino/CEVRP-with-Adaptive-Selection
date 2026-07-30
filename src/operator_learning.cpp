@@ -16,6 +16,8 @@ constexpr double kRobustScaleFactor = 1.4826;
 constexpr double kMaximumStandardizedSignal = 3.0;
 constexpr double kMinimumScale = 1e-12;
 constexpr double kMinimumEstimatedCostPerCall = 1.0;
+constexpr std::size_t kFutureAcceptedMoveCount = 2;
+constexpr double kFutureGainDiscount = 0.5;
 
 std::size_t operator_index(LocalSearchOperator localSearchOperator) {
     const std::size_t index =
@@ -145,12 +147,14 @@ BudgetAwareOperatorScheduler::update(
         arms[index].effectiveObservations *= kDiscountFactor;
         arms[index].calls *= kDiscountFactor;
         arms[index].distanceCalls *= kDiscountFactor;
-        arms[index].relativeUpperGain *= kDiscountFactor;
+        arms[index].sequenceAwareRelativeValue *=
+            kDiscountFactor;
     }
 
     for (const auto& record : run.records) {
         // Downstream parent/lower rewards belong to intensity allocation.
-        // The operator layer learns only its immediate continuation gain.
+        // Operator credit includes short-horizon gains unlocked later in the
+        // same continuation, while lower-level feedback stays separate.
         const double upperCostScale = std::max(
             std::fabs(record.costAfterWeak),
             kMinimumScale);
@@ -170,6 +174,37 @@ BudgetAwareOperatorScheduler::update(
             generationStats[index].relativeUpperGain +=
                 operatorStats.upperGain / upperCostScale;
         }
+
+        const auto& acceptedMoveEvents =
+            record.continuationResult.acceptedMoveEvents;
+        for (std::size_t eventIndex = 0;
+             eventIndex < acceptedMoveEvents.size();
+             ++eventIndex) {
+            const auto& event = acceptedMoveEvents[eventIndex];
+            const std::size_t operatorIndex =
+                operator_index(event.localSearchOperator);
+            double discountedFutureGain = 0.0;
+            double discount = kFutureGainDiscount;
+            const std::size_t futureEnd = std::min(
+                acceptedMoveEvents.size(),
+                eventIndex + kFutureAcceptedMoveCount + 1);
+            for (std::size_t futureIndex = eventIndex + 1;
+                 futureIndex < futureEnd;
+                 ++futureIndex) {
+                discountedFutureGain +=
+                    discount
+                    * acceptedMoveEvents[futureIndex].upperGain;
+                discount *= kFutureGainDiscount;
+            }
+            const double relativeFutureGain =
+                discountedFutureGain / upperCostScale;
+            generationStats[operatorIndex]
+                .futureRelativeGainCredit += relativeFutureGain;
+            generationStats[operatorIndex]
+                .sequenceAwareRelativeValue +=
+                    event.upperGain / upperCostScale
+                    + relativeFutureGain;
+        }
     }
 
     for (std::size_t index = 0;
@@ -185,8 +220,8 @@ BudgetAwareOperatorScheduler::update(
         arms[index].calls += callCount;
         arms[index].distanceCalls += static_cast<double>(
             generationStats[index].operatorStats.distanceCalls);
-        arms[index].relativeUpperGain +=
-            generationStats[index].relativeUpperGain;
+        arms[index].sequenceAwareRelativeValue +=
+            generationStats[index].sequenceAwareRelativeValue;
     }
 
     recompute_scheduler();
@@ -277,7 +312,7 @@ void BudgetAwareOperatorScheduler::recompute_scheduler() {
             kMinimumEstimatedCostPerCall);
         efficiencies[index] =
             arms[index].distanceCalls > kMinimumScale
-            ? arms[index].relativeUpperGain
+            ? arms[index].sequenceAwareRelativeValue
                 / arms[index].distanceCalls
             : 0.0;
     }

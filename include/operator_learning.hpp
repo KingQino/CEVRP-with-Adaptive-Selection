@@ -19,6 +19,8 @@ const char* operator_selection_policy_name(
 struct OperatorLearningStats {
     LocalSearchOperatorStats operatorStats;
     double relativeUpperGain{};
+    double futureRelativeGainCredit{};
+    double sequenceAwareRelativeValue{};
     double estimatedCostPerCall{};
     double efficiency{};
     double targetBudgetShare{};
@@ -55,7 +57,7 @@ private:
         double effectiveObservations{};
         double calls{};
         double distanceCalls{};
-        double relativeUpperGain{};
+        double sequenceAwareRelativeValue{};
     };
 
     std::array<ArmState, LOCAL_SEARCH_OPERATOR_COUNT> arms{};

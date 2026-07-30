@@ -2633,6 +2633,10 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
             result.hitMoveLimit = continuation.hitMoveLimit;
             result.hitDistanceCallLimit =
                 continuation.hitDistanceCallLimit;
+            result.acceptedMoveEvents.insert(
+                result.acceptedMoveEvents.end(),
+                continuation.acceptedMoveEvents.begin(),
+                continuation.acceptedMoveEvents.end());
             for (std::size_t operatorIndex = 0;
                  operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
                  ++operatorIndex) {
@@ -2768,6 +2772,15 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
         instance.get_distance_calls();
     LocalSearchResult result;
     result.moveLimit = cumulativeMoveLimit;
+    const bool captureAcceptedMoveEvents =
+        operatorSelectionTable != nullptr;
+    if (captureAcceptedMoveEvents
+        && cumulativeMoveLimit > session.totalAcceptedMoves) {
+        result.acceptedMoveEvents.reserve(
+            static_cast<std::size_t>(
+                cumulativeMoveLimit
+                - session.totalAcceptedMoves));
+    }
 
     while (!session.activeOperators.empty()) {
         if (cumulativeMoveLimit >= 0
@@ -2844,14 +2857,20 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
         session.totalDistanceCalls += operatorDistanceCalls;
 
         if (improved) {
+            const double operatorUpperGain =
+                operatorUpperCostBefore
+                - individual.get_upper_cost();
             invalidate_failure_cache_after_move(
                 individual.route_num,
                 workspace);
             ++result.acceptedMoves;
             ++session.totalAcceptedMoves;
             ++operatorStats.accepts;
-            operatorStats.upperGain +=
-                operatorUpperCostBefore - individual.get_upper_cost();
+            operatorStats.upperGain += operatorUpperGain;
+            if (captureAcceptedMoveEvents) {
+                result.acceptedMoveEvents.push_back(
+                    {selectedOperator, operatorUpperGain});
+            }
             if (outsideGammaBefore
                 && individual.get_upper_cost() <= gammaUpperBound) {
                 ++operatorStats.gammaCrosses;

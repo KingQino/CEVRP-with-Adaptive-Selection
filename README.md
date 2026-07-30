@@ -70,15 +70,17 @@ includes the per-individual search context. The deepest action is selected by
 `-ls strong` or `-ls bounded_strong`.
 
 `budget_aware` schedules continuation operators by distance-call budget rather
-than raw call count. It learns each operator's discounted relative upper gain
-per distance call, converts the learned target budget shares into call
-probabilities using the estimated cost per call, and reserves 20% of the budget
-share for uniform exploration. It is available with `-ls bounded_strong` and
-either `-ls_policy matched_random` or `-ls_policy online`. Uniform and
-budget-aware continuation selection use the same dedicated random-number
-stream, so policy ablations do not perturb the random stream used inside moves.
-With logging enabled, both policies write the same compact continuation-only
-operator diagnostics for direct budget-utilization comparison.
+than raw call count. Each accepted move receives its immediate relative upper
+gain plus the next two accepted moves' gains at discounts 0.5 and 0.25. The
+scheduler learns this sequence-aware value per distance call, converts target
+budget shares into call probabilities using the estimated cost per call, and
+reserves 20% of the budget share for uniform exploration. Full RVND
+neighborhood coverage remains unchanged. It is available with
+`-ls bounded_strong` and either `-ls_policy matched_random` or
+`-ls_policy online`. Uniform and budget-aware continuation selection use the
+same dedicated random-number stream, so policy ablations do not perturb the
+random stream used inside moves. Accepted-move sequences remain in memory;
+logging writes only compact continuation-level operator aggregates.
 
 
 
@@ -130,7 +132,7 @@ operator diagnostics for direct budget-utilization comparison.
 - The default `static` policy applies the selected intensity to the complete upper-level population. The `random` policy retains the fixed terminal mix of approximately 20% weak, 30% medium, and 50% strong as an ablation baseline.
 - The `online` policy gives every new individual a weak probe, then independently chooses whether it terminates at weak, medium, or the deepest intensity selected by `-ls`. Use `-ls bounded_strong` to learn among weak/medium/bounded-strong, or `-ls strong` to retain weak/medium/unlimited-strong. It has no fixed action quota. Context contains only changing search, individual, and probe feedback; instance size and route-count features are intentionally excluded because the model is reset for every run.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online reward combines lower-archive rank, post-probe gamma crossing, and reproduction parent usage. Continuation upper gain remains an aggregate diagnostic signal but is excluded from reward. Action cost contains only evaluations consumed after the common weak probe.
-- The optional `budget_aware` continuation scheduler is independent from the intensity learner. It learns immediate operator ROI from relative upper gain and exact distance-call cost, then targets budget shares instead of directly increasing expensive operators' call probabilities. Gamma crossings remain diagnostic and do not enter the operator reward.
+- The optional `budget_aware` continuation scheduler is independent from the intensity learner. It learns sequence-aware operator ROI from immediate relative upper gain, two discounted future accepted moves, and exact distance-call cost, then targets budget shares instead of directly increasing expensive operators' call probabilities. Gamma crossings remain diagnostic and do not enter the operator reward.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
 - Evolution rows are sampled every 10 generations. Local-search operator, allocation, and operator-learning diagnostics are aggregated into 50-generation windows, with a final partial snapshot written at termination.

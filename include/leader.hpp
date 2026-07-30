@@ -55,6 +55,12 @@ struct LocalSearchOperatorStats {
     int gammaCrosses{};
 };
 
+struct LocalSearchAcceptedMove {
+    LocalSearchOperator localSearchOperator{
+        LocalSearchOperator::NodeShift};
+    double upperGain{};
+};
+
 enum class LocalSearchIntensity {
     Skip,
     Weak,
@@ -74,6 +80,7 @@ struct LocalSearchResult {
     bool hitDistanceCallLimit{};
     std::array<LocalSearchOperatorStats, LOCAL_SEARCH_OPERATOR_COUNT>
         operatorStats{};
+    std::vector<LocalSearchAcceptedMove> acceptedMoveEvents;
 };
 
 struct LocalSearchSession {

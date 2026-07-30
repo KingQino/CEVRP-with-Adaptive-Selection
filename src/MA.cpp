@@ -83,6 +83,10 @@ void add_operator_learning_stats(
         source.operatorStats.gammaCrosses;
     destination.relativeUpperGain +=
         source.relativeUpperGain;
+    destination.futureRelativeGainCredit +=
+        source.futureRelativeGainCredit;
+    destination.sequenceAwareRelativeValue +=
+        source.sequenceAwareRelativeValue;
     destination.estimatedCostPerCall +=
         source.estimatedCostPerCall;
     destination.efficiency += source.efficiency;
@@ -483,10 +487,13 @@ void MA::write_operator_learning_snapshot() {
             << stats.operatorStats.distanceCalls << "\t"
             << stats.operatorStats.upperGain << "\t"
             << stats.relativeUpperGain << "\t"
-            << stats.operatorStats.gammaCrosses << "\t"
+            << stats.futureRelativeGainCredit << "\t"
+            << stats.sequenceAwareRelativeValue << "\t"
             << (stats.operatorStats.distanceCalls > 0
-                ? 1e6 * stats.relativeUpperGain / distanceCalls
+                ? 1e6 * stats.sequenceAwareRelativeValue
+                    / distanceCalls
                 : 0.0) << "\t"
+            << stats.operatorStats.gammaCrosses << "\t"
             << stats.estimatedCostPerCall / generationCount << "\t"
             << stats.efficiency / generationCount << "\t"
             << stats.targetBudgetShare / generationCount << "\t"

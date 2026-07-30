@@ -63,7 +63,8 @@ LocalSearchResult combine_results(
     const LocalSearchResult& first,
     const LocalSearchResult& second,
     double costBefore,
-    double costAfter) {
+    double costAfter,
+    bool includeAcceptedMoveEvents) {
     LocalSearchResult combined;
     combined.moveLimit = second.moveLimit;
     combined.acceptedMoves =
@@ -80,6 +81,19 @@ LocalSearchResult combine_results(
     combined.hitDistanceCallLimit = second.hitDistanceCallLimit;
     combined.operatorStats = first.operatorStats;
     add_operator_stats(combined.operatorStats, second);
+    if (includeAcceptedMoveEvents) {
+        combined.acceptedMoveEvents.reserve(
+            first.acceptedMoveEvents.size()
+            + second.acceptedMoveEvents.size());
+        combined.acceptedMoveEvents.insert(
+            combined.acceptedMoveEvents.end(),
+            first.acceptedMoveEvents.begin(),
+            first.acceptedMoveEvents.end());
+        combined.acceptedMoveEvents.insert(
+            combined.acceptedMoveEvents.end(),
+            second.acceptedMoveEvents.begin(),
+            second.acceptedMoveEvents.end());
+    }
     return combined;
 }
 
@@ -694,7 +708,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                         record.weakResult,
                         record.continuationResult,
                         record.costBeforeWeak,
-                        record.individual->get_upper_cost());
+                        record.individual->get_upper_cost(),
+                        false);
                 }
                 finish_record(record, triggerUpperBound);
             }
@@ -776,7 +791,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     record.weakResult,
                     record.continuationResult,
                     record.costBeforeWeak,
-                    record.individual->get_upper_cost());
+                    record.individual->get_upper_cost(),
+                    false);
             }
             for (std::size_t localIndex = 0;
                  localIndex < batchSize;
@@ -815,7 +831,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 record.weakResult,
                 record.continuationResult,
                 record.costBeforeWeak,
-                record.individual->get_upper_cost());
+                record.individual->get_upper_cost(),
+                false);
         }
 
         std::vector<std::size_t> strongEligible;
@@ -867,12 +884,14 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 mediumResult,
                 strongResult,
                 record.costAfterWeak,
-                record.individual->get_upper_cost());
+                record.individual->get_upper_cost(),
+                true);
             record.totalResult = combine_results(
                 record.weakResult,
                 record.continuationResult,
                 record.costBeforeWeak,
-                record.individual->get_upper_cost());
+                record.individual->get_upper_cost(),
+                false);
         }
 
         for (std::size_t localIndex = 0;

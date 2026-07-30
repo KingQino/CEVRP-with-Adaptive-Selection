@@ -371,6 +371,47 @@ void assert_progressive_eight_neighborhood_session_matches_strong() {
     assert(distanceLimitedResult.neighborhoodCalls == 0);
     assert(distanceLimitedResult.distanceCallsUsed == 0);
 
+    Individual sequenceCaptured(direct);
+    LocalSearchWorkspace sequenceCapturedWorkspace;
+    LocalSearchSession sequenceCapturedSession;
+    Leader::begin_eight_neighborhood_rvnd_one_move_session(
+        sequenceCaptured,
+        sequenceCapturedSession,
+        sequenceCapturedWorkspace);
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        uniformOperatorWeights{};
+    uniformOperatorWeights.fill(1.0);
+    const LocalSearchOperatorSelectionTable
+        uniformSelectionTable =
+            Leader::build_operator_selection_table(
+                uniformOperatorWeights,
+                0.0);
+    std::mt19937 sequenceSearchEngine(29);
+    std::mt19937 sequenceSelectionEngine(31);
+    const LocalSearchResult sequenceCapturedResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            sequenceCaptured,
+            instance,
+            sequenceSearchEngine,
+            sequenceCapturedSession,
+            1,
+            sequenceCapturedWorkspace,
+            std::numeric_limits<double>::infinity(),
+            std::numeric_limits<std::uint64_t>::max(),
+            &uniformSelectionTable,
+            &sequenceSelectionEngine);
+    assert(sequenceCapturedResult.acceptedMoves == 1);
+    assert(sequenceCapturedResult.acceptedMoveEvents.size() == 1);
+    const auto& capturedMove =
+        sequenceCapturedResult.acceptedMoveEvents.front();
+    const auto& capturedOperatorStats =
+        sequenceCapturedResult.operatorStats[
+            static_cast<std::size_t>(
+                capturedMove.localSearchOperator)];
+    assert(std::fabs(
+        capturedMove.upperGain
+        - capturedOperatorStats.upperGain) <= 1e-8);
+
     const LocalSearchResult directResult =
         Leader::improve_with_eight_neighborhood_rvnd_one_move(
             direct,
@@ -921,6 +962,10 @@ int main(int argc, char* argv[]) {
     secondOperatorReward.accepts = 1;
     secondOperatorReward.distanceCalls = 250;
     secondOperatorReward.upperGain = 0.25;
+    rewardRecord.continuationResult.acceptedMoveEvents = {
+        {LocalSearchOperator::NodeShift, 0.75},
+        {LocalSearchOperator::InterRouteRelocate, 0.25},
+    };
     rewardRun.records.push_back(std::move(rewardRecord));
     OnlineIntensityLearner unusedRewardLearner;
     LocalSearchAllocationRunner::finalize_feedback(
@@ -972,6 +1017,18 @@ int main(int argc, char* argv[]) {
         secondLearnedOperator.relativeUpperGain - 0.0025)
         <= 1e-12);
     assert(std::fabs(
+        firstLearnedOperator.futureRelativeGainCredit
+        - 0.00125) <= 1e-12);
+    assert(std::fabs(
+        firstLearnedOperator.sequenceAwareRelativeValue
+        - 0.00875) <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.futureRelativeGainCredit)
+        <= 1e-12);
+    assert(std::fabs(
+        secondLearnedOperator.sequenceAwareRelativeValue
+        - 0.0025) <= 1e-12);
+    assert(std::fabs(
         operatorScheduler.estimated_cost_per_call(
             LocalSearchOperator::NodeShift) - 25.0)
         <= 1e-12);
@@ -981,7 +1038,7 @@ int main(int argc, char* argv[]) {
         <= 1e-12);
     assert(std::fabs(
         operatorScheduler.efficiency(
-            LocalSearchOperator::NodeShift) - 0.00015)
+            LocalSearchOperator::NodeShift) - 0.000175)
         <= 1e-12);
     assert(std::fabs(
         operatorScheduler.efficiency(
@@ -1005,6 +1062,64 @@ int main(int argc, char* argv[]) {
         operatorScheduler.effective_observations(
             LocalSearchOperator::InterRouteRelocate)
         - 1.0) <= 1e-12);
+
+    LocalSearchAllocationRun sequenceCreditRun;
+    AllocatedLocalSearchRecord sequenceCreditRecord;
+    sequenceCreditRecord.costAfterWeak = 100.0;
+    const std::array<LocalSearchAcceptedMove, 3>
+        sequenceCreditEvents = {{
+            {LocalSearchOperator::NodeShift, 1.0},
+            {LocalSearchOperator::InterRouteRelocate, 2.0},
+            {LocalSearchOperator::IntraRouteSwap, 4.0},
+        }};
+    for (const auto& event : sequenceCreditEvents) {
+        auto& operatorStats =
+            sequenceCreditRecord.continuationResult.operatorStats[
+                static_cast<std::size_t>(
+                    event.localSearchOperator)];
+        operatorStats.calls = 1;
+        operatorStats.accepts = 1;
+        operatorStats.distanceCalls = 100;
+        operatorStats.upperGain = event.upperGain;
+        sequenceCreditRecord.continuationResult
+            .acceptedMoveEvents.push_back(event);
+    }
+    sequenceCreditRun.records.push_back(
+        std::move(sequenceCreditRecord));
+    BudgetAwareOperatorScheduler sequenceCreditScheduler;
+    sequenceCreditScheduler.reset();
+    const auto sequenceCreditStats =
+        sequenceCreditScheduler.update(sequenceCreditRun);
+    const auto& firstSequenceCredit =
+        sequenceCreditStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift)];
+    const auto& secondSequenceCredit =
+        sequenceCreditStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::InterRouteRelocate)];
+    const auto& thirdSequenceCredit =
+        sequenceCreditStats[
+            static_cast<std::size_t>(
+                LocalSearchOperator::IntraRouteSwap)];
+    assert(std::fabs(
+        firstSequenceCredit.futureRelativeGainCredit
+        - 0.02) <= 1e-12);
+    assert(std::fabs(
+        firstSequenceCredit.sequenceAwareRelativeValue
+        - 0.03) <= 1e-12);
+    assert(std::fabs(
+        secondSequenceCredit.futureRelativeGainCredit
+        - 0.02) <= 1e-12);
+    assert(std::fabs(
+        secondSequenceCredit.sequenceAwareRelativeValue
+        - 0.04) <= 1e-12);
+    assert(std::fabs(
+        thirdSequenceCredit.futureRelativeGainCredit)
+        <= 1e-12);
+    assert(std::fabs(
+        thirdSequenceCredit.sequenceAwareRelativeValue
+        - 0.04) <= 1e-12);
 
     double operatorProbabilitySum = 0.0;
     double targetBudgetShareSum = 0.0;
@@ -1555,8 +1670,10 @@ int main(int argc, char* argv[]) {
     assert(std::string(MA::OPERATOR_LEARNING_LOG_HEADER)
            == "iter\tgenerations\toperator\tcalls\taccepts\t"
               "distance_calls\tupper_gain\trelative_upper_gain\t"
+              "future_relative_gain_credit\t"
+              "sequence_aware_relative_value\t"
+              "sequence_value_per_million_distance_calls\t"
               "gamma_crosses\t"
-              "relative_gain_per_million_distance_calls\t"
               "avg_estimated_cost_per_call\tavg_efficiency\t"
               "avg_target_budget_share\trealized_budget_share\t"
               "avg_selection_probability");
@@ -1575,16 +1692,19 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 15);
+        assert(columns.size() == 17);
         assert(columns[1] == "1");
         assert(
             std::stoull(columns[5])
             <= matchedAllocationInstance.get_distance_calls());
-        assert(std::stod(columns[9]) >= 0.0);
-        assert(std::stod(columns[10]) >= 1.0);
-        assert(std::stod(columns[11]) >= 0.0);
-        loggedTargetBudgetShare += std::stod(columns[12]);
-        loggedSelectionProbability += std::stod(columns[14]);
+        assert(std::stod(columns[8]) >= 0.0);
+        assert(std::stod(columns[9]) + 1e-12
+               >= std::stod(columns[7]));
+        assert(std::stod(columns[10]) >= 0.0);
+        assert(std::stod(columns[12]) >= 1.0);
+        assert(std::stod(columns[13]) >= 0.0);
+        loggedTargetBudgetShare += std::stod(columns[14]);
+        loggedSelectionProbability += std::stod(columns[16]);
         ++operatorLearningRowCount;
     }
     assert(
