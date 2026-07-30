@@ -2427,6 +2427,44 @@ int scaled_move_limit_for_intensity(
 
 }  // namespace
 
+std::uint16_t LocalSearchOperatorBudgetTracker::eligible_mask(
+    const LocalSearchOperatorSelectionTable& selectionTable,
+    std::uint16_t activeOperatorMask) const {
+    if (!selectionTable.truncateOverBudgetOperators) {
+        return activeOperatorMask;
+    }
+
+    std::uint16_t eligibleMask = 0;
+    const double totalSpent =
+        static_cast<double>(totalDistanceCalls);
+    for (std::size_t operatorIndex = 0;
+         operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+         ++operatorIndex) {
+        const std::uint16_t operatorBit =
+            static_cast<std::uint16_t>(1U << operatorIndex);
+        if ((activeOperatorMask & operatorBit) == 0) {
+            continue;
+        }
+        const double allowedDistanceCalls =
+            selectionTable.targetBudgetShares[operatorIndex]
+                * totalSpent
+            + selectionTable.estimatedCostsPerCall[operatorIndex];
+        if (static_cast<double>(distanceCalls[operatorIndex])
+            <= allowedDistanceCalls + kImprovementTolerance) {
+            eligibleMask |= operatorBit;
+        }
+    }
+    return eligibleMask;
+}
+
+void LocalSearchOperatorBudgetTracker::add_distance_calls(
+    LocalSearchOperator localSearchOperator,
+    std::uint64_t additionalDistanceCalls) {
+    distanceCalls[operator_index(localSearchOperator)] +=
+        additionalDistanceCalls;
+    totalDistanceCalls += additionalDistanceCalls;
+}
+
 const char* Leader::operator_name(
     LocalSearchOperator localSearchOperator) {
     switch (localSearchOperator) {
@@ -2633,6 +2671,8 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
             result.hitMoveLimit = continuation.hitMoveLimit;
             result.hitDistanceCallLimit =
                 continuation.hitDistanceCallLimit;
+            result.hitOperatorBudgetLimit =
+                continuation.hitOperatorBudgetLimit;
             for (std::size_t operatorIndex = 0;
                  operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
                  ++operatorIndex) {
@@ -2686,8 +2726,43 @@ Leader::build_operator_selection_table(
     const std::array<
         double,
         LOCAL_SEARCH_OPERATOR_COUNT>& operatorSelectionWeights,
-    double operatorUniformExplorationRate) {
+    double operatorUniformExplorationRate,
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>* targetBudgetShares,
+    const std::array<
+        double,
+        LOCAL_SEARCH_OPERATOR_COUNT>* estimatedCostsPerCall) {
     LocalSearchOperatorSelectionTable table;
+    if ((targetBudgetShares == nullptr)
+        != (estimatedCostsPerCall == nullptr)) {
+        throw std::invalid_argument(
+            "operator budget targets and costs must be provided together");
+    }
+    if (targetBudgetShares != nullptr) {
+        table.targetBudgetShares = *targetBudgetShares;
+        table.estimatedCostsPerCall = *estimatedCostsPerCall;
+        table.truncateOverBudgetOperators = true;
+        double totalTargetBudgetShare = 0.0;
+        for (std::size_t operatorIndex = 0;
+             operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+             ++operatorIndex) {
+            if (!std::isfinite(table.targetBudgetShares[operatorIndex])
+                || table.targetBudgetShares[operatorIndex] < 0.0
+                || !std::isfinite(
+                    table.estimatedCostsPerCall[operatorIndex])
+                || table.estimatedCostsPerCall[operatorIndex] <= 0.0) {
+                throw std::invalid_argument(
+                    "operator budget targets and costs must be valid");
+            }
+            totalTargetBudgetShare +=
+                table.targetBudgetShares[operatorIndex];
+        }
+        if (totalTargetBudgetShare <= 0.0) {
+            throw std::invalid_argument(
+                "operator budget targets must have positive total weight");
+        }
+    }
     const double uniformExplorationRate = std::clamp(
         operatorUniformExplorationRate,
         0.0,
@@ -2752,7 +2827,9 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
     std::uint64_t cumulativeDistanceCallLimit,
     const LocalSearchOperatorSelectionTable*
         operatorSelectionTable,
-    std::mt19937* operatorSelectionEngine) {
+    std::mt19937* operatorSelectionEngine,
+    LocalSearchOperatorBudgetTracker*
+        operatorBudgetTracker) {
     if (!session.initialized) {
         throw std::logic_error(
             "local-search session must be initialized before continuation");
@@ -2761,6 +2838,19 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
         != (operatorSelectionEngine == nullptr)) {
         throw std::logic_error(
             "operator selection table and engine must be provided together");
+    }
+    if (operatorBudgetTracker != nullptr
+        && (operatorSelectionTable == nullptr
+            || !operatorSelectionTable
+                    ->truncateOverBudgetOperators)) {
+        throw std::logic_error(
+            "operator budget tracker requires a truncated selection table");
+    }
+    if (operatorSelectionTable != nullptr
+        && operatorSelectionTable->truncateOverBudgetOperators
+        && operatorBudgetTracker == nullptr) {
+        throw std::logic_error(
+            "truncated selection table requires an operator budget tracker");
     }
 
     const double upperCostBefore = individual.get_upper_cost();
@@ -2788,13 +2878,24 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
                 session.activeOperators.size() - 1);
             selectedIndex = selectOperator(randomEngine);
         } else {
+            std::uint16_t selectionMask =
+                session.activeOperatorMask;
+            if (operatorBudgetTracker != nullptr) {
+                selectionMask =
+                    operatorBudgetTracker->eligible_mask(
+                        *operatorSelectionTable,
+                        selectionMask);
+                if (selectionMask == 0) {
+                    result.hitOperatorBudgetLimit = true;
+                    break;
+                }
+            }
             const auto& selectionEntry =
                 operatorSelectionTable->entries[
-                    session.activeOperatorMask];
-            if (selectionEntry.activeCount
-                != session.activeOperators.size()) {
+                    selectionMask];
+            if (selectionEntry.activeCount == 0) {
                 throw std::logic_error(
-                    "operator selection table does not match active operators");
+                    "operator selection table has no eligible operators");
             }
             std::uniform_real_distribution<double> selectOperator(
                 0.0,
@@ -2806,13 +2907,51 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
                 selectionEntry.cumulativeProbabilities.begin()
                     + selectionEntry.activeCount,
                 selectedProbability);
-            selectedIndex = static_cast<std::size_t>(
+            std::size_t selectedEligibleIndex =
+                static_cast<std::size_t>(
                 std::distance(
                     selectionEntry.cumulativeProbabilities.begin(),
                     selectedPosition));
-            selectedIndex = std::min(
-                selectedIndex,
+            selectedEligibleIndex = std::min(
+                selectedEligibleIndex,
                 selectionEntry.activeCount - 1);
+
+            std::size_t eligibleIndex = 0;
+            LocalSearchOperator selectedEligibleOperator =
+                LocalSearchOperator::NodeShift;
+            bool foundEligibleOperator = false;
+            for (std::size_t operatorIndex = 0;
+                 operatorIndex < LOCAL_SEARCH_OPERATOR_COUNT;
+                 ++operatorIndex) {
+                if ((selectionMask & (1U << operatorIndex)) == 0) {
+                    continue;
+                }
+                if (eligibleIndex == selectedEligibleIndex) {
+                    selectedEligibleOperator =
+                        static_cast<LocalSearchOperator>(
+                            operatorIndex);
+                    foundEligibleOperator = true;
+                    break;
+                }
+                ++eligibleIndex;
+            }
+            if (!foundEligibleOperator) {
+                throw std::logic_error(
+                    "failed to map eligible local-search operator");
+            }
+            const auto selectedActivePosition = std::find(
+                session.activeOperators.begin(),
+                session.activeOperators.end(),
+                selectedEligibleOperator);
+            if (selectedActivePosition
+                == session.activeOperators.end()) {
+                throw std::logic_error(
+                    "eligible local-search operator is not active");
+            }
+            selectedIndex = static_cast<std::size_t>(
+                std::distance(
+                    session.activeOperators.begin(),
+                    selectedActivePosition));
         }
         const LocalSearchOperator selectedOperator =
             session.activeOperators[selectedIndex];
@@ -2842,6 +2981,11 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
             - operatorDistanceCallsBefore;
         operatorStats.distanceCalls += operatorDistanceCalls;
         session.totalDistanceCalls += operatorDistanceCalls;
+        if (operatorBudgetTracker != nullptr) {
+            operatorBudgetTracker->add_distance_calls(
+                selectedOperator,
+                operatorDistanceCalls);
+        }
 
         if (improved) {
             invalidate_failure_cache_after_move(

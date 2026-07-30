@@ -120,6 +120,16 @@ BudgetAwareOperatorScheduler::call_selection_weights() const {
     return callSelectionWeights;
 }
 
+const BudgetAwareOperatorScheduler::SelectionWeights&
+BudgetAwareOperatorScheduler::target_budget_shares() const {
+    return targetBudgetShares;
+}
+
+const BudgetAwareOperatorScheduler::SelectionWeights&
+BudgetAwareOperatorScheduler::estimated_costs_per_call() const {
+    return estimatedCostsPerCall;
+}
+
 BudgetAwareOperatorScheduler::GenerationStats
 BudgetAwareOperatorScheduler::update(
     const LocalSearchAllocationRun& run,

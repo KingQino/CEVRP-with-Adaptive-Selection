@@ -78,6 +78,8 @@ LocalSearchResult combine_results(
     combined.reachedLocalOptimum = second.reachedLocalOptimum;
     combined.hitMoveLimit = second.hitMoveLimit;
     combined.hitDistanceCallLimit = second.hitDistanceCallLimit;
+    combined.hitOperatorBudgetLimit =
+        second.hitOperatorBudgetLimit;
     combined.operatorStats = first.operatorStats;
     add_operator_stats(combined.operatorStats, second);
     return combined;
@@ -508,7 +510,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     const OnlineIntensityLearner& learner,
     const LocalSearchOperatorSelectionTable*
         continuationOperatorSelectionTable,
-    std::mt19937* operatorSelectionEngine) {
+    std::mt19937* operatorSelectionEngine,
+    LocalSearchOperatorBudgetTracker*
+        operatorBudgetTracker) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
             "static local search does not use the allocation runner");
@@ -689,7 +693,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                                 : std::numeric_limits<
                                     std::uint64_t>::max(),
                             continuationOperatorSelectionTable,
-                            operatorSelectionEngine);
+                            operatorSelectionEngine,
+                            operatorBudgetTracker);
                     record.totalResult = combine_results(
                         record.weakResult,
                         record.continuationResult,
@@ -771,7 +776,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             : std::numeric_limits<
                                 std::uint64_t>::max(),
                         continuationOperatorSelectionTable,
-                        operatorSelectionEngine);
+                        operatorSelectionEngine,
+                        operatorBudgetTracker);
                 record.totalResult = combine_results(
                     record.weakResult,
                     record.continuationResult,
@@ -810,7 +816,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     triggerUpperBound,
                     std::numeric_limits<std::uint64_t>::max(),
                     continuationOperatorSelectionTable,
-                    operatorSelectionEngine);
+                    operatorSelectionEngine,
+                    operatorBudgetTracker);
             record.totalResult = combine_results(
                 record.weakResult,
                 record.continuationResult,
@@ -862,7 +869,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                         ? record.boundedStrongDistanceCallLimit
                         : std::numeric_limits<std::uint64_t>::max(),
                     continuationOperatorSelectionTable,
-                    operatorSelectionEngine);
+                    operatorSelectionEngine,
+                    operatorBudgetTracker);
             record.continuationResult = combine_results(
                 mediumResult,
                 strongResult,
@@ -1018,6 +1026,8 @@ void LocalSearchAllocationRunner::finalize_feedback(
             record.totalResult.hitMoveLimit;
         stats.distanceLimitTerminations +=
             record.totalResult.hitDistanceCallLimit;
+        stats.operatorBudgetLimitTerminations +=
+            record.totalResult.hitOperatorBudgetLimit;
         stats.acceptedMoves +=
             record.totalResult.acceptedMoves;
         stats.neighborhoodCalls +=

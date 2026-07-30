@@ -36,6 +36,10 @@ public:
     void reset();
     [[nodiscard]] const SelectionWeights&
     call_selection_weights() const;
+    [[nodiscard]] const SelectionWeights&
+    target_budget_shares() const;
+    [[nodiscard]] const SelectionWeights&
+    estimated_costs_per_call() const;
     [[nodiscard]] GenerationStats update(
         const LocalSearchAllocationRun& run,
         bool budgetAwareSelection = true);

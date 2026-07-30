@@ -50,6 +50,8 @@ void add_allocation_stats(
         source.moveLimitTerminations;
     destination.distanceLimitTerminations +=
         source.distanceLimitTerminations;
+    destination.operatorBudgetLimitTerminations +=
+        source.operatorBudgetLimitTerminations;
     destination.acceptedMoves += source.acceptedMoves;
     destination.neighborhoodCalls += source.neighborhoodCalls;
     destination.distanceCalls += source.distanceCalls;
@@ -414,6 +416,7 @@ void MA::write_local_search_allocation_snapshot() {
             << stats.localOptimumTerminations << "\t"
             << stats.moveLimitTerminations << "\t"
             << stats.distanceLimitTerminations << "\t"
+            << stats.operatorBudgetLimitTerminations << "\t"
             << stats.acceptedMoves << "\t"
             << stats.neighborhoodCalls << "\t"
             << instance->distance_calls_to_evals(
@@ -582,8 +585,12 @@ void MA::run_generation() {
         generationOperatorLearningStats{};
     LocalSearchOperatorSelectionTable
         generationOperatorSelectionTable;
+    LocalSearchOperatorBudgetTracker
+        generationOperatorBudgetTracker;
     const LocalSearchOperatorSelectionTable*
         generationOperatorSelectionTablePointer = nullptr;
+    LocalSearchOperatorBudgetTracker*
+        generationOperatorBudgetTrackerPointer = nullptr;
     if (localSearchPolicy != LocalSearchPolicy::Static) {
         BudgetAwareOperatorScheduler::SelectionWeights
             operatorSelectionWeights{};
@@ -591,13 +598,21 @@ void MA::run_generation() {
             == OperatorSelectionPolicy::BudgetAware) {
             operatorSelectionWeights =
                 operatorScheduler.call_selection_weights();
+            generationOperatorSelectionTable =
+                Leader::build_operator_selection_table(
+                    operatorSelectionWeights,
+                    0.0,
+                    &operatorScheduler.target_budget_shares(),
+                    &operatorScheduler.estimated_costs_per_call());
+            generationOperatorBudgetTrackerPointer =
+                &generationOperatorBudgetTracker;
         } else {
             operatorSelectionWeights.fill(1.0);
+            generationOperatorSelectionTable =
+                Leader::build_operator_selection_table(
+                    operatorSelectionWeights,
+                    0.0);
         }
-        generationOperatorSelectionTable =
-            Leader::build_operator_selection_table(
-                operatorSelectionWeights,
-                0.0);
         generationOperatorSelectionTablePointer =
             &generationOperatorSelectionTable;
     }
@@ -698,7 +713,8 @@ void MA::run_generation() {
             generationOperatorSelectionTablePointer,
             generationOperatorSelectionTablePointer != nullptr
                 ? &operatorSelectionEngine
-                : nullptr);
+                : nullptr,
+            generationOperatorBudgetTrackerPointer);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
     }

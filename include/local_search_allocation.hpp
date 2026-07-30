@@ -126,6 +126,7 @@ struct LocalSearchAllocationStats {
     int localOptimumTerminations{};
     int moveLimitTerminations{};
     int distanceLimitTerminations{};
+    int operatorBudgetLimitTerminations{};
     int acceptedMoves{};
     int neighborhoodCalls{};
     std::uint64_t distanceCalls{};
@@ -201,7 +202,9 @@ public:
         const OnlineIntensityLearner& learner,
         const LocalSearchOperatorSelectionTable*
             continuationOperatorSelectionTable = nullptr,
-        std::mt19937* operatorSelectionEngine = nullptr);
+        std::mt19937* operatorSelectionEngine = nullptr,
+        LocalSearchOperatorBudgetTracker*
+            operatorBudgetTracker = nullptr);
 
     static void assign_parent_use_feedback(
         LocalSearchAllocationRun& run,

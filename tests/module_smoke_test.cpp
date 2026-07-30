@@ -371,6 +371,72 @@ void assert_progressive_eight_neighborhood_session_matches_strong() {
     assert(distanceLimitedResult.neighborhoodCalls == 0);
     assert(distanceLimitedResult.distanceCallsUsed == 0);
 
+    Individual operatorBudgetLimited(direct);
+    LocalSearchWorkspace operatorBudgetLimitedWorkspace;
+    LocalSearchSession operatorBudgetLimitedSession;
+    Leader::begin_eight_neighborhood_rvnd_one_move_session(
+        operatorBudgetLimited,
+        operatorBudgetLimitedSession,
+        operatorBudgetLimitedWorkspace);
+    operatorBudgetLimitedSession.activeOperators = {
+        LocalSearchOperator::NodeShift,
+    };
+    operatorBudgetLimitedSession.activeOperatorMask =
+        static_cast<std::uint16_t>(
+            1U << static_cast<std::size_t>(
+                LocalSearchOperator::NodeShift));
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        uniformOperatorWeights{};
+    uniformOperatorWeights.fill(1.0);
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        uniformBudgetShares{};
+    uniformBudgetShares.fill(
+        1.0 / static_cast<double>(
+            LOCAL_SEARCH_OPERATOR_COUNT));
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        estimatedOperatorCosts{};
+    estimatedOperatorCosts.fill(10.0);
+    const LocalSearchOperatorSelectionTable
+        truncatedSelectionTable =
+            Leader::build_operator_selection_table(
+                uniformOperatorWeights,
+                0.0,
+                &uniformBudgetShares,
+                &estimatedOperatorCosts);
+    LocalSearchOperatorBudgetTracker operatorBudgetTracker;
+    operatorBudgetTracker.add_distance_calls(
+        LocalSearchOperator::NodeShift,
+        100);
+    operatorBudgetTracker.add_distance_calls(
+        LocalSearchOperator::InterRouteRelocate,
+        100);
+    assert(
+        operatorBudgetTracker.eligible_mask(
+            truncatedSelectionTable,
+            operatorBudgetLimitedSession.activeOperatorMask)
+        == 0);
+    std::mt19937 operatorBudgetSearchEngine(31);
+    std::mt19937 operatorBudgetSelectionEngine(37);
+    const LocalSearchResult operatorBudgetLimitedResult =
+        Leader::continue_eight_neighborhood_rvnd_one_move_session(
+            operatorBudgetLimited,
+            instance,
+            operatorBudgetSearchEngine,
+            operatorBudgetLimitedSession,
+            -1,
+            operatorBudgetLimitedWorkspace,
+            std::numeric_limits<double>::infinity(),
+            std::numeric_limits<std::uint64_t>::max(),
+            &truncatedSelectionTable,
+            &operatorBudgetSelectionEngine,
+            &operatorBudgetTracker);
+    assert(!operatorBudgetLimitedResult.reachedLocalOptimum);
+    assert(!operatorBudgetLimitedResult.hitMoveLimit);
+    assert(!operatorBudgetLimitedResult.hitDistanceCallLimit);
+    assert(operatorBudgetLimitedResult.hitOperatorBudgetLimit);
+    assert(operatorBudgetLimitedResult.neighborhoodCalls == 0);
+    assert(operatorBudgetLimitedResult.distanceCallsUsed == 0);
+
     const LocalSearchResult directResult =
         Leader::improve_with_eight_neighborhood_rvnd_one_move(
             direct,
@@ -1447,25 +1513,26 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 24);
+        assert(columns.size() == 25);
         assert(columns[1] == "1");
         assert(columns[2] == "random");
         const double rewardComponentSum =
-            std::stod(columns[17])
-            + std::stod(columns[18])
-            + std::stod(columns[19]);
+            std::stod(columns[18])
+            + std::stod(columns[19])
+            + std::stod(columns[20]);
         assert(std::fabs(
-            rewardComponentSum - std::stod(columns[21]))
+            rewardComponentSum - std::stod(columns[22]))
             <= 1e-8);
-        assert(std::stod(columns[20]) >= 0.0);
-        assert(std::stod(columns[22]) >= 0.0);
+        assert(std::stod(columns[21]) >= 0.0);
+        assert(std::stod(columns[23]) >= 0.0);
         if (columns[3] == "weak") {
-            assert(std::fabs(std::stod(columns[22])) <= 1e-12);
+            assert(std::fabs(std::stod(columns[23])) <= 1e-12);
         }
         const int terminationCount =
             std::stoi(columns[7])
             + std::stoi(columns[8])
-            + std::stoi(columns[9]);
+            + std::stoi(columns[9])
+            + std::stoi(columns[10]);
         assert(terminationCount == std::stoi(columns[4]));
         selectionCount += std::stoi(columns[4]);
         ++allocationRowCount;
@@ -1529,13 +1596,14 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 24);
+        assert(columns.size() == 25);
         assert(columns[1] == "1");
         assert(columns[2] == "matched_random");
         const int terminationCount =
             std::stoi(columns[7])
             + std::stoi(columns[8])
-            + std::stoi(columns[9]);
+            + std::stoi(columns[9])
+            + std::stoi(columns[10]);
         assert(terminationCount == std::stoi(columns[4]));
         matchedSelectionCount += std::stoi(columns[4]);
         ++matchedRowCount;

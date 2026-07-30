@@ -45,6 +45,24 @@ struct LocalSearchOperatorSelectionTable {
     std::array<
         LocalSearchOperatorSelectionEntry,
         LOCAL_SEARCH_OPERATOR_MASK_COUNT> entries{};
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        targetBudgetShares{};
+    std::array<double, LOCAL_SEARCH_OPERATOR_COUNT>
+        estimatedCostsPerCall{};
+    bool truncateOverBudgetOperators{};
+};
+
+struct LocalSearchOperatorBudgetTracker {
+    std::array<std::uint64_t, LOCAL_SEARCH_OPERATOR_COUNT>
+        distanceCalls{};
+    std::uint64_t totalDistanceCalls{};
+
+    [[nodiscard]] std::uint16_t eligible_mask(
+        const LocalSearchOperatorSelectionTable& selectionTable,
+        std::uint16_t activeOperatorMask) const;
+    void add_distance_calls(
+        LocalSearchOperator localSearchOperator,
+        std::uint64_t additionalDistanceCalls);
 };
 
 struct LocalSearchOperatorStats {
@@ -72,6 +90,7 @@ struct LocalSearchResult {
     bool reachedLocalOptimum{};
     bool hitMoveLimit{};
     bool hitDistanceCallLimit{};
+    bool hitOperatorBudgetLimit{};
     std::array<LocalSearchOperatorStats, LOCAL_SEARCH_OPERATOR_COUNT>
         operatorStats{};
 };
@@ -186,7 +205,13 @@ public:
         const std::array<
             double,
             LOCAL_SEARCH_OPERATOR_COUNT>& operatorSelectionWeights,
-        double operatorUniformExplorationRate);
+        double operatorUniformExplorationRate,
+        const std::array<
+            double,
+            LOCAL_SEARCH_OPERATOR_COUNT>* targetBudgetShares = nullptr,
+        const std::array<
+            double,
+            LOCAL_SEARCH_OPERATOR_COUNT>* estimatedCostsPerCall = nullptr);
     static LocalSearchResult continue_eight_neighborhood_rvnd_one_move_session(
         Individual& individual,
         Case& instance,
@@ -199,7 +224,9 @@ public:
             std::numeric_limits<std::uint64_t>::max(),
         const LocalSearchOperatorSelectionTable*
             operatorSelectionTable = nullptr,
-        std::mt19937* operatorSelectionEngine = nullptr);
+        std::mt19937* operatorSelectionEngine = nullptr,
+        LocalSearchOperatorBudgetTracker*
+            operatorBudgetTracker = nullptr);
     static int move_limit_for_intensity(
         const Individual& individual,
         const Case& instance,
