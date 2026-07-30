@@ -37,6 +37,12 @@ void Parameters::validate() const {
         throw std::invalid_argument(
             "allocated ls_policy requires -ls strong or bounded_strong");
     }
+    if (localSearchPolicy == LocalSearchPolicy::CompetitiveOnline
+        && localSearchIntensity
+            != LocalSearchIntensity::BoundedStrong) {
+        throw std::invalid_argument(
+            "competitive ls_policy requires -ls bounded_strong");
+    }
 
     require_probability(mutationProb, "mutation_prob");
     require_probability(mutationIndProb, "mutation_ind_prob");

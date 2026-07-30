@@ -155,6 +155,18 @@ void aggregate_run_operator_stats(LocalSearchAllocationRun& run) {
     }
 }
 
+void add_competitive_continuation_stats(
+    CompetitiveContinuationStats& destination,
+    const CompetitiveContinuationStats& source) {
+    destination.batches += source.batches;
+    destination.eligible += source.eligible;
+    destination.reassignments += source.reassignments;
+    destination.proposedBudget += source.proposedBudget;
+    destination.predictedBudgetUsed += source.predictedBudgetUsed;
+    destination.realizedBudgetUsed += source.realizedBudgetUsed;
+    destination.predictedValueGain += source.predictedValueGain;
+}
+
 std::array<double, 3> default_incremental_cost_units() {
     return {0.0, 3.0, 15.0};
 }
@@ -457,35 +469,233 @@ OnlineIntensityLearner::update_lower_archive(
 double OnlineIntensityLearner::score(
     const LocalSearchAllocationContext& context,
     LocalSearchIntensity intensity) const {
+    return action_estimate(context, intensity).score;
+}
+
+LocalSearchActionEstimate OnlineIntensityLearner::action_estimate(
+    const LocalSearchAllocationContext& context,
+    LocalSearchIntensity intensity) const {
     const std::size_t actionIndex =
         LocalSearchAllocationRunner::intensity_index(intensity);
     const LinearUcbEstimate rewardEstimate =
         rewardModels[actionIndex].estimate(context);
-    const double optimisticReward = std::max(
+    LocalSearchActionEstimate actionEstimate;
+    actionEstimate.optimisticReward = std::max(
         0.0,
         rewardEstimate.prediction
             + kExplorationScale * rewardEstimate.uncertainty);
 
-    double estimatedCost =
+    actionEstimate.estimatedIncrementalCost =
         default_incremental_cost_units()[actionIndex];
     if (observationCounts[actionIndex] > 0) {
         const LinearUcbEstimate costEstimate =
             logCostModels[actionIndex].estimate(context);
-        estimatedCost = std::max(
+        actionEstimate.estimatedIncrementalCost = std::max(
             0.0,
             std::expm1(std::clamp(
                 costEstimate.prediction,
                 0.0,
                 std::log1p(1e6))));
     }
-    return optimisticReward
-        - kLogCostPenalty * std::log1p(estimatedCost);
+    actionEstimate.score =
+        actionEstimate.optimisticReward
+        - kLogCostPenalty
+            * std::log1p(actionEstimate.estimatedIncrementalCost);
+    return actionEstimate;
 }
 
 int OnlineIntensityLearner::observation_count(
     LocalSearchIntensity intensity) const {
     return observationCounts[
         LocalSearchAllocationRunner::intensity_index(intensity)];
+}
+
+CompetitiveContinuationAllocation
+LocalSearchAllocationRunner::allocate_competitive_continuation(
+    const std::vector<CompetitiveContinuationCandidate>& candidates,
+    LocalSearchIntensity deepestIntensity) {
+    if (deepestIntensity != LocalSearchIntensity::BoundedStrong) {
+        throw std::invalid_argument(
+            "competitive continuation requires bounded_strong");
+    }
+    if (candidates.size() > kWorkspaceBatchSize) {
+        throw std::invalid_argument(
+            "competitive continuation batch exceeds workspace batch size");
+    }
+
+    const std::array<LocalSearchIntensity, 3> intensities = {
+        LocalSearchIntensity::Weak,
+        LocalSearchIntensity::Medium,
+        deepestIntensity,
+    };
+    CompetitiveContinuationAllocation allocation;
+    allocation.intensities.assign(
+        candidates.size(),
+        LocalSearchIntensity::Weak);
+    allocation.stats.batches = candidates.empty() ? 0 : 1;
+
+    std::vector<std::size_t> freeCandidates;
+    freeCandidates.reserve(candidates.size());
+    double proposedValue = 0.0;
+    for (std::size_t candidateIndex = 0;
+         candidateIndex < candidates.size();
+         ++candidateIndex) {
+        const auto& candidate = candidates[candidateIndex];
+        if (!candidate.eligible) {
+            continue;
+        }
+        ++allocation.stats.eligible;
+        const std::size_t proposedIndex =
+            intensity_index(candidate.proposedIntensity);
+        const double weakReward =
+            candidate.actionEstimates[0].optimisticReward;
+        allocation.intensities[candidateIndex] =
+            candidate.proposedIntensity;
+        allocation.stats.proposedBudget +=
+            candidate.actionEstimates[proposedIndex]
+                .estimatedIncrementalCost;
+        proposedValue +=
+            candidate.actionEstimates[proposedIndex].optimisticReward
+            - weakReward;
+        if (!candidate.fixedExploration) {
+            freeCandidates.push_back(candidateIndex);
+        }
+    }
+
+    double bestValue = proposedValue;
+    double bestCost = allocation.stats.proposedBudget;
+    std::vector<LocalSearchIntensity> bestIntensities =
+        allocation.intensities;
+    constexpr double kComparisonTolerance = 1e-12;
+    double fixedCost = 0.0;
+    double fixedValue = 0.0;
+    for (std::size_t candidateIndex = 0;
+         candidateIndex < candidates.size();
+         ++candidateIndex) {
+        const auto& candidate = candidates[candidateIndex];
+        if (!candidate.eligible
+            || !candidate.fixedExploration) {
+            continue;
+        }
+        const std::size_t actionIndex =
+            intensity_index(candidate.proposedIntensity);
+        fixedCost += candidate.actionEstimates[actionIndex]
+            .estimatedIncrementalCost;
+        fixedValue +=
+            candidate.actionEstimates[actionIndex].optimisticReward
+            - candidate.actionEstimates[0].optimisticReward;
+    }
+
+    std::vector<double> suffixMaximumValue(
+        freeCandidates.size() + 1,
+        0.0);
+    std::vector<std::array<std::size_t, 3>> actionOrders(
+        freeCandidates.size());
+    for (std::size_t offset = freeCandidates.size();
+         offset > 0;
+         --offset) {
+        const auto& candidate =
+            candidates[freeCandidates[offset - 1]];
+        auto& actionOrder = actionOrders[offset - 1];
+        actionOrder = {0, 1, 2};
+        std::sort(
+            actionOrder.begin(),
+            actionOrder.end(),
+            [&](std::size_t first, std::size_t second) {
+                return candidate.actionEstimates[first]
+                    .optimisticReward
+                    > candidate.actionEstimates[second]
+                        .optimisticReward;
+            });
+        double maximumValue =
+            -std::numeric_limits<double>::infinity();
+        for (std::size_t actionIndex = 0;
+             actionIndex < intensities.size();
+             ++actionIndex) {
+            maximumValue = std::max(
+                maximumValue,
+                candidate.actionEstimates[actionIndex]
+                    .optimisticReward
+                    - candidate.actionEstimates[0]
+                        .optimisticReward);
+        }
+        suffixMaximumValue[offset - 1] =
+            suffixMaximumValue[offset] + maximumValue;
+    }
+
+    std::vector<LocalSearchIntensity> trialIntensities =
+        allocation.intensities;
+    // The batch has at most ten candidates, so exact branch-and-bound is
+    // cheap and avoids discretizing the learned continuation costs.
+    const auto searchAssignments =
+        [&](const auto& self,
+            std::size_t freeIndex,
+            double trialCost,
+            double trialValue) -> void {
+        if (trialCost
+            > allocation.stats.proposedBudget
+                + kComparisonTolerance) {
+            return;
+        }
+        if (trialValue + suffixMaximumValue[freeIndex]
+            < bestValue - kComparisonTolerance) {
+            return;
+        }
+        if (freeIndex == freeCandidates.size()) {
+            const bool higherValue =
+                trialValue > bestValue + kComparisonTolerance;
+            const bool equalValueLowerCost =
+                std::fabs(trialValue - bestValue)
+                    <= kComparisonTolerance
+                && trialCost < bestCost - kComparisonTolerance;
+            if (higherValue || equalValueLowerCost) {
+                bestValue = trialValue;
+                bestCost = trialCost;
+                bestIntensities = trialIntensities;
+            }
+            return;
+        }
+
+        const std::size_t candidateIndex =
+            freeCandidates[freeIndex];
+        const auto& candidate = candidates[candidateIndex];
+        for (const std::size_t actionIndex
+             : actionOrders[freeIndex]) {
+            trialIntensities[candidateIndex] =
+                intensities[actionIndex];
+            self(
+                self,
+                freeIndex + 1,
+                trialCost
+                    + candidate.actionEstimates[actionIndex]
+                        .estimatedIncrementalCost,
+                trialValue
+                    + candidate.actionEstimates[actionIndex]
+                        .optimisticReward
+                    - candidate.actionEstimates[0]
+                        .optimisticReward);
+        }
+    };
+    searchAssignments(
+        searchAssignments,
+        0,
+        fixedCost,
+        fixedValue);
+
+    allocation.intensities = std::move(bestIntensities);
+    allocation.stats.predictedBudgetUsed = bestCost;
+    allocation.stats.predictedValueGain =
+        std::max(0.0, bestValue - proposedValue);
+    for (std::size_t candidateIndex = 0;
+         candidateIndex < candidates.size();
+         ++candidateIndex) {
+        if (candidates[candidateIndex].eligible
+            && allocation.intensities[candidateIndex]
+                != candidates[candidateIndex].proposedIntensity) {
+            ++allocation.stats.reassignments;
+        }
+    }
+    return allocation;
 }
 
 LocalSearchAllocationRun LocalSearchAllocationRunner::run(
@@ -608,7 +818,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     record.weakResult.distanceCallsUsed);
             record.costAfterTerminal = record.costAfterWeak;
             record.totalResult = record.weakResult;
-            if (policy == LocalSearchPolicy::OnlineIndividual) {
+            if (policy == LocalSearchPolicy::OnlineIndividual
+                || policy == LocalSearchPolicy::CompetitiveOnline) {
                 record.context = make_context(
                     *record.individual,
                     upperReference,
@@ -625,9 +836,71 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             run.records.push_back(std::move(record));
         }
 
+        std::vector<LocalSearchIntensityDecision>
+            competitiveDecisions;
+        if (policy == LocalSearchPolicy::CompetitiveOnline) {
+            std::vector<CompetitiveContinuationCandidate>
+                competitiveCandidates(batchSize);
+            competitiveDecisions.resize(batchSize);
+            const std::array<LocalSearchIntensity, 3> intensities = {
+                LocalSearchIntensity::Weak,
+                LocalSearchIntensity::Medium,
+                deepestIntensity,
+            };
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                const auto& record =
+                    run.records[recordStart + localIndex];
+                auto& candidate =
+                    competitiveCandidates[localIndex];
+                if (record.weakResult.reachedLocalOptimum) {
+                    continue;
+                }
+                const LocalSearchIntensityDecision proposal =
+                    learner.select(
+                        record.context,
+                        generation,
+                        allocationEngine,
+                        deepestIntensity);
+                candidate.proposedIntensity = proposal.intensity;
+                candidate.eligible = true;
+                candidate.fixedExploration =
+                    proposal.exploratory;
+                for (std::size_t actionIndex = 0;
+                     actionIndex < intensities.size();
+                     ++actionIndex) {
+                    candidate.actionEstimates[actionIndex] =
+                        learner.action_estimate(
+                            record.context,
+                            intensities[actionIndex]);
+                }
+                competitiveDecisions[localIndex] = proposal;
+            }
+            const CompetitiveContinuationAllocation allocation =
+                allocate_competitive_continuation(
+                    competitiveCandidates,
+                    deepestIntensity);
+            add_competitive_continuation_stats(
+                run.continuationBudgetStats,
+                allocation.stats);
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                auto& decision =
+                    competitiveDecisions[localIndex];
+                decision.intensity =
+                    allocation.intensities[localIndex];
+                decision.score = learner.score(
+                    run.records[recordStart + localIndex].context,
+                    decision.intensity);
+            }
+        }
+
         if (policy == LocalSearchPolicy::MatchedRandom
             || policy == LocalSearchPolicy::OnlineNonContextual
-            || policy == LocalSearchPolicy::OnlineIndividual) {
+            || policy == LocalSearchPolicy::OnlineIndividual
+            || policy == LocalSearchPolicy::CompetitiveOnline) {
             for (std::size_t localIndex = 0;
                  localIndex < batchSize;
                  ++localIndex) {
@@ -645,6 +918,9 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 if (policy == LocalSearchPolicy::MatchedRandom) {
                     decision.intensity =
                         matchedIntensities[batchStart + localIndex];
+                } else if (
+                    policy == LocalSearchPolicy::CompetitiveOnline) {
+                    decision = competitiveDecisions[localIndex];
                 } else {
                     decision = learner.select(
                         record.context,
@@ -986,12 +1262,17 @@ void LocalSearchAllocationRunner::finalize_feedback(
                 record.continuationResult.distanceCallsUsed)
             / static_cast<double>(weakDistanceCalls);
         if (policy == LocalSearchPolicy::OnlineNonContextual
-            || policy == LocalSearchPolicy::OnlineIndividual) {
+            || policy == LocalSearchPolicy::OnlineIndividual
+            || policy == LocalSearchPolicy::CompetitiveOnline) {
             learner.update(
                 record.context,
                 record.terminalIntensity,
                 record.reward,
                 record.incrementalCostUnits);
+        }
+        if (policy == LocalSearchPolicy::CompetitiveOnline) {
+            run.continuationBudgetStats.realizedBudgetUsed +=
+                record.incrementalCostUnits;
         }
 
         auto& stats = run.stats[
@@ -1076,6 +1357,8 @@ const char* local_search_policy_name(LocalSearchPolicy policy) {
             return "non_contextual";
         case LocalSearchPolicy::OnlineIndividual:
             return "online";
+        case LocalSearchPolicy::CompetitiveOnline:
+            return "competitive";
     }
     return "unknown";
 }

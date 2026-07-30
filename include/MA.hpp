@@ -22,6 +22,7 @@
 class MA : public StatsInterface{
 public:
     static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
+    static constexpr int CONTINUATION_BUDGET_LOG_INTERVAL = 50;
     static constexpr const char* EVOLUTION_LOG_HEADER =
         "iter,evals,best_upper_cost,best_lower_cost,progress,duration";
     static constexpr const char* LOCAL_SEARCH_OPERATOR_LOG_HEADER =
@@ -34,6 +35,10 @@ public:
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
+    static constexpr const char* CONTINUATION_BUDGET_LOG_HEADER =
+        "iter\tgenerations\tbatches\teligible\treassignments\t"
+        "proposed_budget\tpredicted_budget_used\t"
+        "realized_budget_used\tpredicted_value_gain";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -55,15 +60,22 @@ public:
     void accumulate_local_search_allocation_stats(
         const std::array<LocalSearchAllocationStats, 3>& stats);
     void write_local_search_allocation_snapshot();
+    void accumulate_continuation_budget_stats(
+        const CompetitiveContinuationStats& stats);
+    void write_continuation_budget_snapshot();
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
+    std::ostringstream continuationBudgetRows;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
+    std::ofstream logContinuationBudget;
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};
+    CompetitiveContinuationStats pendingContinuationBudgetStats{};
+    int pendingContinuationBudgetGenerations{};
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;

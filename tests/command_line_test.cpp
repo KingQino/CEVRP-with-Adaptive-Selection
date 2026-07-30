@@ -151,6 +151,30 @@ int main() {
         nonContextualParameters.localSearchPolicy
         == LocalSearchPolicy::OnlineNonContextual);
 
+    std::vector<std::string> competitiveArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "competitive",
+    };
+    CommandLine competitiveCommandLine = make_command_line(
+        competitiveArguments);
+    Parameters competitiveParameters;
+    competitiveCommandLine.parse_parameters(
+        competitiveParameters);
+    competitiveParameters.validate();
+    assert(
+        competitiveParameters.localSearchPolicy
+        == LocalSearchPolicy::CompetitiveOnline);
+
+    Parameters invalidCompetitiveIntensity;
+    invalidCompetitiveIntensity.localSearchPolicy =
+        LocalSearchPolicy::CompetitiveOnline;
+    invalidCompetitiveIntensity.localSearchIntensity =
+        LocalSearchIntensity::Strong;
+    assert(validation_fails(
+        invalidCompetitiveIntensity,
+        "competitive ls_policy requires"));
+
     Parameters invalidMixedIntensity;
     invalidMixedIntensity.localSearchPolicy =
         LocalSearchPolicy::RandomMixed;

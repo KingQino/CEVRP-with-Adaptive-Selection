@@ -67,6 +67,18 @@ void add_allocation_stats(
     destination.selectionScore += source.selectionScore;
 }
 
+void add_continuation_budget_stats(
+    CompetitiveContinuationStats& destination,
+    const CompetitiveContinuationStats& source) {
+    destination.batches += source.batches;
+    destination.eligible += source.eligible;
+    destination.reassignments += source.reassignments;
+    destination.proposedBudget += source.proposedBudget;
+    destination.predictedBudgetUsed += source.predictedBudgetUsed;
+    destination.realizedBudgetUsed += source.realizedBudgetUsed;
+    destination.predictedValueGain += source.predictedValueGain;
+}
+
 }  // namespace
 
 using std::endl;
@@ -264,6 +276,12 @@ void MA::open_log_for_local_search() {
         logLocalSearchAllocation
             << LOCAL_SEARCH_ALLOCATION_LOG_HEADER << "\n";
     }
+    if (localSearchPolicy == LocalSearchPolicy::CompetitiveOnline) {
+        logContinuationBudget.open(
+            directoryPath / "continuation-budget.tsv");
+        logContinuationBudget
+            << CONTINUATION_BUDGET_LOG_HEADER << "\n";
+    }
 }
 
 void MA::flush_local_search_log() {
@@ -276,6 +294,11 @@ void MA::flush_local_search_log() {
         logLocalSearchAllocation << localSearchAllocationRows.str();
         localSearchAllocationRows.str("");
         localSearchAllocationRows.clear();
+    }
+    if (logContinuationBudget.is_open()) {
+        logContinuationBudget << continuationBudgetRows.str();
+        continuationBudgetRows.str("");
+        continuationBudgetRows.clear();
     }
 }
 
@@ -343,11 +366,42 @@ void MA::write_local_search_allocation_snapshot() {
     pendingLocalSearchAllocationGenerations = 0;
 }
 
+void MA::accumulate_continuation_budget_stats(
+    const CompetitiveContinuationStats& stats) {
+    add_continuation_budget_stats(
+        pendingContinuationBudgetStats,
+        stats);
+    ++pendingContinuationBudgetGenerations;
+}
+
+void MA::write_continuation_budget_snapshot() {
+    if (pendingContinuationBudgetGenerations == 0
+        || localSearchPolicy
+            != LocalSearchPolicy::CompetitiveOnline) {
+        return;
+    }
+    continuationBudgetRows
+        << setprecision(12)
+        << generation << "\t"
+        << pendingContinuationBudgetGenerations << "\t"
+        << pendingContinuationBudgetStats.batches << "\t"
+        << pendingContinuationBudgetStats.eligible << "\t"
+        << pendingContinuationBudgetStats.reassignments << "\t"
+        << pendingContinuationBudgetStats.proposedBudget << "\t"
+        << pendingContinuationBudgetStats.predictedBudgetUsed << "\t"
+        << pendingContinuationBudgetStats.realizedBudgetUsed << "\t"
+        << pendingContinuationBudgetStats.predictedValueGain << "\n";
+    pendingContinuationBudgetStats = {};
+    pendingContinuationBudgetGenerations = 0;
+}
+
 void MA::close_log_for_local_search() {
     write_local_search_allocation_snapshot();
+    write_continuation_budget_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
+    logContinuationBudget.close();
 }
 
 void MA::save_log_for_solution() {
@@ -370,6 +424,8 @@ void MA::initialize_search() {
     localSearchAllocator.reset();
     pendingLocalSearchAllocationStats = {};
     pendingLocalSearchAllocationGenerations = 0;
+    pendingContinuationBudgetStats = {};
+    pendingContinuationBudgetGenerations = 0;
     retainedLowerElite.reset();
     upperBestIndividual.reset();
     population.clear();
@@ -440,7 +496,9 @@ void MA::run_generation() {
             / static_cast<double>(evaluationLimitDistanceCalls)
         : 0.0;
     double populationDispersion = 0.0;
-    if (localSearchPolicy == LocalSearchPolicy::OnlineIndividual
+    if ((localSearchPolicy == LocalSearchPolicy::OnlineIndividual
+         || localSearchPolicy
+            == LocalSearchPolicy::CompetitiveOnline)
         && !population.empty()) {
         for (const auto& individual : population) {
             populationDispersion +=
@@ -569,7 +627,9 @@ void MA::run_generation() {
         lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
 
     if (localSearchPolicy == LocalSearchPolicy::OnlineNonContextual
-        || localSearchPolicy == LocalSearchPolicy::OnlineIndividual) {
+        || localSearchPolicy == LocalSearchPolicy::OnlineIndividual
+        || localSearchPolicy
+            == LocalSearchPolicy::CompetitiveOnline) {
         LocalSearchAllocationRunner::assign_lower_archive_feedback(
             mixedLocalSearch,
             evaluatedCompleteSolutions,
@@ -642,6 +702,15 @@ void MA::run_generation() {
             if (pendingLocalSearchAllocationGenerations
                 == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
                 write_local_search_allocation_snapshot();
+            }
+        }
+        if (localSearchPolicy
+            == LocalSearchPolicy::CompetitiveOnline) {
+            accumulate_continuation_budget_stats(
+                mixedLocalSearch.continuationBudgetStats);
+            if (pendingContinuationBudgetGenerations
+                == CONTINUATION_BUDGET_LOG_INTERVAL) {
+                write_continuation_budget_snapshot();
             }
         }
         flush_local_search_log();

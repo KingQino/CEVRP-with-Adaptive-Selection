@@ -954,9 +954,79 @@ int main(int argc, char* argv[]) {
         archiveAllocator.score(
             syntheticContext,
             LocalSearchIntensity::Weak)
-        > archiveAllocator.score(
-            syntheticContext,
-            LocalSearchIntensity::Strong));
+            > archiveAllocator.score(
+                syntheticContext,
+                LocalSearchIntensity::Strong));
+
+    auto makeActionEstimate = [](
+        double reward,
+        double cost) {
+        LocalSearchActionEstimate estimate;
+        estimate.optimisticReward = reward;
+        estimate.estimatedIncrementalCost = cost;
+        estimate.score = reward - 0.02 * std::log1p(cost);
+        return estimate;
+    };
+    CompetitiveContinuationCandidate firstCompetitiveCandidate;
+    firstCompetitiveCandidate.eligible = true;
+    firstCompetitiveCandidate.proposedIntensity =
+        LocalSearchIntensity::BoundedStrong;
+    firstCompetitiveCandidate.actionEstimates = {
+        makeActionEstimate(0.0, 0.0),
+        makeActionEstimate(0.30, 6.0),
+        makeActionEstimate(0.40, 10.0),
+    };
+    CompetitiveContinuationCandidate secondCompetitiveCandidate;
+    secondCompetitiveCandidate.eligible = true;
+    secondCompetitiveCandidate.proposedIntensity =
+        LocalSearchIntensity::Weak;
+    secondCompetitiveCandidate.actionEstimates = {
+        makeActionEstimate(0.10, 0.0),
+        makeActionEstimate(0.35, 4.0),
+        makeActionEstimate(0.70, 10.0),
+    };
+    const auto competitiveAllocation =
+        LocalSearchAllocationRunner::
+            allocate_competitive_continuation(
+                {
+                    firstCompetitiveCandidate,
+                    secondCompetitiveCandidate,
+                },
+                LocalSearchIntensity::BoundedStrong);
+    assert(
+        competitiveAllocation.intensities[0]
+        == LocalSearchIntensity::Weak);
+    assert(
+        competitiveAllocation.intensities[1]
+        == LocalSearchIntensity::BoundedStrong);
+    assert(competitiveAllocation.stats.eligible == 2);
+    assert(competitiveAllocation.stats.reassignments == 2);
+    assert(std::fabs(
+        competitiveAllocation.stats.proposedBudget - 10.0)
+        <= 1e-12);
+    assert(std::fabs(
+        competitiveAllocation.stats.predictedBudgetUsed - 10.0)
+        <= 1e-12);
+    assert(std::fabs(
+        competitiveAllocation.stats.predictedValueGain - 0.20)
+        <= 1e-12);
+
+    firstCompetitiveCandidate.fixedExploration = true;
+    const auto fixedCompetitiveAllocation =
+        LocalSearchAllocationRunner::
+            allocate_competitive_continuation(
+                {
+                    firstCompetitiveCandidate,
+                    secondCompetitiveCandidate,
+                },
+                LocalSearchIntensity::BoundedStrong);
+    assert(
+        fixedCompetitiveAllocation.intensities[0]
+        == LocalSearchIntensity::BoundedStrong);
+    assert(
+        fixedCompetitiveAllocation.intensities[1]
+        == LocalSearchIntensity::Weak);
+    assert(fixedCompetitiveAllocation.stats.reassignments == 0);
 
     Parameters algorithmParameters;
     algorithmParameters.seed = 1;

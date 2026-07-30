@@ -21,6 +21,7 @@ enum class LocalSearchPolicy {
     MatchedRandom,
     OnlineNonContextual,
     OnlineIndividual,
+    CompetitiveOnline,
 };
 
 struct LocalSearchAllocationContext {
@@ -81,6 +82,12 @@ struct LocalSearchIntensityDecision {
     bool exploratory{};
 };
 
+struct LocalSearchActionEstimate {
+    double optimisticReward{};
+    double estimatedIncrementalCost{};
+    double score{};
+};
+
 class OnlineIntensityLearner {
 public:
     static constexpr std::size_t LOWER_ARCHIVE_CAPACITY = 10;
@@ -102,6 +109,9 @@ public:
         const std::vector<std::shared_ptr<Individual>>& completeSolutions);
 
     [[nodiscard]] double score(
+        const LocalSearchAllocationContext& context,
+        LocalSearchIntensity intensity) const;
+    [[nodiscard]] LocalSearchActionEstimate action_estimate(
         const LocalSearchAllocationContext& context,
         LocalSearchIntensity intensity) const;
     [[nodiscard]] int observation_count(
@@ -142,6 +152,28 @@ struct LocalSearchAllocationStats {
     double selectionScore{};
 };
 
+struct CompetitiveContinuationStats {
+    int batches{};
+    int eligible{};
+    int reassignments{};
+    double proposedBudget{};
+    double predictedBudgetUsed{};
+    double realizedBudgetUsed{};
+    double predictedValueGain{};
+};
+
+struct CompetitiveContinuationCandidate {
+    std::array<LocalSearchActionEstimate, 3> actionEstimates{};
+    LocalSearchIntensity proposedIntensity{LocalSearchIntensity::Weak};
+    bool eligible{};
+    bool fixedExploration{};
+};
+
+struct CompetitiveContinuationAllocation {
+    std::vector<LocalSearchIntensity> intensities;
+    CompetitiveContinuationStats stats;
+};
+
 struct AllocatedLocalSearchRecord {
     std::shared_ptr<Individual> individual;
     LocalSearchSession session;
@@ -174,6 +206,7 @@ struct LocalSearchAllocationRun {
     std::array<
         LocalSearchOperatorStats,
         LOCAL_SEARCH_OPERATOR_COUNT> operatorStats{};
+    CompetitiveContinuationStats continuationBudgetStats;
 };
 
 class LocalSearchAllocationRunner {
@@ -209,6 +242,10 @@ public:
         LocalSearchAllocationRun& run,
         LocalSearchPolicy policy,
         OnlineIntensityLearner& learner);
+    [[nodiscard]] static CompetitiveContinuationAllocation
+    allocate_competitive_continuation(
+        const std::vector<CompetitiveContinuationCandidate>& candidates,
+        LocalSearchIntensity deepestIntensity);
 
     static std::size_t intensity_index(
         LocalSearchIntensity intensity);
