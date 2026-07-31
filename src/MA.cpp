@@ -422,9 +422,7 @@ void MA::write_elite_unlimited_snapshot() {
 }
 
 bool MA::elite_unlimited_enabled() const {
-    return localSearchPolicy == LocalSearchPolicy::OnlineIndividual
-        && localSearchIntensity
-            == LocalSearchIntensity::BoundedStrong;
+    return false;
 }
 
 void MA::close_log_for_local_search() {
