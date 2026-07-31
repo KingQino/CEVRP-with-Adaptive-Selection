@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 
 #include "individual.hpp"
@@ -119,7 +120,6 @@ std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     const std::vector<std::shared_ptr<Individual>>& rankedUpperSolutions,
     std::size_t desiredPoolSize,
     double qualityRatio) {
-    (void)qualityRatio;
     if (rankedUpperSolutions.empty() || desiredPoolSize == 0) {
         return {};
     }
@@ -142,8 +142,61 @@ std::vector<ParentCandidate> Reproduction::build_quality_diversity_parent_pool(
     }
 
     const std::size_t poolSize = std::min(desiredPoolSize, candidates.size());
-    candidates.resize(poolSize);
-    return candidates;
+    const std::size_t qualitySlots = poolSize <= 1
+        ? poolSize
+        : std::clamp<std::size_t>(
+            static_cast<std::size_t>(std::lround(poolSize * qualityRatio)),
+            1,
+            poolSize - 1);
+    std::vector<bool> selected(candidates.size(), false);
+    std::vector<ParentCandidate> parentPool;
+    parentPool.reserve(poolSize);
+
+    for (std::size_t i = 0; i < qualitySlots; ++i) {
+        parentPool.push_back(candidates[i]);
+        selected[i] = true;
+    }
+
+    while (parentPool.size() < poolSize) {
+        std::size_t bestIndex = candidates.size();
+        double bestMinimumDistance = -1.0;
+
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+            if (selected[i]) {
+                continue;
+            }
+
+            double minimumDistance = std::numeric_limits<double>::infinity();
+            for (const auto& selectedParent : parentPool) {
+                minimumDistance = std::min(
+                    minimumDistance,
+                    adjacency_distance(candidates[i], selectedParent));
+            }
+
+            const bool betterDiversity = minimumDistance > bestMinimumDistance + 1e-12;
+            const bool sameDiversity = std::fabs(minimumDistance - bestMinimumDistance) <= 1e-12;
+            const bool betterQuality = bestIndex == candidates.size()
+                || candidates[i].upperCost < candidates[bestIndex].upperCost - 1e-12;
+            const bool sameQuality = bestIndex != candidates.size()
+                && std::fabs(candidates[i].upperCost - candidates[bestIndex].upperCost) <= 1e-12;
+            const bool smallerChromosome = bestIndex != candidates.size()
+                && candidates[i].chromosome < candidates[bestIndex].chromosome;
+
+            if (betterDiversity
+                || (sameDiversity && betterQuality)
+                || (sameDiversity && sameQuality && smallerChromosome)) {
+                bestIndex = i;
+                bestMinimumDistance = minimumDistance;
+            }
+        }
+
+        if (bestIndex == candidates.size()) {
+            break;
+        }
+        parentPool.push_back(candidates[bestIndex]);
+        selected[bestIndex] = true;
+    }
+    return parentPool;
 }
 
 std::vector<int> Reproduction::make_random_immigrant(
