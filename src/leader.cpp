@@ -54,12 +54,11 @@ constexpr std::array<Neighborhood, 7> kSevenNeighborhoods = {
     Neighborhood::TwoOptStarHeadToTail,
 };
 
-constexpr std::array<LocalSearchOperator, 8> kEightOperators = {
+constexpr std::array<LocalSearchOperator, 7> kEightOperators = {
     LocalSearchOperator::NodeShift,
     LocalSearchOperator::InterRouteRelocate,
     LocalSearchOperator::IntraRouteSwap,
     LocalSearchOperator::InterRouteSwap,
-    LocalSearchOperator::SwapStar,
     LocalSearchOperator::TwoOpt,
     LocalSearchOperator::TwoOptStarHeadToHead,
     LocalSearchOperator::TwoOptStarHeadToTail,

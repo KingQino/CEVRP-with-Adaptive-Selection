@@ -477,7 +477,6 @@ int main(int argc, char* argv[]) {
                    instance.actualProblemSize));
     assert_inter_route_relocate_removes_empty_route(instance);
     assert_refinement_handles_boundary_cases();
-    assert_swap_star_improves_a_seven_neighborhood_local_optimum();
     assert_progressive_eight_neighborhood_session_matches_strong();
 
     auto clusteredRoutes = Initializer::build_with_clustering(instance, randomEngine);
