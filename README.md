@@ -53,9 +53,9 @@ For details, please refer to the following paper:
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
 | `-pure_immigrant_ratio` | `0.10` | Pure immigrant offspring share |
-| `-gamma` | `1.02` | Upper-cost ratio that triggers follower evaluation |
-| `-elite_rho` | `0.10` | Elite Unlimited credit earned per ordinary local-search distance call |
-| `-ls_depth` | `d3` | Coupled weak/medium/bounded-strong depth profile (`d1` to `d5`) |
+| `-gamma` | `1.05` | Upper-cost ratio that triggers follower evaluation |
+| `-elite_rho` | `0.20` | Elite Unlimited credit earned per ordinary local-search distance call |
+| `-ls_depth` | `d5` | Coupled weak/medium/bounded-strong depth profile (`d1` to `d6`) |
 | `-ls_cost_penalty` | `0.02` | Cost penalty in the online intensity learner's action score |
 
 Invalid configurations exit with a non-zero status. Probabilities must be in
@@ -64,15 +64,17 @@ Invalid configurations exit with a non-zero status. Probabilities must be in
 `verified_upper_ratio + pure_immigrant_ratio <= 0.25`. The tournament size
 cannot exceed the resulting parent-pool size.
 
-The five depth profiles keep the weak probe at 2% of
+The six depth profiles keep the weak probe at 2% of
 `customer_count + route_count`. Their medium fraction, bounded-strong move
 fraction, and bounded-strong weak-call multiplier are respectively:
 `d1=(5%,15%,64)`, `d2=(7.5%,22.5%,96)`, `d3=(10%,30%,128)`,
-`d4=(15%,45%,192)`, and `d5=(20%,60%,256)`. `d3` is the original baseline.
+`d4=(15%,45%,192)`, `d5=(20%,60%,256)`, and
+`d6=(25%,75%,320)`. `d5` is the confirmed shared configuration.
 
 `random` uses the original progressive random mix. `matched_random` assigns
-approximately 88.8% weak, 3.3% medium, and 7.9% deepest actions, matching the
-aggregate Reward V3.1 online allocation independently of context and feedback.
+approximately 75.6% weak, 3.5% medium, and 20.9% deepest actions, matching the
+Quality-only shared configuration's aggregate online allocation independently
+of context and feedback.
 `non_contextual` uses the online learner with a constant context, while `online`
 includes the per-individual search context. The deepest action is selected by
 `-ls strong` or `-ls bounded_strong`.
@@ -126,10 +128,10 @@ includes the per-individual search context. The deepest action is selected by
 - Skip performs no upper-level local search, while weak and medium cap accepted moves at 2% and 10% of the initial `customer_count + route_count`. Bounded-strong first performs the weak probe in the same RVND session, then continues up to 30% of that initial scale and a soft cumulative limit of 128 times the weak probe's distance calls. Unlimited strong runs until all eight neighborhoods fail. Gamma filtering and follower evaluation still run after skip.
 - The default `static` policy applies the selected intensity to the complete upper-level population. The `random` policy retains the fixed terminal mix of approximately 20% weak, 30% medium, and 50% strong as an ablation baseline.
 - The `online` policy gives every new individual a weak probe, then independently chooses whether it terminates at weak, medium, or the deepest intensity selected by `-ls`. Use `-ls bounded_strong` to learn among weak/medium/bounded-strong, or `-ls strong` to retain weak/medium/unlimited-strong. It has no fixed action quota. Context contains only changing search, individual, and probe feedback; instance size and route-count features are intentionally excluded because the model is reset for every run.
-- With `-ls bounded_strong -ls_policy online`, Elite Unlimited V2 reserves 10% of ordinary local-search distance calls as a post-paid credit account. After ten warm-up generations, at most one unfinished bounded-strong individual per generation can receive unlimited RVND; the candidate is the one with the lowest post-bounded upper cost. Its cost and delayed feedback are logged separately in `elite-local-search.tsv` and are excluded from the ordinary intensity learner.
+- With `-ls bounded_strong -ls_policy online`, Elite Unlimited V2 reserves the `-elite_rho` share of ordinary local-search distance calls as a post-paid credit account. After ten warm-up generations, at most one unfinished bounded-strong individual per generation can receive unlimited RVND; the candidate is the one with the lowest post-bounded upper cost. Its cost and delayed feedback are logged separately in `elite-local-search.tsv` and are excluded from the ordinary intensity learner.
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online reward combines lower-archive rank, post-probe gamma crossing, and reproduction parent usage. Continuation upper gain remains an aggregate diagnostic signal but is excluded from reward. Action cost contains only evaluations consumed after the common weak probe.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
-- Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
+- Lower-level charging is evaluated only for solutions within `1.05 * global_best_upper_cost`.
 - All policies write eight per-generation operator totals to `local-search-operators.tsv`. Non-static allocation policies additionally write three action totals for each 10-generation window to `local-search-allocation.tsv`, including mutually exclusive counts for local-optimum, move-limit, and distance-limit termination and separate total/continuation evaluations. Per-individual local-search rows are intentionally omitted to keep long runs compact.
 - `run-configuration.tsv` records the exact gamma, Elite rho, depth profile and learner cost penalty for each run. `search-budget.tsv` writes 10-generation snapshots that partition distance calls into ordinary local search, Elite Unlimited, follower evaluation and other generation work, together with their budget shares and follower candidate/run counts.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.

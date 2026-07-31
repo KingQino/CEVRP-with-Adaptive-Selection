@@ -25,10 +25,10 @@ struct Parameters {
     double qualityRatio = 0.50;
     double verifiedUpperRatio = 0.05;
     double pureImmigrantRatio = 0.10;
-    double gamma = 1.02;
-    double eliteBudgetRatio = 0.10;
+    double gamma = 1.05;
+    double eliteBudgetRatio = 0.20;
     LocalSearchDepthProfile localSearchDepthProfile =
-        LocalSearchDepthProfile::D3;
+        LocalSearchDepthProfile::D5;
     double localSearchCostPenalty =
         OnlineIntensityLearner::DEFAULT_COST_PENALTY;
 

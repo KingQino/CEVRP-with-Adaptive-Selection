@@ -1,0 +1,12 @@
+experiment	branch	ls	ls_policy	elite_rho
+full	codex/quality-only-ablation-full	bounded_strong	online	0.20
+no-elite	codex/quality-only-ablation-full	bounded_strong	online	0.00
+non-contextual	codex/quality-only-ablation-full	bounded_strong	non_contextual	0.00
+matched-random	codex/quality-only-ablation-full	bounded_strong	matched_random	0.00
+static-weak	codex/quality-only-ablation-full	weak	static	0.00
+static-medium	codex/quality-only-ablation-full	medium	static	0.00
+static-bounded-strong	codex/quality-only-ablation-full	bounded_strong	static	0.00
+static-strong	codex/quality-only-ablation-full	strong	static	0.00
+5plus5-parent-pool	codex/quality-only-ablation-5plus5	bounded_strong	online	0.20
+no-lower-elite	codex/quality-only-ablation-no-lower-elite	bounded_strong	online	0.20
+no-swap-star	codex/quality-only-ablation-no-swap-star	bounded_strong	online	0.20

@@ -1376,6 +1376,9 @@ int main(int argc, char* argv[]) {
     std::istringstream matchedRows(matchedAllocationRows);
     int matchedRowCount = 0;
     int matchedSelectionCount = 0;
+    int matchedWeakCount = 0;
+    int matchedMediumCount = 0;
+    int matchedBoundedStrongCount = 0;
     while (std::getline(matchedRows, localSearchRow)) {
         std::istringstream rowStream(localSearchRow);
         std::vector<std::string> columns;
@@ -1391,12 +1394,22 @@ int main(int argc, char* argv[]) {
             + std::stoi(columns[8]);
         assert(terminationCount == std::stoi(columns[3]));
         matchedSelectionCount += std::stoi(columns[3]);
+        if (columns[2] == "weak") {
+            matchedWeakCount = std::stoi(columns[3]);
+        } else if (columns[2] == "medium") {
+            matchedMediumCount = std::stoi(columns[3]);
+        } else if (columns[2] == "bounded_strong") {
+            matchedBoundedStrongCount = std::stoi(columns[3]);
+        }
         ++matchedRowCount;
     }
     assert(matchedRowCount == 3);
     assert(
         matchedSelectionCount
         == matchedAllocationParameters.popSize);
+    assert(matchedWeakCount == 76);
+    assert(matchedMediumCount == 3);
+    assert(matchedBoundedStrongCount == 21);
     assert(
         matchedAllocationAlgorithm.localSearchAllocator
             .observation_count(LocalSearchIntensity::Weak)
