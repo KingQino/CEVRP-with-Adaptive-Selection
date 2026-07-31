@@ -6,7 +6,7 @@ source "$script_dir/common.sh"
 validate_inputs
 
 [[ -d "$source_dir" ]] || {
-    echo "Error: clone codex/parameter-sensitivity into $source_dir first" >&2
+    echo "Error: clone codex/quality-only-parameter-sensitivity into $source_dir first" >&2
     exit 1
 }
 

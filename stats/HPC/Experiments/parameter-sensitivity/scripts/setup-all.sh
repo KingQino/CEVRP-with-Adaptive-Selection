@@ -13,4 +13,4 @@ while IFS= read -r config_id; do
     "$script_dir/setup-one.sh" "$config_id"
 done < <(configuration_ids)
 
-echo "Prepared all 54 configurations. Run submit-all.sh to submit them."
+echo "Prepared all 64 configurations. Run submit-all.sh to submit them."

@@ -8,11 +8,11 @@ validate_inputs
 objective_all="$root_dir/objective-all.tsv"
 budget_all="$root_dir/budget-all.tsv"
 action_all="$root_dir/action-all.tsv"
-printf 'config\theatmap\tgamma\telite_rho\tls_depth\tls_cost_penalty\tinstance\tmin\tmean\tstddev\n' > "$objective_all"
+printf 'config\theatmap\tgamma\telite_rho\tls_depth\tdepth_scale\tls_cost_penalty\tinstance\tmin\tmean\tstddev\n' > "$objective_all"
 printf 'config\tinstance\tnormal_ls_evals\telite_ls_evals\tfollower_evals\tother_evals\ttotal_evals\tnormal_ls_share\telite_ls_share\tfollower_share\tother_share\tfollower_candidates\tfollower_runs\n' > "$budget_all"
 printf 'config\tinstance\taction\tselections\tselection_share\tevals\teval_share\tcontinuation_evals\tcontinuation_eval_share\n' > "$action_all"
 
-while IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth cost_penalty; do
+while IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth depth_scale cost_penalty; do
     [[ "$config_id" == "config" || -z "$config_id" ]] && continue
     project_dir="$root_dir/$config_id"
     objective="$project_dir/objective.tsv"
@@ -43,9 +43,9 @@ while IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth cost_penalty;
             >> "$objective"
         printf '%s\n%s\n%s\n' \
             "$min_value" "$mean_value" "$stddev_value" >> "$legacy"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$config_id" "$heatmap" "$gamma" "$elite_rho" \
-            "$ls_depth" "$cost_penalty" "$stem" "$min_value" \
+            "$ls_depth" "$depth_scale" "$cost_penalty" "$stem" "$min_value" \
             "$mean_value" "$stddev_value" >> "$objective_all"
 
         budget_files=()
@@ -126,28 +126,28 @@ while IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth cost_penalty;
 done < "$config_file"
 
 paired="$root_dir/paired-deltas.tsv"
-printf 'config\theatmap\tgamma\telite_rho\tls_depth\tls_cost_penalty\tinstance\tpaired_delta_percent\n' > "$paired"
-awk -F '\t' 'BEGIN { OFS = "\t" }
+printf 'config\theatmap\tgamma\telite_rho\tls_depth\tdepth_scale\tls_cost_penalty\tinstance\tpaired_delta_percent\n' > "$paired"
+awk -F '\t' -v baseline_config="$baseline_config_id" 'BEGIN { OFS = "\t" }
     NR == FNR {
-        if (FNR > 1 && $1 == "gr-g1p02-r0p100") baseline[$7] = $9
+        if (FNR > 1 && $1 == baseline_config) baseline[$8] = $10
         next
     }
     FNR > 1 {
-        if (!($7 in baseline)) exit 1
-        delta = 100.0 * ($9 / baseline[$7] - 1.0)
-        print $1, $2, $3, $4, $5, $6, $7, delta
+        if (!($8 in baseline)) exit 1
+        delta = 100.0 * ($10 / baseline[$8] - 1.0)
+        print $1, $2, $3, $4, $5, $6, $7, $8, delta
     }
 ' "$objective_all" "$objective_all" >> "$paired"
 
 cells="$root_dir/heatmap-cells.tsv"
-printf 'config\theatmap\tgamma\telite_rho\tls_depth\tls_cost_penalty\tmean_delta_percent\timproved\ttied\tworse\n' > "$cells"
+printf 'config\theatmap\tgamma\telite_rho\tls_depth\tdepth_scale\tls_cost_penalty\tmean_delta_percent\timproved\ttied\tworse\n' > "$cells"
 awk -F '\t' 'BEGIN { OFS = "\t" }
     NR > 1 {
-        key = $1 FS $2 FS $3 FS $4 FS $5 FS $6
-        sum[key] += $8
+        key = $1 FS $2 FS $3 FS $4 FS $5 FS $6 FS $7
+        sum[key] += $9
         count[key]++
-        if ($8 < -1e-9) improved[key]++
-        else if ($8 > 1e-9) worse[key]++
+        if ($9 < -1e-9) improved[key]++
+        else if ($9 > 1e-9) worse[key]++
         else tied[key]++
         if (!(key in seen)) {
             order[++size] = key

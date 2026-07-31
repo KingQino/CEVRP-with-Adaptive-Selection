@@ -1,55 +1,65 @@
-config	heatmap	gamma	elite_rho	ls_depth	ls_cost_penalty
-gr-g1p00-r0p000	gamma_rho	1.00	0.000	d3	0.02
-gr-g1p00-r0p025	gamma_rho	1.00	0.025	d3	0.02
-gr-g1p00-r0p050	gamma_rho	1.00	0.050	d3	0.02
-gr-g1p00-r0p100	gamma_rho	1.00	0.100	d3	0.02
-gr-g1p00-r0p200	gamma_rho	1.00	0.200	d3	0.02
-gr-g1p01-r0p000	gamma_rho	1.01	0.000	d3	0.02
-gr-g1p01-r0p025	gamma_rho	1.01	0.025	d3	0.02
-gr-g1p01-r0p050	gamma_rho	1.01	0.050	d3	0.02
-gr-g1p01-r0p100	gamma_rho	1.01	0.100	d3	0.02
-gr-g1p01-r0p200	gamma_rho	1.01	0.200	d3	0.02
-gr-g1p02-r0p000	gamma_rho	1.02	0.000	d3	0.02
-gr-g1p02-r0p025	gamma_rho	1.02	0.025	d3	0.02
-gr-g1p02-r0p050	gamma_rho	1.02	0.050	d3	0.02
-gr-g1p02-r0p100	both	1.02	0.100	d3	0.02
-gr-g1p02-r0p200	gamma_rho	1.02	0.200	d3	0.02
-gr-g1p03-r0p000	gamma_rho	1.03	0.000	d3	0.02
-gr-g1p03-r0p025	gamma_rho	1.03	0.025	d3	0.02
-gr-g1p03-r0p050	gamma_rho	1.03	0.050	d3	0.02
-gr-g1p03-r0p100	gamma_rho	1.03	0.100	d3	0.02
-gr-g1p03-r0p200	gamma_rho	1.03	0.200	d3	0.02
-gr-g1p05-r0p000	gamma_rho	1.05	0.000	d3	0.02
-gr-g1p05-r0p025	gamma_rho	1.05	0.025	d3	0.02
-gr-g1p05-r0p050	gamma_rho	1.05	0.050	d3	0.02
-gr-g1p05-r0p100	gamma_rho	1.05	0.100	d3	0.02
-gr-g1p05-r0p200	gamma_rho	1.05	0.200	d3	0.02
-gr-g1p10-r0p000	gamma_rho	1.10	0.000	d3	0.02
-gr-g1p10-r0p025	gamma_rho	1.10	0.025	d3	0.02
-gr-g1p10-r0p050	gamma_rho	1.10	0.050	d3	0.02
-gr-g1p10-r0p100	gamma_rho	1.10	0.100	d3	0.02
-gr-g1p10-r0p200	gamma_rho	1.10	0.200	d3	0.02
-dc-d1-c0p000	depth_cost	1.02	0.100	d1	0.00
-dc-d1-c0p010	depth_cost	1.02	0.100	d1	0.01
-dc-d1-c0p020	depth_cost	1.02	0.100	d1	0.02
-dc-d1-c0p050	depth_cost	1.02	0.100	d1	0.05
-dc-d1-c0p100	depth_cost	1.02	0.100	d1	0.10
-dc-d2-c0p000	depth_cost	1.02	0.100	d2	0.00
-dc-d2-c0p010	depth_cost	1.02	0.100	d2	0.01
-dc-d2-c0p020	depth_cost	1.02	0.100	d2	0.02
-dc-d2-c0p050	depth_cost	1.02	0.100	d2	0.05
-dc-d2-c0p100	depth_cost	1.02	0.100	d2	0.10
-dc-d3-c0p000	depth_cost	1.02	0.100	d3	0.00
-dc-d3-c0p010	depth_cost	1.02	0.100	d3	0.01
-dc-d3-c0p050	depth_cost	1.02	0.100	d3	0.05
-dc-d3-c0p100	depth_cost	1.02	0.100	d3	0.10
-dc-d4-c0p000	depth_cost	1.02	0.100	d4	0.00
-dc-d4-c0p010	depth_cost	1.02	0.100	d4	0.01
-dc-d4-c0p020	depth_cost	1.02	0.100	d4	0.02
-dc-d4-c0p050	depth_cost	1.02	0.100	d4	0.05
-dc-d4-c0p100	depth_cost	1.02	0.100	d4	0.10
-dc-d5-c0p000	depth_cost	1.02	0.100	d5	0.00
-dc-d5-c0p010	depth_cost	1.02	0.100	d5	0.01
-dc-d5-c0p020	depth_cost	1.02	0.100	d5	0.02
-dc-d5-c0p050	depth_cost	1.02	0.100	d5	0.05
-dc-d5-c0p100	depth_cost	1.02	0.100	d5	0.10
+config	heatmap	gamma	elite_rho	ls_depth	depth_scale	ls_cost_penalty
+gr-g1p000-r0p000	gamma_rho	1.000	0.00	d5	2.0	0.02
+gr-g1p000-r0p050	gamma_rho	1.000	0.05	d5	2.0	0.02
+gr-g1p000-r0p100	gamma_rho	1.000	0.10	d5	2.0	0.02
+gr-g1p000-r0p150	gamma_rho	1.000	0.15	d5	2.0	0.02
+gr-g1p000-r0p200	gamma_rho	1.000	0.20	d5	2.0	0.02
+gr-g1p000-r0p250	gamma_rho	1.000	0.25	d5	2.0	0.02
+gr-g1p000-r0p300	gamma_rho	1.000	0.30	d5	2.0	0.02
+gr-g1p025-r0p000	gamma_rho	1.025	0.00	d5	2.0	0.02
+gr-g1p025-r0p050	gamma_rho	1.025	0.05	d5	2.0	0.02
+gr-g1p025-r0p100	gamma_rho	1.025	0.10	d5	2.0	0.02
+gr-g1p025-r0p150	gamma_rho	1.025	0.15	d5	2.0	0.02
+gr-g1p025-r0p200	gamma_rho	1.025	0.20	d5	2.0	0.02
+gr-g1p025-r0p250	gamma_rho	1.025	0.25	d5	2.0	0.02
+gr-g1p025-r0p300	gamma_rho	1.025	0.30	d5	2.0	0.02
+gr-g1p050-r0p000	gamma_rho	1.050	0.00	d5	2.0	0.02
+gr-g1p050-r0p050	gamma_rho	1.050	0.05	d5	2.0	0.02
+gr-g1p050-r0p100	gamma_rho	1.050	0.10	d5	2.0	0.02
+gr-g1p050-r0p150	gamma_rho	1.050	0.15	d5	2.0	0.02
+gr-g1p050-r0p200	both	1.050	0.20	d5	2.0	0.02
+gr-g1p050-r0p250	gamma_rho	1.050	0.25	d5	2.0	0.02
+gr-g1p050-r0p300	gamma_rho	1.050	0.30	d5	2.0	0.02
+gr-g1p075-r0p000	gamma_rho	1.075	0.00	d5	2.0	0.02
+gr-g1p075-r0p050	gamma_rho	1.075	0.05	d5	2.0	0.02
+gr-g1p075-r0p100	gamma_rho	1.075	0.10	d5	2.0	0.02
+gr-g1p075-r0p150	gamma_rho	1.075	0.15	d5	2.0	0.02
+gr-g1p075-r0p200	gamma_rho	1.075	0.20	d5	2.0	0.02
+gr-g1p075-r0p250	gamma_rho	1.075	0.25	d5	2.0	0.02
+gr-g1p075-r0p300	gamma_rho	1.075	0.30	d5	2.0	0.02
+gr-g1p100-r0p000	gamma_rho	1.100	0.00	d5	2.0	0.02
+gr-g1p100-r0p050	gamma_rho	1.100	0.05	d5	2.0	0.02
+gr-g1p100-r0p100	gamma_rho	1.100	0.10	d5	2.0	0.02
+gr-g1p100-r0p150	gamma_rho	1.100	0.15	d5	2.0	0.02
+gr-g1p100-r0p200	gamma_rho	1.100	0.20	d5	2.0	0.02
+gr-g1p100-r0p250	gamma_rho	1.100	0.25	d5	2.0	0.02
+gr-g1p100-r0p300	gamma_rho	1.100	0.30	d5	2.0	0.02
+dc-s0p5-c0p00	depth_cost	1.050	0.20	d1	0.5	0.00
+dc-s0p5-c0p01	depth_cost	1.050	0.20	d1	0.5	0.01
+dc-s0p5-c0p02	depth_cost	1.050	0.20	d1	0.5	0.02
+dc-s0p5-c0p03	depth_cost	1.050	0.20	d1	0.5	0.03
+dc-s0p5-c0p04	depth_cost	1.050	0.20	d1	0.5	0.04
+dc-s0p5-c0p05	depth_cost	1.050	0.20	d1	0.5	0.05
+dc-s1p0-c0p00	depth_cost	1.050	0.20	d3	1.0	0.00
+dc-s1p0-c0p01	depth_cost	1.050	0.20	d3	1.0	0.01
+dc-s1p0-c0p02	depth_cost	1.050	0.20	d3	1.0	0.02
+dc-s1p0-c0p03	depth_cost	1.050	0.20	d3	1.0	0.03
+dc-s1p0-c0p04	depth_cost	1.050	0.20	d3	1.0	0.04
+dc-s1p0-c0p05	depth_cost	1.050	0.20	d3	1.0	0.05
+dc-s1p5-c0p00	depth_cost	1.050	0.20	d4	1.5	0.00
+dc-s1p5-c0p01	depth_cost	1.050	0.20	d4	1.5	0.01
+dc-s1p5-c0p02	depth_cost	1.050	0.20	d4	1.5	0.02
+dc-s1p5-c0p03	depth_cost	1.050	0.20	d4	1.5	0.03
+dc-s1p5-c0p04	depth_cost	1.050	0.20	d4	1.5	0.04
+dc-s1p5-c0p05	depth_cost	1.050	0.20	d4	1.5	0.05
+dc-s2p0-c0p00	depth_cost	1.050	0.20	d5	2.0	0.00
+dc-s2p0-c0p01	depth_cost	1.050	0.20	d5	2.0	0.01
+dc-s2p0-c0p03	depth_cost	1.050	0.20	d5	2.0	0.03
+dc-s2p0-c0p04	depth_cost	1.050	0.20	d5	2.0	0.04
+dc-s2p0-c0p05	depth_cost	1.050	0.20	d5	2.0	0.05
+dc-s2p5-c0p00	depth_cost	1.050	0.20	d6	2.5	0.00
+dc-s2p5-c0p01	depth_cost	1.050	0.20	d6	2.5	0.01
+dc-s2p5-c0p02	depth_cost	1.050	0.20	d6	2.5	0.02
+dc-s2p5-c0p03	depth_cost	1.050	0.20	d6	2.5	0.03
+dc-s2p5-c0p04	depth_cost	1.050	0.20	d6	2.5	0.04
+dc-s2p5-c0p05	depth_cost	1.050	0.20	d6	2.5	0.05

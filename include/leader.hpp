@@ -49,6 +49,7 @@ enum class LocalSearchDepthProfile {
     D3,
     D4,
     D5,
+    D6,
 };
 
 struct LocalSearchDepthConfig {

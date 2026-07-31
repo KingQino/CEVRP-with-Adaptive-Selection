@@ -73,8 +73,11 @@ LocalSearchDepthProfile parse_local_search_depth_profile(
     if (normalized == "d5") {
         return LocalSearchDepthProfile::D5;
     }
+    if (normalized == "d6") {
+        return LocalSearchDepthProfile::D6;
+    }
     throw std::invalid_argument(
-        "ls_depth must be one of: d1, d2, d3, d4, d5");
+        "ls_depth must be one of: d1, d2, d3, d4, d5, d6");
 }
 
 LocalSearchPolicy parse_local_search_policy(const std::string& value) {
@@ -243,7 +246,7 @@ void CommandLine::display_help() {
         << "  -pure_immigrant_ratio <double> Pure immigrant share (default: 0.10)\n"
         << "  -gamma <double>                Follower trigger ratio (default: 1.02)\n"
         << "  -elite_rho <double>            Elite LS credit ratio (default: 0.10)\n"
-        << "  -ls_depth <d1|d2|d3|d4|d5>    Local-search depth profile (default: d3)\n"
+        << "  -ls_depth <d1|d2|d3|d4|d5|d6> Local-search depth profile (default: d3)\n"
         << "  -ls_cost_penalty <double>      Learner cost penalty (default: 0.02)\n"
         << "\nLegacy syntax remains accepted:\n"
         << "  ./Run <instance> <stp> <mth> "

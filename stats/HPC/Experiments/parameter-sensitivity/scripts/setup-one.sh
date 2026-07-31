@@ -15,7 +15,7 @@ row="$(configuration_row "$config_id")" || {
     echo "Error: unknown configuration: $config_id" >&2
     exit 1
 }
-IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth cost_penalty <<< "$row"
+IFS=$'\t' read -r config_id heatmap gamma elite_rho ls_depth depth_scale cost_penalty <<< "$row"
 
 run_binary="$source_dir/build/Run"
 [[ -x "$run_binary" ]] || {
@@ -111,7 +111,10 @@ mv "\$SUMMARY_FILE.tmp" "\$SUMMARY_FILE"
 EOL
 
 chmod +x "$build_dir/script.slurm"
-printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'config\theatmap\tgamma\telite_rho\tls_depth\tdepth_scale\tls_cost_penalty\n' \
+    > "$project_dir/configuration.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$config_id" "$heatmap" "$gamma" "$elite_rho" \
-    "$ls_depth" "$cost_penalty" > "$project_dir/configuration.tsv"
+    "$ls_depth" "$depth_scale" "$cost_penalty" \
+    >> "$project_dir/configuration.tsv"
 echo "Prepared $config_id with ${#cases[@]} instances and 10 runs per instance."

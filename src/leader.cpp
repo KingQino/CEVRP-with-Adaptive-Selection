@@ -2440,6 +2440,8 @@ LocalSearchDepthConfig local_search_depth_config(
             return {0.02, 0.15, 0.45, 192};
         case LocalSearchDepthProfile::D5:
             return {0.02, 0.20, 0.60, 256};
+        case LocalSearchDepthProfile::D6:
+            return {0.02, 0.25, 0.75, 320};
     }
     throw std::logic_error("unknown local-search depth profile");
 }
@@ -2457,6 +2459,8 @@ const char* local_search_depth_profile_name(
             return "d4";
         case LocalSearchDepthProfile::D5:
             return "d5";
+        case LocalSearchDepthProfile::D6:
+            return "d6";
     }
     throw std::logic_error("unknown local-search depth profile");
 }

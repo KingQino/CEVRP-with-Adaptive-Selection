@@ -12,4 +12,4 @@ if [[ -e "$source_dir" ]]; then
     exit 0
 fi
 
-git clone -b codex/parameter-sensitivity "$repository" "$source_dir"
+git clone -b codex/quality-only-parameter-sensitivity "$repository" "$source_dir"

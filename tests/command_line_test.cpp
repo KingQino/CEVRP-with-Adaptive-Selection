@@ -49,7 +49,7 @@ int main() {
         "-pure_immigrant_ratio", "0.15",
         "-gamma", "1.05",
         "-elite_rho", "0.20",
-        "-ls_depth", "d5",
+        "-ls_depth", "d6",
         "-ls_cost_penalty", "0.05",
     };
     CommandLine namedCommandLine = make_command_line(namedArguments);
@@ -74,7 +74,7 @@ int main() {
     assert(std::fabs(namedParameters.eliteBudgetRatio - 0.20) <= 1e-12);
     assert(
         namedParameters.localSearchDepthProfile
-        == LocalSearchDepthProfile::D5);
+        == LocalSearchDepthProfile::D6);
     assert(std::fabs(
         namedParameters.localSearchCostPenalty - 0.05) <= 1e-12);
 

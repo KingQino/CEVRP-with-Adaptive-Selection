@@ -657,9 +657,16 @@ int main(int argc, char* argv[]) {
         local_search_depth_config(LocalSearchDepthProfile::D3);
     const LocalSearchDepthConfig deepDepth =
         local_search_depth_config(LocalSearchDepthProfile::D5);
+    const LocalSearchDepthConfig deepestDepth =
+        local_search_depth_config(LocalSearchDepthProfile::D6);
     assert(std::fabs(shallowDepth.mediumMoveFraction - 0.05) <= 1e-12);
     assert(std::fabs(baselineDepth.mediumMoveFraction - 0.10) <= 1e-12);
     assert(std::fabs(deepDepth.mediumMoveFraction - 0.20) <= 1e-12);
+    assert(std::fabs(deepestDepth.mediumMoveFraction - 0.25) <= 1e-12);
+    assert(
+        std::fabs(deepestDepth.boundedStrongMoveFraction - 0.75)
+        <= 1e-12);
+    assert(deepestDepth.boundedStrongWeakCallMultiplier == 320);
     assert(
         Leader::bounded_strong_distance_call_limit(7, shallowDepth)
         == 448);
