@@ -44,6 +44,7 @@ void Parameters::validate() const {
     require_probability(qualityRatio, "quality_ratio");
     require_probability(verifiedUpperRatio, "verified_upper_ratio");
     require_probability(pureImmigrantRatio, "pure_immigrant_ratio");
+    require_probability(eliteBudgetRatio, "elite_rho");
 
     if (parentPoolRatio <= 0.0) {
         throw std::invalid_argument("parent_pool_ratio must be greater than 0");
@@ -71,5 +72,10 @@ void Parameters::validate() const {
     }
     if (!std::isfinite(gamma) || gamma < 1.0) {
         throw std::invalid_argument("gamma must be finite and at least 1.0");
+    }
+    if (!std::isfinite(localSearchCostPenalty)
+        || localSearchCostPenalty < 0.0) {
+        throw std::invalid_argument(
+            "ls_cost_penalty must be finite and non-negative");
     }
 }

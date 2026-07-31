@@ -20,6 +20,16 @@
 #include "parameters.hpp"
 #include "reproduction.hpp"
 
+struct SearchBudgetStats {
+    std::uint64_t normalLocalSearchDistanceCalls{};
+    std::uint64_t eliteLocalSearchDistanceCalls{};
+    std::uint64_t followerDistanceCalls{};
+    std::uint64_t otherDistanceCalls{};
+    std::uint64_t totalDistanceCalls{};
+    int followerCandidates{};
+    int followerRuns{};
+};
+
 class MA : public StatsInterface{
 public:
     static constexpr int LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL = 10;
@@ -31,7 +41,8 @@ public:
         "iter\tpolicy\taction\tselections\tforced_local_optima\t"
         "exploratory_selections\treached_local_optimum\t"
         "hit_move_limit\thit_distance_limit\taccepted_moves\t"
-        "neighborhood_calls\tevals\tupper_gain\tgamma_crosses\tparent_uses\t"
+        "neighborhood_calls\tevals\tcontinuation_evals\tupper_gain\t"
+        "gamma_crosses\tparent_uses\t"
         "lower_archive_entries\tparent_reward\tlower_reward\t"
         "gamma_reward\tcontinuation_gain_signal\treward\t"
         "avg_incremental_cost_units\tavg_score";
@@ -40,6 +51,14 @@ public:
         "elite_evals\taccepted_moves\tneighborhood_calls\tupper_gain\t"
         "gamma_crosses\tparent_uses\tlower_archive_entries\t"
         "verified_improvements\tbudget_credit_evals";
+    static constexpr const char* BUDGET_ALLOCATION_LOG_HEADER =
+        "iter\tnormal_ls_evals\telite_ls_evals\tfollower_evals\t"
+        "other_evals\ttotal_evals\tnormal_ls_share\telite_ls_share\t"
+        "follower_share\tother_share\tfollower_candidates\tfollower_runs";
+    static constexpr const char* RUN_CONFIGURATION_LOG_HEADER =
+        "seed\tgamma\telite_rho\tls_depth\tweak_move_fraction\t"
+        "medium_move_fraction\tbounded_strong_move_fraction\t"
+        "bounded_strong_weak_call_multiplier\tls_cost_penalty";
 
     MA(Case* instance, const Parameters& parameters);
     ~MA() override;
@@ -64,20 +83,27 @@ public:
     void accumulate_elite_unlimited_stats(
         const EliteUnlimitedStats& stats);
     void write_elite_unlimited_snapshot();
+    void accumulate_search_budget_stats(const SearchBudgetStats& stats);
+    void write_search_budget_snapshot();
     [[nodiscard]] bool elite_unlimited_enabled() const;
 
     std::ostringstream evolutionRows;
     std::ostringstream localSearchOperatorRows;
     std::ostringstream localSearchAllocationRows;
     std::ostringstream eliteUnlimitedRows;
+    std::ostringstream searchBudgetRows;
     std::ofstream logLocalSearchOperators;
     std::ofstream logLocalSearchAllocation;
     std::ofstream logEliteUnlimited;
+    std::ofstream logSearchBudget;
+    std::ofstream logRunConfiguration;
     std::array<LocalSearchAllocationStats, 3>
         pendingLocalSearchAllocationStats{};
     int pendingLocalSearchAllocationGenerations{};
     EliteUnlimitedStats pendingEliteUnlimitedStats{};
     int pendingEliteUnlimitedGenerations{};
+    SearchBudgetStats pendingSearchBudgetStats{};
+    int pendingSearchBudgetGenerations{};
     Case* instance;
     std::mt19937 randomEngine;
     std::mt19937 localSearchEngine;
@@ -106,6 +132,10 @@ public:
     int tournamentSize;
     LocalSearchIntensity localSearchIntensity;
     LocalSearchPolicy localSearchPolicy;
+    LocalSearchDepthProfile localSearchDepthProfile;
+    LocalSearchDepthConfig localSearchDepthConfig;
+    double localSearchCostPenalty;
+    double eliteBudgetRatio;
     double parentPoolRatio;
     double qualityRatio;
     double verifiedUpperRatio;

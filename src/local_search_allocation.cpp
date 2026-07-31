@@ -15,7 +15,6 @@ namespace {
 constexpr double kRidge = 1.0;
 constexpr double kExplorationScale = 0.08;
 constexpr double kRandomExplorationRate = 0.05;
-constexpr double kLogCostPenalty = 0.02;
 constexpr double kLowerRewardWeight = 0.45;
 constexpr double kGammaRewardWeight = 0.25;
 constexpr double kParentRewardWeight = 0.20;
@@ -273,6 +272,18 @@ void OnlineIntensityLearner::reset() {
     lowerArchive.clear();
 }
 
+void OnlineIntensityLearner::set_cost_penalty(double newCostPenalty) {
+    if (!std::isfinite(newCostPenalty) || newCostPenalty < 0.0) {
+        throw std::invalid_argument(
+            "local-search cost penalty must be finite and non-negative");
+    }
+    costPenalty = newCostPenalty;
+}
+
+double OnlineIntensityLearner::cost_penalty() const {
+    return costPenalty;
+}
+
 LocalSearchIntensityDecision OnlineIntensityLearner::select(
     const LocalSearchAllocationContext& context,
     int generation,
@@ -479,7 +490,7 @@ double OnlineIntensityLearner::score(
                 std::log1p(1e6))));
     }
     return optimisticReward
-        - kLogCostPenalty * std::log1p(estimatedCost);
+        - costPenalty * std::log1p(estimatedCost);
 }
 
 int OnlineIntensityLearner::observation_count(
@@ -505,7 +516,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     std::mt19937& localSearchEngine,
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
-    const OnlineIntensityLearner& learner) {
+    const OnlineIntensityLearner& learner,
+    const LocalSearchDepthConfig& depthConfig) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
             "static local search does not use the allocation runner");
@@ -582,7 +594,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 Leader::move_limit_for_intensity(
                     *record.individual,
                     instance,
-                    LocalSearchIntensity::BoundedStrong);
+                    LocalSearchIntensity::BoundedStrong,
+                    depthConfig);
             Leader::begin_eight_neighborhood_rvnd_one_move_session(
                 *record.individual,
                 record.session,
@@ -591,7 +604,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 Leader::move_limit_for_intensity(
                     *record.individual,
                     instance,
-                    LocalSearchIntensity::Weak);
+                    LocalSearchIntensity::Weak,
+                    depthConfig);
             record.weakResult =
                 Leader::continue_eight_neighborhood_rvnd_one_move_session(
                     *record.individual,
@@ -605,7 +619,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 record.individual->get_upper_cost();
             record.boundedStrongDistanceCallLimit =
                 Leader::bounded_strong_distance_call_limit(
-                    record.weakResult.distanceCallsUsed);
+                    record.weakResult.distanceCallsUsed,
+                    depthConfig);
             record.costAfterTerminal = record.costAfterWeak;
             record.totalResult = record.weakResult;
             if (policy == LocalSearchPolicy::OnlineIndividual) {
@@ -671,7 +686,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                             : Leader::move_limit_for_intensity(
                                 *record.individual,
                                 instance,
-                                LocalSearchIntensity::Medium);
+                                LocalSearchIntensity::Medium,
+                                depthConfig);
                     record.continuationResult =
                         Leader::continue_eight_neighborhood_rvnd_one_move_session(
                             *record.individual,
@@ -751,7 +767,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                     : Leader::move_limit_for_intensity(
                         *record.individual,
                         instance,
-                        LocalSearchIntensity::Medium);
+                        LocalSearchIntensity::Medium,
+                        depthConfig);
                 record.continuationResult =
                     Leader::continue_eight_neighborhood_rvnd_one_move_session(
                         *record.individual,
@@ -791,7 +808,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 Leader::move_limit_for_intensity(
                     *record.individual,
                     instance,
-                    LocalSearchIntensity::Medium);
+                    LocalSearchIntensity::Medium,
+                    depthConfig);
             record.continuationResult =
                 Leader::continue_eight_neighborhood_rvnd_one_move_session(
                     *record.individual,
@@ -1032,6 +1050,8 @@ void LocalSearchAllocationRunner::finalize_feedback(
             record.totalResult.neighborhoodCalls;
         stats.distanceCalls +=
             record.totalResult.distanceCallsUsed;
+        stats.continuationDistanceCalls +=
+            record.continuationResult.distanceCallsUsed;
         stats.upperGain +=
             result_upper_gain(record.totalResult);
         stats.gammaCrosses += record.crossedGamma;

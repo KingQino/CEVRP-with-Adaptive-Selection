@@ -52,6 +52,8 @@ void add_allocation_stats(
     destination.acceptedMoves += source.acceptedMoves;
     destination.neighborhoodCalls += source.neighborhoodCalls;
     destination.distanceCalls += source.distanceCalls;
+    destination.continuationDistanceCalls +=
+        source.continuationDistanceCalls;
     destination.upperGain += source.upperGain;
     destination.gammaCrosses += source.gammaCrosses;
     destination.parentUses += source.parentUses;
@@ -94,6 +96,21 @@ void add_elite_unlimited_stats(
         source.endingCreditDistanceCalls;
 }
 
+void add_search_budget_stats(
+    SearchBudgetStats& destination,
+    const SearchBudgetStats& source) {
+    destination.normalLocalSearchDistanceCalls +=
+        source.normalLocalSearchDistanceCalls;
+    destination.eliteLocalSearchDistanceCalls +=
+        source.eliteLocalSearchDistanceCalls;
+    destination.followerDistanceCalls +=
+        source.followerDistanceCalls;
+    destination.otherDistanceCalls += source.otherDistanceCalls;
+    destination.totalDistanceCalls += source.totalDistanceCalls;
+    destination.followerCandidates += source.followerCandidates;
+    destination.followerRuns += source.followerRuns;
+}
+
 }  // namespace
 
 using std::endl;
@@ -134,6 +151,17 @@ MA::MA(Case* instance, const Parameters& parameters) {
     this->tournamentSize = parameters.tournamentSize;
     this->localSearchIntensity = parameters.localSearchIntensity;
     this->localSearchPolicy = parameters.localSearchPolicy;
+    this->localSearchDepthProfile =
+        parameters.localSearchDepthProfile;
+    this->localSearchDepthConfig = local_search_depth_config(
+        parameters.localSearchDepthProfile);
+    this->localSearchCostPenalty =
+        parameters.localSearchCostPenalty;
+    this->eliteBudgetRatio = parameters.eliteBudgetRatio;
+    this->localSearchAllocator.set_cost_penalty(
+        parameters.localSearchCostPenalty);
+    this->eliteUnlimitedController.set_credit_ratio(
+        parameters.eliteBudgetRatio);
     this->parentPoolRatio = parameters.parentPoolRatio;
     this->qualityRatio = parameters.qualityRatio;
     this->verifiedUpperRatio = parameters.verifiedUpperRatio;
@@ -296,6 +324,26 @@ void MA::open_log_for_local_search() {
             directoryPath / "elite-local-search.tsv");
         logEliteUnlimited << ELITE_UNLIMITED_LOG_HEADER << "\n";
     }
+    logSearchBudget.open(
+        directoryPath / "search-budget.tsv");
+    logSearchBudget << BUDGET_ALLOCATION_LOG_HEADER << "\n";
+    logRunConfiguration.open(
+        directoryPath / "run-configuration.tsv");
+    logRunConfiguration << RUN_CONFIGURATION_LOG_HEADER << "\n";
+    logRunConfiguration
+        << setprecision(12)
+        << seed << "\t"
+        << lowerLevelTriggerRatio << "\t"
+        << eliteBudgetRatio << "\t"
+        << local_search_depth_profile_name(
+            localSearchDepthProfile) << "\t"
+        << localSearchDepthConfig.weakMoveFraction << "\t"
+        << localSearchDepthConfig.mediumMoveFraction << "\t"
+        << localSearchDepthConfig.boundedStrongMoveFraction << "\t"
+        << localSearchDepthConfig
+            .boundedStrongWeakCallMultiplier << "\t"
+        << localSearchCostPenalty << "\n";
+    logRunConfiguration.close();
 }
 
 void MA::flush_local_search_log() {
@@ -313,6 +361,11 @@ void MA::flush_local_search_log() {
         logEliteUnlimited << eliteUnlimitedRows.str();
         eliteUnlimitedRows.str("");
         eliteUnlimitedRows.clear();
+    }
+    if (logSearchBudget.is_open()) {
+        logSearchBudget << searchBudgetRows.str();
+        searchBudgetRows.str("");
+        searchBudgetRows.clear();
     }
 }
 
@@ -359,6 +412,8 @@ void MA::write_local_search_allocation_snapshot() {
             << stats.neighborhoodCalls << "\t"
             << instance->distance_calls_to_evals(
                 stats.distanceCalls) << "\t"
+            << instance->distance_calls_to_evals(
+                stats.continuationDistanceCalls) << "\t"
             << stats.upperGain << "\t"
             << stats.gammaCrosses << "\t"
             << stats.parentUses << "\t"
@@ -421,6 +476,52 @@ void MA::write_elite_unlimited_snapshot() {
     pendingEliteUnlimitedGenerations = 0;
 }
 
+void MA::accumulate_search_budget_stats(
+    const SearchBudgetStats& stats) {
+    add_search_budget_stats(
+        pendingSearchBudgetStats,
+        stats);
+    ++pendingSearchBudgetGenerations;
+}
+
+void MA::write_search_budget_snapshot() {
+    if (pendingSearchBudgetGenerations == 0) {
+        return;
+    }
+
+    const double totalDistanceCalls = static_cast<double>(
+        pendingSearchBudgetStats.totalDistanceCalls);
+    const auto evals = [&](std::uint64_t distanceCalls) {
+        return instance->distance_calls_to_evals(distanceCalls);
+    };
+    const auto share = [&](std::uint64_t distanceCalls) {
+        return totalDistanceCalls > 0.0
+            ? static_cast<double>(distanceCalls) / totalDistanceCalls
+            : 0.0;
+    };
+    searchBudgetRows
+        << setprecision(12)
+        << generation << "\t"
+        << evals(pendingSearchBudgetStats
+            .normalLocalSearchDistanceCalls) << "\t"
+        << evals(pendingSearchBudgetStats
+            .eliteLocalSearchDistanceCalls) << "\t"
+        << evals(pendingSearchBudgetStats.followerDistanceCalls) << "\t"
+        << evals(pendingSearchBudgetStats.otherDistanceCalls) << "\t"
+        << evals(pendingSearchBudgetStats.totalDistanceCalls) << "\t"
+        << share(pendingSearchBudgetStats
+            .normalLocalSearchDistanceCalls) << "\t"
+        << share(pendingSearchBudgetStats
+            .eliteLocalSearchDistanceCalls) << "\t"
+        << share(pendingSearchBudgetStats.followerDistanceCalls) << "\t"
+        << share(pendingSearchBudgetStats.otherDistanceCalls) << "\t"
+        << pendingSearchBudgetStats.followerCandidates << "\t"
+        << pendingSearchBudgetStats.followerRuns << "\n";
+
+    pendingSearchBudgetStats = {};
+    pendingSearchBudgetGenerations = 0;
+}
+
 bool MA::elite_unlimited_enabled() const {
     return localSearchPolicy == LocalSearchPolicy::OnlineIndividual
         && localSearchIntensity
@@ -430,10 +531,12 @@ bool MA::elite_unlimited_enabled() const {
 void MA::close_log_for_local_search() {
     write_local_search_allocation_snapshot();
     write_elite_unlimited_snapshot();
+    write_search_budget_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();
     logEliteUnlimited.close();
+    logSearchBudget.close();
 }
 
 void MA::save_log_for_solution() {
@@ -459,6 +562,8 @@ void MA::initialize_search() {
     pendingLocalSearchAllocationGenerations = 0;
     pendingEliteUnlimitedStats = {};
     pendingEliteUnlimitedGenerations = 0;
+    pendingSearchBudgetStats = {};
+    pendingSearchBudgetGenerations = 0;
     retainedLowerElite.reset();
     upperBestIndividual.reset();
     population.clear();
@@ -562,7 +667,8 @@ void MA::run_generation() {
                         localSearchEngine,
                         localSearchIntensity,
                         localSearchWorkspace,
-                        frozenTriggerUpperBound);
+                        frozenTriggerUpperBound,
+                        localSearchDepthConfig);
                 add_operator_stats(generationOperatorStats, result);
             } else {
                 Leader::improve_with_eight_neighborhood_rvnd_one_move(
@@ -570,7 +676,8 @@ void MA::run_generation() {
                     *instance,
                     localSearchEngine,
                     localSearchIntensity,
-                    localSearchWorkspace);
+                    localSearchWorkspace,
+                    localSearchDepthConfig);
             }
         };
 
@@ -595,12 +702,13 @@ void MA::run_generation() {
             localSearchEngine,
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
-            localSearchAllocator);
+            localSearchAllocator,
+            localSearchDepthConfig);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
+        normalLocalSearchDistanceCalls =
+            allocation_distance_calls(mixedLocalSearch);
         if (elite_unlimited_enabled()) {
-            normalLocalSearchDistanceCalls =
-                allocation_distance_calls(mixedLocalSearch);
             eliteUnlimitedRun = eliteUnlimitedController.run(
                 mixedLocalSearch,
                 *instance,
@@ -613,6 +721,15 @@ void MA::run_generation() {
                 generationOperatorStats,
                 eliteUnlimitedRun.result);
         }
+    }
+    const std::uint64_t localSearchEndDistanceCalls =
+        instance->get_distance_calls();
+    const std::uint64_t eliteLocalSearchDistanceCalls =
+        eliteUnlimitedRun.result.distanceCallsUsed;
+    const std::uint64_t totalLocalSearchDistanceCalls =
+        localSearchEndDistanceCalls - generationStartDistanceCalls;
+    if (localSearchPolicy == LocalSearchPolicy::Static) {
+        normalLocalSearchDistanceCalls = totalLocalSearchDistanceCalls;
     }
 
     // Build the quality-diversity parent pool before follower evaluation, so
@@ -646,12 +763,18 @@ void MA::run_generation() {
     }
 
     vector<shared_ptr<Individual>> evaluatedCompleteSolutions;
+    const int followerCandidateCount = static_cast<int>(
+        followerCandidates.size());
+    const std::uint64_t followerStartDistanceCalls =
+        instance->get_distance_calls();
+    int followerRuns = 0;
     const double verifiedLowerCostBeforeFollower =
         verifiedBest->get_lower_cost();
     for (auto& individual : followerCandidates) {
         const bool canReuseLowerElite = individual == unchangedLowerElite
             && individual->get_lower_cost() < INFEASIBLE_COST;
         if (!canReuseLowerElite) {
+            ++followerRuns;
             Follower::optimize_charging(
                 *individual,
                 *instance,
@@ -659,6 +782,8 @@ void MA::run_generation() {
         }
         evaluatedCompleteSolutions.push_back(individual);
     }
+    const std::uint64_t followerDistanceCalls =
+        instance->get_distance_calls() - followerStartDistanceCalls;
 
     shared_ptr<Individual> lowerElite;
     if (!evaluatedCompleteSolutions.empty()) {
@@ -877,4 +1002,32 @@ void MA::run_generation() {
     retainedLowerElite = lowerElite;
     population.clear();
     population.swap(populationBuffer);
+
+    if (enableLogging) {
+        const std::uint64_t generationDistanceCalls =
+            instance->get_distance_calls() - generationStartDistanceCalls;
+        const std::uint64_t categorizedDistanceCalls =
+            normalLocalSearchDistanceCalls
+            + eliteLocalSearchDistanceCalls
+            + followerDistanceCalls;
+        SearchBudgetStats budgetStats;
+        budgetStats.normalLocalSearchDistanceCalls =
+            normalLocalSearchDistanceCalls;
+        budgetStats.eliteLocalSearchDistanceCalls =
+            eliteLocalSearchDistanceCalls;
+        budgetStats.followerDistanceCalls = followerDistanceCalls;
+        budgetStats.otherDistanceCalls =
+            generationDistanceCalls >= categorizedDistanceCalls
+            ? generationDistanceCalls - categorizedDistanceCalls
+            : 0;
+        budgetStats.totalDistanceCalls = generationDistanceCalls;
+        budgetStats.followerCandidates = followerCandidateCount;
+        budgetStats.followerRuns = followerRuns;
+        accumulate_search_budget_stats(budgetStats);
+        if (pendingSearchBudgetGenerations
+            == LOCAL_SEARCH_ALLOCATION_LOG_INTERVAL) {
+            write_search_budget_snapshot();
+        }
+        flush_local_search_log();
+    }
 }

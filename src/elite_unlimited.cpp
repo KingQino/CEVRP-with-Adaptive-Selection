@@ -1,6 +1,7 @@
 #include "elite_unlimited.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 #include "case.hpp"
@@ -32,6 +33,20 @@ void EliteUnlimitedController::reset() {
     creditDistanceCalls = 0.0L;
 }
 
+void EliteUnlimitedController::set_credit_ratio(double newCreditRatio) {
+    if (!std::isfinite(newCreditRatio)
+        || newCreditRatio < 0.0
+        || newCreditRatio > 1.0) {
+        throw std::invalid_argument(
+            "elite credit ratio must be in [0, 1]");
+    }
+    creditRatio = newCreditRatio;
+}
+
+double EliteUnlimitedController::credit_ratio() const {
+    return creditRatio;
+}
+
 EliteUnlimitedRun EliteUnlimitedController::run(
     LocalSearchAllocationRun& allocationRun,
     Case& instance,
@@ -41,7 +56,8 @@ EliteUnlimitedRun EliteUnlimitedController::run(
     std::mt19937& randomEngine,
     LocalSearchWorkspace& workspace) {
     creditDistanceCalls +=
-        CREDIT_RATIO * static_cast<long double>(normalDistanceCalls);
+        static_cast<long double>(creditRatio)
+        * static_cast<long double>(normalDistanceCalls);
 
     EliteUnlimitedRun run;
     auto bestCandidate = allocationRun.records.end();

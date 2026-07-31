@@ -651,6 +651,31 @@ int main(int argc, char* argv[]) {
     assert(
         Leader::bounded_strong_distance_call_limit(7)
         == 896);
+    const LocalSearchDepthConfig shallowDepth =
+        local_search_depth_config(LocalSearchDepthProfile::D1);
+    const LocalSearchDepthConfig baselineDepth =
+        local_search_depth_config(LocalSearchDepthProfile::D3);
+    const LocalSearchDepthConfig deepDepth =
+        local_search_depth_config(LocalSearchDepthProfile::D5);
+    assert(std::fabs(shallowDepth.mediumMoveFraction - 0.05) <= 1e-12);
+    assert(std::fabs(baselineDepth.mediumMoveFraction - 0.10) <= 1e-12);
+    assert(std::fabs(deepDepth.mediumMoveFraction - 0.20) <= 1e-12);
+    assert(
+        Leader::bounded_strong_distance_call_limit(7, shallowDepth)
+        == 448);
+    assert(
+        Leader::bounded_strong_distance_call_limit(7, deepDepth)
+        == 1792);
+    assert(
+        Leader::move_limit_for_intensity(
+            boundedEightNeighborhoodSearch,
+            instance,
+            LocalSearchIntensity::BoundedStrong,
+            deepDepth)
+        == std::max(
+            1,
+            static_cast<int>(
+                std::ceil(0.60 * boundedSolutionScale))));
     assert_individual_is_consistent(
         boundedEightNeighborhoodSearch,
         instance);
@@ -957,6 +982,9 @@ int main(int argc, char* argv[]) {
         > archiveAllocator.score(
             syntheticContext,
             LocalSearchIntensity::Strong));
+    archiveAllocator.set_cost_penalty(0.05);
+    assert(std::fabs(
+        archiveAllocator.cost_penalty() - 0.05) <= 1e-12);
 
     Parameters algorithmParameters;
     algorithmParameters.seed = 1;
@@ -965,9 +993,24 @@ int main(int argc, char* argv[]) {
     algorithmParameters.mutationProb = 0.35;
     algorithmParameters.mutationIndProb = 0.07;
     algorithmParameters.enableLogging = true;
+    algorithmParameters.localSearchDepthProfile =
+        LocalSearchDepthProfile::D5;
+    algorithmParameters.localSearchCostPenalty = 0.05;
+    algorithmParameters.eliteBudgetRatio = 0.20;
     MA algorithm(&instance, algorithmParameters);
     assert(std::fabs(algorithm.mutationProb - 0.35) <= 1e-12);
     assert(std::fabs(algorithm.mutationIndProb - 0.07) <= 1e-12);
+    assert(
+        algorithm.localSearchDepthProfile
+        == LocalSearchDepthProfile::D5);
+    assert(std::fabs(
+        algorithm.localSearchDepthConfig.boundedStrongMoveFraction
+        - 0.60) <= 1e-12);
+    assert(std::fabs(
+        algorithm.localSearchAllocator.cost_penalty() - 0.05) <= 1e-12);
+    assert(std::fabs(
+        algorithm.eliteUnlimitedController.credit_ratio() - 0.20)
+        <= 1e-12);
     algorithm.initialize_search();
     assert(algorithm.upperBestIndividual != nullptr);
     assert(std::fabs(
@@ -1066,6 +1109,15 @@ int main(int argc, char* argv[]) {
     assert(aggregateOperatorAccepts > 0);
     assert(aggregateOperatorEvals > 0.0);
     assert(aggregateOperatorGammaCrosses >= 0);
+    assert(std::string(MA::BUDGET_ALLOCATION_LOG_HEADER)
+           == "iter\tnormal_ls_evals\telite_ls_evals\tfollower_evals\t"
+              "other_evals\ttotal_evals\tnormal_ls_share\telite_ls_share\t"
+              "follower_share\tother_share\tfollower_candidates\t"
+              "follower_runs");
+    algorithm.write_search_budget_snapshot();
+    const std::string budgetRows = algorithm.searchBudgetRows.str();
+    assert(std::count(budgetRows.begin(), budgetRows.end(), '\n') == 1);
+    assert(std::count(budgetRows.begin(), budgetRows.end(), '\t') == 11);
     algorithm.flush_row_into_evol_log();
     const std::string evolutionRow = algorithm.evolutionRows.str();
     assert(std::count(evolutionRow.begin(), evolutionRow.end(), ',') == 5);
@@ -1244,19 +1296,20 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 24);
         assert(columns[1] == "random");
         const double rewardComponentSum =
-            std::stod(columns[16])
-            + std::stod(columns[17])
-            + std::stod(columns[18]);
+            std::stod(columns[17])
+            + std::stod(columns[18])
+            + std::stod(columns[19]);
         assert(std::fabs(
-            rewardComponentSum - std::stod(columns[20]))
+            rewardComponentSum - std::stod(columns[21]))
             <= 1e-8);
-        assert(std::stod(columns[19]) >= 0.0);
-        assert(std::stod(columns[21]) >= 0.0);
+        assert(std::stod(columns[20]) >= 0.0);
+        assert(std::stod(columns[22]) >= 0.0);
         if (columns[2] == "weak") {
-            assert(std::fabs(std::stod(columns[21])) <= 1e-12);
+            assert(std::fabs(std::stod(columns[12])) <= 1e-12);
+            assert(std::fabs(std::stod(columns[22])) <= 1e-12);
         }
         const int terminationCount =
             std::stoi(columns[6])
@@ -1323,7 +1376,7 @@ int main(int argc, char* argv[]) {
         while (std::getline(rowStream, column, '\t')) {
             columns.push_back(column);
         }
-        assert(columns.size() == 23);
+        assert(columns.size() == 24);
         assert(columns[1] == "matched_random");
         const int terminationCount =
             std::stoi(columns[6])

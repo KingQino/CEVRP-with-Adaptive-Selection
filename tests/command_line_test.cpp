@@ -48,6 +48,9 @@ int main() {
         "-verified_upper_ratio", "0.10",
         "-pure_immigrant_ratio", "0.15",
         "-gamma", "1.05",
+        "-elite_rho", "0.20",
+        "-ls_depth", "d5",
+        "-ls_cost_penalty", "0.05",
     };
     CommandLine namedCommandLine = make_command_line(namedArguments);
     Parameters namedParameters;
@@ -68,6 +71,12 @@ int main() {
     assert(std::fabs(namedParameters.verifiedUpperRatio - 0.10) <= 1e-12);
     assert(std::fabs(namedParameters.pureImmigrantRatio - 0.15) <= 1e-12);
     assert(std::fabs(namedParameters.gamma - 1.05) <= 1e-12);
+    assert(std::fabs(namedParameters.eliteBudgetRatio - 0.20) <= 1e-12);
+    assert(
+        namedParameters.localSearchDepthProfile
+        == LocalSearchDepthProfile::D5);
+    assert(std::fabs(
+        namedParameters.localSearchCostPenalty - 0.05) <= 1e-12);
 
     std::vector<std::string> legacyArguments = {
         "build/command_line_test",
@@ -173,6 +182,32 @@ int main() {
     Parameters invalidQualityRatio;
     invalidQualityRatio.qualityRatio = 1.0;
     assert(validation_fails(invalidQualityRatio, "strictly between 0 and 1"));
+
+    Parameters invalidEliteRatio;
+    invalidEliteRatio.eliteBudgetRatio = 1.01;
+    assert(validation_fails(invalidEliteRatio, "elite_rho"));
+
+    Parameters invalidCostPenalty;
+    invalidCostPenalty.localSearchCostPenalty = -0.01;
+    assert(validation_fails(invalidCostPenalty, "ls_cost_penalty"));
+
+    std::vector<std::string> invalidDepthArguments = {
+        "build/command_line_test",
+        "-ls_depth", "deep",
+    };
+    bool invalidDepthRejected = false;
+    try {
+        CommandLine invalidDepthCommandLine = make_command_line(
+            invalidDepthArguments);
+        Parameters invalidDepthParameters;
+        invalidDepthCommandLine.parse_parameters(
+            invalidDepthParameters);
+    } catch (const std::invalid_argument& error) {
+        invalidDepthRejected =
+            std::string(error.what()).find("ls_depth")
+            != std::string::npos;
+    }
+    assert(invalidDepthRejected);
 
     std::vector<std::string> invalidBooleanArguments = {
         "build/command_line_test",

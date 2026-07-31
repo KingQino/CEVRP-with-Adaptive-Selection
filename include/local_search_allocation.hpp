@@ -84,8 +84,11 @@ struct LocalSearchIntensityDecision {
 class OnlineIntensityLearner {
 public:
     static constexpr std::size_t LOWER_ARCHIVE_CAPACITY = 10;
+    static constexpr double DEFAULT_COST_PENALTY = 0.02;
 
     void reset();
+    void set_cost_penalty(double costPenalty);
+    [[nodiscard]] double cost_penalty() const;
 
     [[nodiscard]] LocalSearchIntensityDecision select(
         const LocalSearchAllocationContext& context,
@@ -117,6 +120,7 @@ private:
     std::array<LinearUcbModel, 3> logCostModels;
     std::array<int, 3> observationCounts{};
     std::vector<LowerArchiveEntry> lowerArchive;
+    double costPenalty{DEFAULT_COST_PENALTY};
 };
 
 struct LocalSearchAllocationStats {
@@ -129,6 +133,7 @@ struct LocalSearchAllocationStats {
     int acceptedMoves{};
     int neighborhoodCalls{};
     std::uint64_t distanceCalls{};
+    std::uint64_t continuationDistanceCalls{};
     double upperGain{};
     int gammaCrosses{};
     int parentUses{};
@@ -196,7 +201,8 @@ public:
         std::mt19937& localSearchEngine,
         std::mt19937& allocationEngine,
         std::vector<LocalSearchWorkspace>& workspaces,
-        const OnlineIntensityLearner& learner);
+        const OnlineIntensityLearner& learner,
+        const LocalSearchDepthConfig& depthConfig = {});
 
     static void assign_parent_use_feedback(
         LocalSearchAllocationRun& run,

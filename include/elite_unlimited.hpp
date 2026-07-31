@@ -45,9 +45,11 @@ struct EliteUnlimitedRun {
 class EliteUnlimitedController {
 public:
     static constexpr int WARMUP_GENERATIONS = 10;
-    static constexpr long double CREDIT_RATIO = 0.10L;
+    static constexpr double DEFAULT_CREDIT_RATIO = 0.10;
 
     void reset();
+    void set_credit_ratio(double creditRatio);
+    [[nodiscard]] double credit_ratio() const;
 
     EliteUnlimitedRun run(
         LocalSearchAllocationRun& allocationRun,
@@ -74,6 +76,7 @@ public:
 
 private:
     long double creditDistanceCalls{};
+    double creditRatio{DEFAULT_CREDIT_RATIO};
 };
 
 #endif

@@ -43,6 +43,26 @@ enum class LocalSearchIntensity {
     Strong,
 };
 
+enum class LocalSearchDepthProfile {
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+};
+
+struct LocalSearchDepthConfig {
+    double weakMoveFraction{0.02};
+    double mediumMoveFraction{0.10};
+    double boundedStrongMoveFraction{0.30};
+    std::uint64_t boundedStrongWeakCallMultiplier{128};
+};
+
+[[nodiscard]] LocalSearchDepthConfig local_search_depth_config(
+    LocalSearchDepthProfile profile);
+[[nodiscard]] const char* local_search_depth_profile_name(
+    LocalSearchDepthProfile profile);
+
 struct LocalSearchResult {
     int moveLimit{};
     int acceptedMoves{};
@@ -148,14 +168,16 @@ public:
         Case& instance,
         std::mt19937& randomEngine,
         LocalSearchIntensity intensity,
-        LocalSearchWorkspace& workspace);
+        LocalSearchWorkspace& workspace,
+        const LocalSearchDepthConfig& depthConfig = {});
     static LocalSearchResult improve_with_eight_neighborhood_rvnd_one_move(
         Individual& individual,
         Case& instance,
         std::mt19937& randomEngine,
         LocalSearchIntensity intensity,
         LocalSearchWorkspace& workspace,
-        double gammaUpperBound);
+        double gammaUpperBound,
+        const LocalSearchDepthConfig& depthConfig = {});
     static void begin_eight_neighborhood_rvnd_one_move_session(
         Individual& individual,
         LocalSearchSession& session,
@@ -173,9 +195,11 @@ public:
     static int move_limit_for_intensity(
         const Individual& individual,
         const Case& instance,
-        LocalSearchIntensity intensity);
+        LocalSearchIntensity intensity,
+        const LocalSearchDepthConfig& depthConfig = {});
     static std::uint64_t bounded_strong_distance_call_limit(
-        std::uint64_t weakDistanceCalls);
+        std::uint64_t weakDistanceCalls,
+        const LocalSearchDepthConfig& depthConfig = {});
 };
 
 #endif

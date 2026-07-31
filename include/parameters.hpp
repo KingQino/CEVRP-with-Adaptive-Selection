@@ -26,6 +26,11 @@ struct Parameters {
     double verifiedUpperRatio = 0.05;
     double pureImmigrantRatio = 0.10;
     double gamma = 1.02;
+    double eliteBudgetRatio = 0.10;
+    LocalSearchDepthProfile localSearchDepthProfile =
+        LocalSearchDepthProfile::D3;
+    double localSearchCostPenalty =
+        OnlineIntensityLearner::DEFAULT_COST_PENALTY;
 
     void validate() const;
 };

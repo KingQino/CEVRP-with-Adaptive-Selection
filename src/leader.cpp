@@ -29,10 +29,6 @@ enum class Neighborhood {
 };
 
 constexpr double kImprovementTolerance = 0.00000001;
-constexpr double kWeakMoveFraction = 0.02;
-constexpr double kMediumMoveFraction = 0.10;
-constexpr double kBoundedStrongMoveFraction = 0.30;
-constexpr std::uint64_t kBoundedStrongWeakCallMultiplier = 128;
 
 constexpr std::array<Neighborhood, 3> kThreeNeighborhoods = {
     Neighborhood::TwoOpt,
@@ -2401,7 +2397,8 @@ LocalSearchResult improve_with_rvnd_one_move(
 int scaled_move_limit_for_intensity(
     const Individual& individual,
     const Case& instance,
-    LocalSearchIntensity intensity) {
+    LocalSearchIntensity intensity,
+    const LocalSearchDepthConfig& depthConfig) {
     const int solutionScale = instance.customerNumber + individual.route_num;
     switch (intensity) {
         case LocalSearchIntensity::Skip:
@@ -2409,16 +2406,19 @@ int scaled_move_limit_for_intensity(
         case LocalSearchIntensity::Weak:
             return std::max(
                 1,
-                static_cast<int>(std::ceil(kWeakMoveFraction * solutionScale)));
+                static_cast<int>(std::ceil(
+                    depthConfig.weakMoveFraction * solutionScale)));
         case LocalSearchIntensity::Medium:
             return std::max(
                 1,
-                static_cast<int>(std::ceil(kMediumMoveFraction * solutionScale)));
+                static_cast<int>(std::ceil(
+                    depthConfig.mediumMoveFraction * solutionScale)));
         case LocalSearchIntensity::BoundedStrong:
             return std::max(
                 1,
                 static_cast<int>(std::ceil(
-                    kBoundedStrongMoveFraction * solutionScale)));
+                    depthConfig.boundedStrongMoveFraction
+                    * solutionScale)));
         case LocalSearchIntensity::Strong:
             return -1;
     }
@@ -2426,6 +2426,40 @@ int scaled_move_limit_for_intensity(
 }
 
 }  // namespace
+
+LocalSearchDepthConfig local_search_depth_config(
+    LocalSearchDepthProfile profile) {
+    switch (profile) {
+        case LocalSearchDepthProfile::D1:
+            return {0.02, 0.05, 0.15, 64};
+        case LocalSearchDepthProfile::D2:
+            return {0.02, 0.075, 0.225, 96};
+        case LocalSearchDepthProfile::D3:
+            return {0.02, 0.10, 0.30, 128};
+        case LocalSearchDepthProfile::D4:
+            return {0.02, 0.15, 0.45, 192};
+        case LocalSearchDepthProfile::D5:
+            return {0.02, 0.20, 0.60, 256};
+    }
+    throw std::logic_error("unknown local-search depth profile");
+}
+
+const char* local_search_depth_profile_name(
+    LocalSearchDepthProfile profile) {
+    switch (profile) {
+        case LocalSearchDepthProfile::D1:
+            return "d1";
+        case LocalSearchDepthProfile::D2:
+            return "d2";
+        case LocalSearchDepthProfile::D3:
+            return "d3";
+        case LocalSearchDepthProfile::D4:
+            return "d4";
+        case LocalSearchDepthProfile::D5:
+            return "d5";
+    }
+    throw std::logic_error("unknown local-search depth profile");
+}
 
 const char* Leader::operator_name(
     LocalSearchOperator localSearchOperator) {
@@ -2529,7 +2563,11 @@ LocalSearchResult Leader::improve_with_seven_neighborhood_rvnd_one_move(
         instance,
         randomEngine,
         kSevenNeighborhoods,
-        scaled_move_limit_for_intensity(individual, instance, intensity),
+        scaled_move_limit_for_intensity(
+            individual,
+            instance,
+            intensity,
+            LocalSearchDepthConfig{}),
         workspace,
         std::numeric_limits<double>::infinity());
 }
@@ -2566,14 +2604,16 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
     Case& instance,
     std::mt19937& randomEngine,
     LocalSearchIntensity intensity,
-    LocalSearchWorkspace& workspace) {
+    LocalSearchWorkspace& workspace,
+    const LocalSearchDepthConfig& depthConfig) {
     return improve_with_eight_neighborhood_rvnd_one_move(
         individual,
         instance,
         randomEngine,
         intensity,
         workspace,
-        std::numeric_limits<double>::infinity());
+        std::numeric_limits<double>::infinity(),
+        depthConfig);
 }
 
 LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
@@ -2582,11 +2622,13 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
     std::mt19937& randomEngine,
     LocalSearchIntensity intensity,
     LocalSearchWorkspace& workspace,
-    double gammaUpperBound) {
+    double gammaUpperBound,
+    const LocalSearchDepthConfig& depthConfig) {
     const int moveLimit = scaled_move_limit_for_intensity(
         individual,
         instance,
-        intensity);
+        intensity,
+        depthConfig);
     LocalSearchResult result;
     result.moveLimit = moveLimit;
     if (moveLimit == 0) {
@@ -2603,7 +2645,8 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
         const int weakMoveLimit = scaled_move_limit_for_intensity(
             individual,
             instance,
-            LocalSearchIntensity::Weak);
+            LocalSearchIntensity::Weak,
+            depthConfig);
         result =
             continue_eight_neighborhood_rvnd_one_move_session(
                 individual,
@@ -2624,7 +2667,8 @@ LocalSearchResult Leader::improve_with_eight_neighborhood_rvnd_one_move(
                     workspace,
                     gammaUpperBound,
                     bounded_strong_distance_call_limit(
-                        result.distanceCallsUsed));
+                        result.distanceCallsUsed,
+                        depthConfig));
             result.acceptedMoves += continuation.acceptedMoves;
             result.neighborhoodCalls += continuation.neighborhoodCalls;
             result.distanceCallsUsed += continuation.distanceCallsUsed;
@@ -2780,21 +2824,24 @@ LocalSearchResult Leader::continue_eight_neighborhood_rvnd_one_move_session(
 int Leader::move_limit_for_intensity(
     const Individual& individual,
     const Case& instance,
-    LocalSearchIntensity intensity) {
+    LocalSearchIntensity intensity,
+    const LocalSearchDepthConfig& depthConfig) {
     return scaled_move_limit_for_intensity(
         individual,
         instance,
-        intensity);
+        intensity,
+        depthConfig);
 }
 
 std::uint64_t Leader::bounded_strong_distance_call_limit(
-    std::uint64_t weakDistanceCalls) {
+    std::uint64_t weakDistanceCalls,
+    const LocalSearchDepthConfig& depthConfig) {
     const std::uint64_t baseCalls =
         std::max<std::uint64_t>(weakDistanceCalls, 1);
     if (baseCalls
         > std::numeric_limits<std::uint64_t>::max()
-            / kBoundedStrongWeakCallMultiplier) {
+            / depthConfig.boundedStrongWeakCallMultiplier) {
         return std::numeric_limits<std::uint64_t>::max();
     }
-    return baseCalls * kBoundedStrongWeakCallMultiplier;
+    return baseCalls * depthConfig.boundedStrongWeakCallMultiplier;
 }

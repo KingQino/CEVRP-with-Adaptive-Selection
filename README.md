@@ -54,12 +54,21 @@ For details, please refer to the following paper:
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
 | `-pure_immigrant_ratio` | `0.10` | Pure immigrant offspring share |
 | `-gamma` | `1.02` | Upper-cost ratio that triggers follower evaluation |
+| `-elite_rho` | `0.10` | Elite Unlimited credit earned per ordinary local-search distance call |
+| `-ls_depth` | `d3` | Coupled weak/medium/bounded-strong depth profile (`d1` to `d5`) |
+| `-ls_cost_penalty` | `0.02` | Cost penalty in the online intensity learner's action score |
 
 Invalid configurations exit with a non-zero status. Probabilities must be in
 `[0, 1]`, `quality_ratio` must be strictly between 0 and 1,
 `parent_pool_ratio * pop_size >= 5`, and
 `verified_upper_ratio + pure_immigrant_ratio <= 0.25`. The tournament size
 cannot exceed the resulting parent-pool size.
+
+The five depth profiles keep the weak probe at 2% of
+`customer_count + route_count`. Their medium fraction, bounded-strong move
+fraction, and bounded-strong weak-call multiplier are respectively:
+`d1=(5%,15%,64)`, `d2=(7.5%,22.5%,96)`, `d3=(10%,30%,128)`,
+`d4=(15%,45%,192)`, and `d5=(20%,60%,256)`. `d3` is the original baseline.
 
 `random` uses the original progressive random mix. `matched_random` assigns
 approximately 88.8% weak, 3.3% medium, and 7.9% deepest actions, matching the
@@ -121,6 +130,7 @@ includes the per-individual search context. The deepest action is selected by
 - Allocated policies preserve each individual's RVND session and failure cache while progressing from weak to medium or strong. Online reward combines lower-archive rank, post-probe gamma crossing, and reproduction parent usage. Continuation upper gain remains an aggregate diagnostic signal but is excluded from reward. Action cost contains only evaluations consumed after the common weak probe.
 - All policies maintain the complete historical best upper-level individual as the shared context reference and final fallback.
 - Lower-level charging is evaluated only for solutions within `1.02 * global_best_upper_cost`.
-- All policies write eight per-generation operator totals to `local-search-operators.tsv`. Non-static allocation policies additionally write three action totals for each 10-generation window to `local-search-allocation.tsv`, including mutually exclusive counts for local-optimum, move-limit, and distance-limit termination. Per-individual local-search rows are intentionally omitted to keep long runs compact.
+- All policies write eight per-generation operator totals to `local-search-operators.tsv`. Non-static allocation policies additionally write three action totals for each 10-generation window to `local-search-allocation.tsv`, including mutually exclusive counts for local-optimum, move-limit, and distance-limit termination and separate total/continuation evaluations. Per-individual local-search rows are intentionally omitted to keep long runs compact.
+- `run-configuration.tsv` records the exact gamma, Elite rho, depth profile and learner cost penalty for each run. `search-budget.tsv` writes 10-generation snapshots that partition distance calls into ordinary local search, Elite Unlimited, follower evaluation and other generation work, together with their budget shares and follower candidate/run counts.
 - `Follower` inserts charging stations and refines a complete solution by enumeration.
 - With `popSize=100`, `Reproduction` builds the next generation from one lower-level elite, 84 upper-parent offspring, 5 `verifiedBest x P_upper` offspring, and 10 pure immigrants.

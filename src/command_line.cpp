@@ -55,6 +55,28 @@ LocalSearchIntensity parse_local_search_intensity(const std::string& value) {
         "ls must be one of: skip, weak, medium, bounded_strong, strong");
 }
 
+LocalSearchDepthProfile parse_local_search_depth_profile(
+    const std::string& value) {
+    const std::string normalized = lowercase(value);
+    if (normalized == "d1") {
+        return LocalSearchDepthProfile::D1;
+    }
+    if (normalized == "d2") {
+        return LocalSearchDepthProfile::D2;
+    }
+    if (normalized == "d3") {
+        return LocalSearchDepthProfile::D3;
+    }
+    if (normalized == "d4") {
+        return LocalSearchDepthProfile::D4;
+    }
+    if (normalized == "d5") {
+        return LocalSearchDepthProfile::D5;
+    }
+    throw std::invalid_argument(
+        "ls_depth must be one of: d1, d2, d3, d4, d5");
+}
+
 LocalSearchPolicy parse_local_search_policy(const std::string& value) {
     const std::string normalized = lowercase(value);
     if (normalized == "static") {
@@ -142,6 +164,9 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "verified_upper_ratio",
         "pure_immigrant_ratio",
         "gamma",
+        "elite_rho",
+        "ls_depth",
+        "ls_cost_penalty",
     };
     for (const auto& [key, value] : arguments) {
         (void)value;
@@ -178,6 +203,17 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "pure_immigrant_ratio",
         params.pureImmigrantRatio);
     params.gamma = get_double("gamma", params.gamma);
+    params.eliteBudgetRatio = get_double(
+        "elite_rho",
+        params.eliteBudgetRatio);
+    params.localSearchDepthProfile = parse_local_search_depth_profile(
+        get_string(
+            "ls_depth",
+            local_search_depth_profile_name(
+                params.localSearchDepthProfile)));
+    params.localSearchCostPenalty = get_double(
+        "ls_cost_penalty",
+        params.localSearchCostPenalty);
 }
 
 bool CommandLine::help_requested() const {
@@ -206,6 +242,9 @@ void CommandLine::display_help() {
         << "  -verified_upper_ratio <double> verifiedBest x P_upper share (default: 0.05)\n"
         << "  -pure_immigrant_ratio <double> Pure immigrant share (default: 0.10)\n"
         << "  -gamma <double>                Follower trigger ratio (default: 1.02)\n"
+        << "  -elite_rho <double>            Elite LS credit ratio (default: 0.10)\n"
+        << "  -ls_depth <d1|d2|d3|d4|d5>    Local-search depth profile (default: d3)\n"
+        << "  -ls_cost_penalty <double>      Learner cost penalty (default: 0.02)\n"
         << "\nLegacy syntax remains accepted:\n"
         << "  ./Run <instance> <stp> <mth> "
            "[skip|weak|medium|bounded_strong|strong]\n";
