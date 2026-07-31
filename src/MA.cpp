@@ -789,9 +789,6 @@ void MA::run_generation() {
     if (!evaluatedCompleteSolutions.empty()) {
         const shared_ptr<Individual> bestEvaluatedComplete =
             Reproduction::best_by_lower_cost(evaluatedCompleteSolutions);
-        if (bestEvaluatedComplete->get_lower_cost() < INFEASIBLE_COST) {
-            lowerElite = bestEvaluatedComplete;
-        }
         if (verifiedBest->get_lower_cost() > bestEvaluatedComplete->get_lower_cost()) {
             verifiedBest->copy_from(*bestEvaluatedComplete);
             lastLowerImprovementDistanceCalls =
@@ -803,8 +800,9 @@ void MA::run_generation() {
             < verifiedLowerCostBeforeFollower - 1e-12) {
         eliteUnlimitedRun.verifiedImprovements = 1;
     }
-    const bool retainVerifiedFallback =
-        lowerElite == nullptr && verifiedBest->get_lower_cost() < INFEASIBLE_COST;
+    // Complete solutions still update feedback and verifiedBest, but this
+    // ablation does not copy a lower-level individual into the next population.
+    const bool retainVerifiedFallback = false;
 
     if (localSearchPolicy == LocalSearchPolicy::OnlineNonContextual
         || localSearchPolicy == LocalSearchPolicy::OnlineIndividual) {

@@ -1068,8 +1068,7 @@ int main(int argc, char* argv[]) {
     for (const auto& individual : algorithm.population) {
         finiteLowerCostCount += std::isfinite(individual->get_lower_cost());
     }
-    assert(finiteLowerCostCount == 1);
-    assert(std::isfinite(algorithm.population.front()->get_lower_cost()));
+    assert(finiteLowerCostCount == 0);
     assert(std::string(MA::EVOLUTION_LOG_HEADER)
            == "iter,evals,best_upper_cost,best_lower_cost,progress,duration");
     std::string localSearchRow;
@@ -1145,9 +1144,7 @@ int main(int argc, char* argv[]) {
     for (const auto& individual : algorithm.population) {
         finiteLowerCostCount += std::isfinite(individual->get_lower_cost());
     }
-    assert(finiteLowerCostCount == 1);
-    assert(std::fabs(
-        algorithm.population.front()->get_lower_cost() - archivedLowerCost) <= 1e-8);
+    assert(finiteLowerCostCount == 0);
 
     // Crossing the former 30-generation boundary must not reduce the set of
     // individuals receiving local search.
@@ -1219,57 +1216,17 @@ int main(int argc, char* argv[]) {
     MA retainedEliteAlgorithm(&retainedEliteInstance, retainedEliteParameters);
     retainedEliteAlgorithm.initialize_search();
     retainedEliteAlgorithm.run_generation();
-    assert(retainedEliteAlgorithm.retainedLowerElite != nullptr);
-    assert(std::isfinite(
-        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost()));
-
-    const auto retainedRoutes =
-        retainedEliteAlgorithm.retainedLowerElite->get_routes();
-    const double retainedUpperCost =
-        retainedEliteAlgorithm.retainedLowerElite->get_upper_cost();
-    const double retainedLowerCost =
-        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost();
-    const std::uint64_t callsBeforeReuse =
-        retainedEliteInstance.get_distance_calls();
-    retainedEliteAlgorithm.localSearchOperatorRows.str("");
-    retainedEliteAlgorithm.localSearchOperatorRows.clear();
+    assert(retainedEliteAlgorithm.retainedLowerElite == nullptr);
+    assert(retainedEliteAlgorithm.population.size() == 1);
+    assert(std::isinf(
+        retainedEliteAlgorithm.population.front()->get_lower_cost()));
 
     retainedEliteAlgorithm.run_generation();
 
-    assert(retainedEliteInstance.get_distance_calls() == callsBeforeReuse);
+    assert(retainedEliteAlgorithm.retainedLowerElite == nullptr);
     assert(retainedEliteAlgorithm.population.size() == 1);
-    assert(retainedEliteAlgorithm.population.front()
-           == retainedEliteAlgorithm.retainedLowerElite);
-    assert(retainedEliteAlgorithm.retainedLowerElite->get_routes() == retainedRoutes);
-    assert(std::fabs(
-        retainedEliteAlgorithm.retainedLowerElite->get_upper_cost()
-        - retainedUpperCost) <= 1e-8);
-    assert(std::fabs(
-        retainedEliteAlgorithm.retainedLowerElite->get_lower_cost()
-        - retainedLowerCost) <= 1e-8);
-
-    std::istringstream retainedEliteOperatorRows(
-        retainedEliteAlgorithm.localSearchOperatorRows.str());
-    int retainedEliteOperatorRowCount = 0;
-    while (std::getline(
-        retainedEliteOperatorRows,
-        localSearchRow)) {
-        std::istringstream rowStream(localSearchRow);
-        std::vector<std::string> columns;
-        std::string column;
-        while (std::getline(rowStream, column, '\t')) {
-            columns.push_back(column);
-        }
-        assert(columns.size() == 7);
-        assert(std::stoi(columns[0]) == 2);
-        assert(std::stoi(columns[2]) == 0);
-        assert(std::stoi(columns[3]) == 0);
-        assert(std::fabs(std::stod(columns[4])) <= 1e-12);
-        ++retainedEliteOperatorRowCount;
-    }
-    assert(
-        retainedEliteOperatorRowCount
-        == static_cast<int>(LOCAL_SEARCH_OPERATOR_COUNT));
+    assert(std::isinf(
+        retainedEliteAlgorithm.population.front()->get_lower_cost()));
 
     Case randomAllocationInstance(instancePath, 43);
     Parameters randomAllocationParameters;
