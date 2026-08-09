@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <numeric>
+#include <sstream>
 #include <stdexcept>
 
 #include "algorithm_constants.hpp"
@@ -26,6 +28,75 @@ constexpr double kStrongSelectionRatio = 0.50;
 // Quality-only shared configuration's confirmed aggregate online allocation.
 constexpr double kMatchedMediumRatio = 0.0348226126187;
 constexpr double kMatchedDeepestRatio = 0.2088046423357;
+
+LocalSearchActionRatios normalized_ratios(
+    const LocalSearchActionRatios& ratios,
+    const std::string& source) {
+    if (!std::isfinite(ratios.weak)
+        || !std::isfinite(ratios.medium)
+        || !std::isfinite(ratios.deepest)
+        || ratios.weak < 0.0
+        || ratios.medium < 0.0
+        || ratios.deepest < 0.0) {
+        throw std::runtime_error(
+            "invalid local-search action ratios in " + source);
+    }
+    const double total = ratios.weak + ratios.medium + ratios.deepest;
+    if (std::fabs(total - 1.0) > 1e-6) {
+        throw std::runtime_error(
+            "local-search action ratios must sum to one in " + source);
+    }
+    return {
+        ratios.weak / total,
+        ratios.medium / total,
+        ratios.deepest / total,
+    };
+}
+
+std::vector<LocalSearchIntensity> make_balanced_random_intensities(
+    std::size_t count,
+    const LocalSearchActionRatios& ratios,
+    LocalSearchIntensity deepestIntensity,
+    std::array<std::size_t, 3>& assignedCounts,
+    std::size_t& eligibleCount,
+    std::mt19937& randomEngine) {
+    const std::array<double, 3> probabilities = {
+        ratios.weak,
+        ratios.medium,
+        ratios.deepest,
+    };
+    const std::array<LocalSearchIntensity, 3> intensities = {
+        LocalSearchIntensity::Weak,
+        LocalSearchIntensity::Medium,
+        deepestIntensity,
+    };
+    std::vector<LocalSearchIntensity> assignments;
+    assignments.reserve(count);
+    for (std::size_t item = 0; item < count; ++item) {
+        ++eligibleCount;
+        std::size_t selectedIndex = 0;
+        double largestDeficit = -std::numeric_limits<double>::infinity();
+        for (std::size_t actionIndex = 0;
+             actionIndex < probabilities.size();
+             ++actionIndex) {
+            const double deficit =
+                probabilities[actionIndex]
+                    * static_cast<double>(eligibleCount)
+                - static_cast<double>(assignedCounts[actionIndex]);
+            if (deficit > largestDeficit) {
+                largestDeficit = deficit;
+                selectedIndex = actionIndex;
+            }
+        }
+        ++assignedCounts[selectedIndex];
+        assignments.push_back(intensities[selectedIndex]);
+    }
+    std::shuffle(
+        assignments.begin(),
+        assignments.end(),
+        randomEngine);
+    return assignments;
+}
 
 double bounded_nonnegative(double value) {
     const double nonnegative = std::max(0.0, value);
@@ -159,6 +230,65 @@ std::array<double, 3> default_incremental_cost_units() {
 }
 
 }  // namespace
+
+LocalSearchActionRatios load_instance_matched_ratios(
+    const std::string& ratioFile,
+    const std::string& instanceName) {
+    std::ifstream input(ratioFile);
+    if (!input.is_open()) {
+        throw std::runtime_error(
+            "failed to open instance-matched ratio file: " + ratioFile);
+    }
+
+    std::string line;
+    int lineNumber = 0;
+    while (std::getline(input, line)) {
+        ++lineNumber;
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        std::istringstream row(line);
+        std::string name;
+        std::string weak;
+        std::string medium;
+        std::string deepest;
+        if (!std::getline(row, name, '\t')
+            || !std::getline(row, weak, '\t')
+            || !std::getline(row, medium, '\t')
+            || !std::getline(row, deepest, '\t')) {
+            throw std::runtime_error(
+                "malformed instance-matched ratio row "
+                + std::to_string(lineNumber)
+                + " in " + ratioFile);
+        }
+        if (name == "instance") {
+            continue;
+        }
+        if (name != instanceName) {
+            continue;
+        }
+        try {
+            return normalized_ratios(
+                {
+                    std::stod(weak),
+                    std::stod(medium),
+                    std::stod(deepest),
+                },
+                ratioFile + ":" + std::to_string(lineNumber));
+        } catch (const std::invalid_argument&) {
+            throw std::runtime_error(
+                "non-numeric instance-matched ratios for "
+                + instanceName + " in " + ratioFile);
+        } catch (const std::out_of_range&) {
+            throw std::runtime_error(
+                "out-of-range instance-matched ratios for "
+                + instanceName + " in " + ratioFile);
+        }
+    }
+    throw std::runtime_error(
+        "missing instance-matched ratios for "
+        + instanceName + " in " + ratioFile);
+}
 
 LinearUcbModel::LinearUcbModel() {
     reset();
@@ -517,7 +647,8 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
     std::mt19937& allocationEngine,
     std::vector<LocalSearchWorkspace>& workspaces,
     const OnlineIntensityLearner& learner,
-    const LocalSearchDepthConfig& depthConfig) {
+    const LocalSearchDepthConfig& depthConfig,
+    const LocalSearchActionRatios& instanceMatchedRatios) {
     if (policy == LocalSearchPolicy::Static) {
         throw std::logic_error(
             "static local search does not use the allocation runner");
@@ -542,6 +673,12 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
         if (!canReuseLowerElite) {
             searchCandidates.push_back(individual);
         }
+    }
+    if (policy == LocalSearchPolicy::InstanceMatchedRandom) {
+        std::shuffle(
+            searchCandidates.begin(),
+            searchCandidates.end(),
+            allocationEngine);
     }
 
     std::vector<LocalSearchIntensity> matchedIntensities;
@@ -573,6 +710,14 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             matchedIntensities.end(),
             allocationEngine);
     }
+    std::array<std::size_t, 3> instanceMatchedAssignedCounts{};
+    std::size_t instanceMatchedEligibleCount = 0;
+    const LocalSearchActionRatios normalizedInstanceRatios =
+        policy == LocalSearchPolicy::InstanceMatchedRandom
+        ? normalized_ratios(
+            instanceMatchedRatios,
+            "instance-matched runtime configuration")
+        : LocalSearchActionRatios{};
 
     for (std::size_t batchStart = 0;
          batchStart < searchCandidates.size();
@@ -640,7 +785,38 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
             run.records.push_back(std::move(record));
         }
 
+        std::vector<LocalSearchIntensity> instanceBatchIntensities(
+            batchSize,
+            LocalSearchIntensity::Weak);
+        if (policy == LocalSearchPolicy::InstanceMatchedRandom) {
+            std::vector<std::size_t> eligibleLocalIndexes;
+            eligibleLocalIndexes.reserve(batchSize);
+            for (std::size_t localIndex = 0;
+                 localIndex < batchSize;
+                 ++localIndex) {
+                if (!run.records[recordStart + localIndex]
+                         .weakResult.reachedLocalOptimum) {
+                    eligibleLocalIndexes.push_back(localIndex);
+                }
+            }
+            auto assignments = make_balanced_random_intensities(
+                eligibleLocalIndexes.size(),
+                normalizedInstanceRatios,
+                deepestIntensity,
+                instanceMatchedAssignedCounts,
+                instanceMatchedEligibleCount,
+                allocationEngine);
+            for (std::size_t assignmentIndex = 0;
+                 assignmentIndex < eligibleLocalIndexes.size();
+                 ++assignmentIndex) {
+                instanceBatchIntensities[
+                    eligibleLocalIndexes[assignmentIndex]] =
+                        assignments[assignmentIndex];
+            }
+        }
+
         if (policy == LocalSearchPolicy::MatchedRandom
+            || policy == LocalSearchPolicy::InstanceMatchedRandom
             || policy == LocalSearchPolicy::OnlineNonContextual
             || policy == LocalSearchPolicy::OnlineIndividual) {
             for (std::size_t localIndex = 0;
@@ -660,6 +836,10 @@ LocalSearchAllocationRun LocalSearchAllocationRunner::run(
                 if (policy == LocalSearchPolicy::MatchedRandom) {
                     decision.intensity =
                         matchedIntensities[batchStart + localIndex];
+                } else if (policy
+                    == LocalSearchPolicy::InstanceMatchedRandom) {
+                    decision.intensity =
+                        instanceBatchIntensities[localIndex];
                 } else {
                     decision = learner.select(
                         record.context,
@@ -1112,6 +1292,8 @@ const char* local_search_policy_name(LocalSearchPolicy policy) {
             return "random";
         case LocalSearchPolicy::MatchedRandom:
             return "matched_random";
+        case LocalSearchPolicy::InstanceMatchedRandom:
+            return "instance_matched_random";
         case LocalSearchPolicy::OnlineNonContextual:
             return "non_contextual";
         case LocalSearchPolicy::OnlineIndividual:

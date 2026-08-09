@@ -92,6 +92,10 @@ LocalSearchPolicy parse_local_search_policy(const std::string& value) {
         || normalized == "matched-random") {
         return LocalSearchPolicy::MatchedRandom;
     }
+    if (normalized == "instance_matched_random"
+        || normalized == "instance-matched-random") {
+        return LocalSearchPolicy::InstanceMatchedRandom;
+    }
     if (normalized == "non_contextual"
         || normalized == "non-contextual"
         || normalized == "online_non_contextual"
@@ -103,7 +107,7 @@ LocalSearchPolicy parse_local_search_policy(const std::string& value) {
     }
     throw std::invalid_argument(
         "ls_policy must be one of: static, random, matched_random, "
-        "non_contextual, online");
+        "instance_matched_random, non_contextual, online");
 }
 
 }  // namespace
@@ -170,6 +174,7 @@ void CommandLine::parse_parameters(Parameters& params) const {
         "elite_rho",
         "ls_depth",
         "ls_cost_penalty",
+        "ls_instance_ratio_file",
     };
     for (const auto& [key, value] : arguments) {
         (void)value;
@@ -217,6 +222,10 @@ void CommandLine::parse_parameters(Parameters& params) const {
     params.localSearchCostPenalty = get_double(
         "ls_cost_penalty",
         params.localSearchCostPenalty);
+    params.instanceMatchedRatioFile = get_string(
+        "ls_instance_ratio_file",
+        (projectRoot / "config" /
+            "instance-matched-random-ratios.tsv").string());
 }
 
 bool CommandLine::help_requested() const {
@@ -237,7 +246,8 @@ void CommandLine::display_help() {
         << "  -tournament_size <int>         Parent tournament size (default: 2)\n"
         << "  -ls <skip|weak|medium|bounded_strong|strong>\n"
         << "                                  Local-search intensity (default: strong)\n"
-        << "  -ls_policy <static|random|matched_random|non_contextual|online>\n"
+        << "  -ls_policy <static|random|matched_random|instance_matched_random|\n"
+        << "             non_contextual|online>\n"
         << "                                  Local-search allocation policy\n"
         << "                                  (default: static)\n"
         << "  -parent_pool_ratio <double>    Parent-pool/population ratio (default: 0.10)\n"
@@ -248,6 +258,7 @@ void CommandLine::display_help() {
         << "  -elite_rho <double>            Elite LS credit ratio (default: 0.20)\n"
         << "  -ls_depth <d1|d2|d3|d4|d5|d6> Local-search depth profile (default: d5)\n"
         << "  -ls_cost_penalty <double>      Learner cost penalty (default: 0.02)\n"
+        << "  -ls_instance_ratio_file <path> Per-instance matched-random ratios\n"
         << "\nLegacy syntax remains accepted:\n"
         << "  ./Run <instance> <stp> <mth> "
            "[skip|weak|medium|bounded_strong|strong]\n";

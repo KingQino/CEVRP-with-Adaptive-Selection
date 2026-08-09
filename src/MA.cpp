@@ -155,6 +155,13 @@ MA::MA(Case* instance, const Parameters& parameters) {
         parameters.localSearchDepthProfile;
     this->localSearchDepthConfig = local_search_depth_config(
         parameters.localSearchDepthProfile);
+    if (parameters.localSearchPolicy
+        == LocalSearchPolicy::InstanceMatchedRandom) {
+        this->instanceMatchedRatios =
+            load_instance_matched_ratios(
+                parameters.instanceMatchedRatioFile,
+                instance->instanceName);
+    }
     this->localSearchCostPenalty =
         parameters.localSearchCostPenalty;
     this->eliteBudgetRatio = parameters.eliteBudgetRatio;
@@ -703,7 +710,8 @@ void MA::run_generation() {
             localSearchAllocationEngine,
             mixedLocalSearchWorkspaces,
             localSearchAllocator,
-            localSearchDepthConfig);
+            localSearchDepthConfig,
+            instanceMatchedRatios);
         generationOperatorStats =
             mixedLocalSearch.operatorStats;
         normalLocalSearchDistanceCalls =

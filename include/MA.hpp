@@ -134,6 +134,7 @@ public:
     LocalSearchPolicy localSearchPolicy;
     LocalSearchDepthProfile localSearchDepthProfile;
     LocalSearchDepthConfig localSearchDepthConfig;
+    LocalSearchActionRatios instanceMatchedRatios;
     double localSearchCostPenalty;
     double eliteBudgetRatio;
     double parentPoolRatio;

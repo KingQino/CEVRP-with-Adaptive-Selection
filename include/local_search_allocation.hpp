@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -19,9 +20,20 @@ enum class LocalSearchPolicy {
     Static,
     RandomMixed,
     MatchedRandom,
+    InstanceMatchedRandom,
     OnlineNonContextual,
     OnlineIndividual,
 };
+
+struct LocalSearchActionRatios {
+    double weak{};
+    double medium{};
+    double deepest{};
+};
+
+[[nodiscard]] LocalSearchActionRatios load_instance_matched_ratios(
+    const std::string& ratioFile,
+    const std::string& instanceName);
 
 struct LocalSearchAllocationContext {
     double qualityGap{};
@@ -202,7 +214,8 @@ public:
         std::mt19937& allocationEngine,
         std::vector<LocalSearchWorkspace>& workspaces,
         const OnlineIntensityLearner& learner,
-        const LocalSearchDepthConfig& depthConfig = {});
+        const LocalSearchDepthConfig& depthConfig = {},
+        const LocalSearchActionRatios& instanceMatchedRatios = {});
 
     static void assign_parent_use_feedback(
         LocalSearchAllocationRun& run,

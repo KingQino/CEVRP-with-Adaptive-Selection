@@ -37,6 +37,12 @@ void Parameters::validate() const {
         throw std::invalid_argument(
             "allocated ls_policy requires -ls strong or bounded_strong");
     }
+    if (localSearchPolicy == LocalSearchPolicy::InstanceMatchedRandom
+        && instanceMatchedRatioFile.empty()) {
+        throw std::invalid_argument(
+            "ls_instance_ratio_file must not be empty for "
+            "instance_matched_random");
+    }
 
     require_probability(mutationProb, "mutation_prob");
     require_probability(mutationIndProb, "mutation_ind_prob");

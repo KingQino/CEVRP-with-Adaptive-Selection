@@ -145,6 +145,25 @@ int main() {
         matchedRandomParameters.localSearchPolicy
         == LocalSearchPolicy::MatchedRandom);
 
+    std::vector<std::string> instanceMatchedRandomArguments = {
+        "build/command_line_test",
+        "-ls", "bounded_strong",
+        "-ls_policy", "instance-matched-random",
+        "-ls_instance_ratio_file", "ratios.tsv",
+    };
+    CommandLine instanceMatchedRandomCommandLine = make_command_line(
+        instanceMatchedRandomArguments);
+    Parameters instanceMatchedRandomParameters;
+    instanceMatchedRandomCommandLine.parse_parameters(
+        instanceMatchedRandomParameters);
+    instanceMatchedRandomParameters.validate();
+    assert(
+        instanceMatchedRandomParameters.localSearchPolicy
+        == LocalSearchPolicy::InstanceMatchedRandom);
+    assert(
+        instanceMatchedRandomParameters.instanceMatchedRatioFile
+        == "ratios.tsv");
+
     std::vector<std::string> nonContextualArguments = {
         "build/command_line_test",
         "-ls", "bounded_strong",

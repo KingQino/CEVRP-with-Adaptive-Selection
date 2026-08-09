@@ -41,7 +41,8 @@ if(BUILD_TESTING)
     add_executable(module_smoke_test tests/module_smoke_test.cpp)
     target_link_libraries(module_smoke_test PRIVATE cevrp_core)
     target_compile_definitions(module_smoke_test PRIVATE
-            TEST_DATA_DIRECTORY="${CMAKE_SOURCE_DIR}/data")
+            TEST_DATA_DIRECTORY="${CMAKE_SOURCE_DIR}/data"
+            TEST_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config")
     add_test(NAME module_smoke_test COMMAND module_smoke_test)
 
     add_executable(command_line_test tests/command_line_test.cpp)

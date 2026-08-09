@@ -1419,6 +1419,80 @@ int main(int argc, char* argv[]) {
             .observation_count(LocalSearchIntensity::Strong)
         == 0);
 
+    const std::string instanceRatioFile =
+        std::string(TEST_CONFIG_DIRECTORY)
+        + "/instance-matched-random-ratios.tsv";
+    const LocalSearchActionRatios expectedInstanceRatios =
+        load_instance_matched_ratios(
+            instanceRatioFile,
+            matchedAllocationInstance.instanceName);
+    Case instanceMatchedAllocationInstance(instancePath, 48);
+    Parameters instanceMatchedAllocationParameters =
+        boundedAllocationParameters;
+    instanceMatchedAllocationParameters.seed = 48;
+    instanceMatchedAllocationParameters.localSearchPolicy =
+        LocalSearchPolicy::InstanceMatchedRandom;
+    instanceMatchedAllocationParameters.instanceMatchedRatioFile =
+        instanceRatioFile;
+    MA instanceMatchedAllocationAlgorithm(
+        &instanceMatchedAllocationInstance,
+        instanceMatchedAllocationParameters);
+    instanceMatchedAllocationAlgorithm.initialize_search();
+    instanceMatchedAllocationAlgorithm.run_generation();
+    instanceMatchedAllocationAlgorithm
+        .write_local_search_allocation_snapshot();
+
+    std::istringstream instanceMatchedRows(
+        instanceMatchedAllocationAlgorithm
+            .localSearchAllocationRows.str());
+    int instanceMatchedSelections[3] = {0, 0, 0};
+    int instanceMatchedForced = 0;
+    while (std::getline(instanceMatchedRows, localSearchRow)) {
+        std::istringstream rowStream(localSearchRow);
+        std::vector<std::string> columns;
+        std::string column;
+        while (std::getline(rowStream, column, '\t')) {
+            columns.push_back(column);
+        }
+        assert(columns.size() == 24);
+        assert(columns[1] == "instance_matched_random");
+        const int selections = std::stoi(columns[3]);
+        instanceMatchedForced += std::stoi(columns[4]);
+        if (columns[2] == "weak") {
+            instanceMatchedSelections[0] = selections;
+        } else if (columns[2] == "medium") {
+            instanceMatchedSelections[1] = selections;
+        } else if (columns[2] == "bounded_strong") {
+            instanceMatchedSelections[2] = selections;
+        }
+    }
+    instanceMatchedSelections[0] -= instanceMatchedForced;
+    const int instanceMatchedDecisionCount =
+        instanceMatchedSelections[0]
+        + instanceMatchedSelections[1]
+        + instanceMatchedSelections[2];
+    const double expectedDecisionCounts[3] = {
+        expectedInstanceRatios.weak
+            * instanceMatchedDecisionCount,
+        expectedInstanceRatios.medium
+            * instanceMatchedDecisionCount,
+        expectedInstanceRatios.deepest
+            * instanceMatchedDecisionCount,
+    };
+    for (int actionIndex = 0; actionIndex < 3; ++actionIndex) {
+        assert(std::fabs(
+            instanceMatchedSelections[actionIndex]
+            - expectedDecisionCounts[actionIndex]) <= 1.0 + 1e-12);
+    }
+    assert(
+        instanceMatchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Weak)
+        + instanceMatchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Medium)
+        + instanceMatchedAllocationAlgorithm.localSearchAllocator
+            .observation_count(LocalSearchIntensity::Strong)
+        == 0);
+
     Case onlineAllocationInstance(instancePath, 47);
     Parameters onlineAllocationParameters =
         randomAllocationParameters;

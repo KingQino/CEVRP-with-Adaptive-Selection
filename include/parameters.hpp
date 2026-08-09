@@ -31,6 +31,7 @@ struct Parameters {
         LocalSearchDepthProfile::D5;
     double localSearchCostPenalty =
         OnlineIntensityLearner::DEFAULT_COST_PENALTY;
+    std::string instanceMatchedRatioFile;
 
     void validate() const;
 };

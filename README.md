@@ -48,7 +48,7 @@ For details, please refer to the following paper:
 | `-mutation_ind_prob` | `0.2` | Per-gene probability inside the mutation operator |
 | `-tournament_size` | `2` | Upper-parent tournament size |
 | `-ls` | `strong` | `skip`, `weak`, `medium`, `bounded_strong`, or `strong` local-search intensity |
-| `-ls_policy` | `static` | Local-search allocation policy: `static`, `random`, `matched_random`, `non_contextual`, or `online` |
+| `-ls_policy` | `static` | Local-search allocation policy: `static`, `random`, `matched_random`, `instance_matched_random`, `non_contextual`, or `online` |
 | `-parent_pool_ratio` | `0.10` | Parent-pool size relative to population size |
 | `-quality_ratio` | `0.50` | Quality-selected share of the parent pool |
 | `-verified_upper_ratio` | `0.05` | `verifiedBest x P_upper` offspring share |
@@ -57,6 +57,7 @@ For details, please refer to the following paper:
 | `-elite_rho` | `0.20` | Elite Unlimited credit earned per ordinary local-search distance call |
 | `-ls_depth` | `d5` | Coupled weak/medium/bounded-strong depth profile (`d1` to `d6`) |
 | `-ls_cost_penalty` | `0.02` | Cost penalty in the online intensity learner's action score |
+| `-ls_instance_ratio_file` | `config/instance-matched-random-ratios.tsv` | Per-instance action ratios for `instance_matched_random` |
 
 Invalid configurations exit with a non-zero status. Probabilities must be in
 `[0, 1]`, `quality_ratio` must be strictly between 0 and 1,
@@ -75,6 +76,11 @@ fraction, and bounded-strong weak-call multiplier are respectively:
 approximately 75.6% weak, 3.5% medium, and 20.9% deepest actions, matching the
 Quality-only shared configuration's aggregate online allocation independently
 of context and feedback.
+`instance_matched_random` instead uses the No-Elite online policy's observed
+weak, medium, and deepest proportions for the current instance. Ratios exclude
+individuals already at a local optimum after the common weak probe. The policy
+assigns a balanced random permutation of these actions only to the remaining
+eligible individuals, without context or learner feedback.
 `non_contextual` uses the online learner with a constant context, while `online`
 includes the per-individual search context. The deepest action is selected by
 `-ls strong` or `-ls bounded_strong`.
