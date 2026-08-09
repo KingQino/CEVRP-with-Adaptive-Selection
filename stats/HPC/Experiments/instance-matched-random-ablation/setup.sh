@@ -93,6 +93,10 @@ mv "\$SUMMARY_FILE.tmp" "\$SUMMARY_FILE"
 EOL
 
 chmod +x "$build_dir/script.slurm"
+if command -v module >/dev/null 2>&1; then
+    module purge
+    module load gcc openmpi cmake
+fi
 cmake -S "$project_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$build_dir" -j "${ABLATION_BUILD_JOBS:-10}"
 
