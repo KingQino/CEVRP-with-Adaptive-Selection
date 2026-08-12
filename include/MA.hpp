@@ -85,6 +85,7 @@ public:
     void write_elite_unlimited_snapshot();
     void accumulate_search_budget_stats(const SearchBudgetStats& stats);
     void write_search_budget_snapshot();
+    void write_intensity_model_snapshot() const;
     [[nodiscard]] bool elite_unlimited_enabled() const;
 
     std::ostringstream evolutionRows;

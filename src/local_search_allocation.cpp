@@ -341,6 +341,37 @@ void LinearUcbModel::update(
     coefficients = multiply(inverseGram, targets);
 }
 
+const LinearUcbModel::FeatureVector&
+LinearUcbModel::coefficient_values() const {
+    return coefficients;
+}
+
+LinearUcbModel::FeatureVector LinearUcbModel::feature_values(
+    const LocalSearchAllocationContext& context) {
+    return features(context);
+}
+
+const std::array<const char*, LinearUcbModel::FEATURE_COUNT>&
+LinearUcbModel::feature_names() {
+    static const std::array<const char*, FEATURE_COUNT> names = {
+        "intercept",
+        "quality_gap",
+        "adjacency_distance",
+        "budget_progress",
+        "gamma_margin",
+        "upper_stagnation",
+        "lower_stagnation",
+        "population_dispersion",
+        "recent_gamma_rate",
+        "probe_success_rate",
+        "probe_relative_gain",
+        "probe_efficiency",
+        "probe_cost",
+        "quality_x_distance",
+    };
+    return names;
+}
+
 LinearUcbModel::FeatureVector LinearUcbModel::features(
     const LocalSearchAllocationContext& context) {
     const double qualityGap = bounded_nonnegative(
@@ -399,6 +430,8 @@ void OnlineIntensityLearner::reset() {
         model.reset();
     }
     observationCounts = {};
+    featureSums = {};
+    featureSquaredSums = {};
     lowerArchive.clear();
 }
 
@@ -480,7 +513,62 @@ void OnlineIntensityLearner::update(
     logCostModels[actionIndex].update(
         context,
         std::log1p(std::max(0.0, incrementalCostUnits)));
+    const LinearUcbModel::FeatureVector features =
+        LinearUcbModel::feature_values(context);
+    for (std::size_t featureIndex = 0;
+         featureIndex < features.size();
+         ++featureIndex) {
+        featureSums[actionIndex][featureIndex] +=
+            features[featureIndex];
+        featureSquaredSums[actionIndex][featureIndex] +=
+            features[featureIndex] * features[featureIndex];
+    }
     ++observationCounts[actionIndex];
+}
+
+std::array<IntensityModelSnapshot, 3>
+OnlineIntensityLearner::model_snapshots(
+    LocalSearchIntensity deepestIntensity) const {
+    const std::array<LocalSearchIntensity, 3> intensities = {
+        LocalSearchIntensity::Weak,
+        LocalSearchIntensity::Medium,
+        deepestIntensity,
+    };
+    std::array<IntensityModelSnapshot, 3> snapshots{};
+    for (std::size_t actionIndex = 0;
+         actionIndex < snapshots.size();
+         ++actionIndex) {
+        auto& snapshot = snapshots[actionIndex];
+        snapshot.action =
+            LocalSearchAllocationRunner::intensity_name(
+                intensities[actionIndex]);
+        snapshot.observations = observationCounts[actionIndex];
+        snapshot.rewardCoefficients =
+            rewardModels[actionIndex].coefficient_values();
+        snapshot.logCostCoefficients =
+            logCostModels[actionIndex].coefficient_values();
+        if (snapshot.observations <= 0) {
+            continue;
+        }
+        const double observations = static_cast<double>(
+            snapshot.observations);
+        for (std::size_t featureIndex = 0;
+             featureIndex < LinearUcbModel::FEATURE_COUNT;
+             ++featureIndex) {
+            const double mean =
+                featureSums[actionIndex][featureIndex]
+                / observations;
+            const double secondMoment =
+                featureSquaredSums[actionIndex][featureIndex]
+                / observations;
+            snapshot.featureMeans[featureIndex] = mean;
+            snapshot.featureStandardDeviations[featureIndex] =
+                std::sqrt(std::max(
+                    0.0,
+                    secondMoment - mean * mean));
+        }
+    }
+    return snapshots;
 }
 
 std::vector<std::pair<const Individual*, double>>

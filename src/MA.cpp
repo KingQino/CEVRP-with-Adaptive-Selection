@@ -529,6 +529,45 @@ void MA::write_search_budget_snapshot() {
     pendingSearchBudgetGenerations = 0;
 }
 
+void MA::write_intensity_model_snapshot() const {
+    if (localSearchPolicy != LocalSearchPolicy::OnlineIndividual) {
+        return;
+    }
+    const std::filesystem::path directoryPath =
+        std::filesystem::path(statsDirectory)
+        / instance->instanceName
+        / to_string(seed);
+    std::ofstream modelLog(directoryPath / "intensity-model.tsv");
+    modelLog
+        << "action\tfeature\tobservations\tfeature_mean\tfeature_std\t"
+        << "reward_coefficient\treward_standardized_effect\t"
+        << "log_cost_coefficient\tlog_cost_standardized_effect\n";
+    const auto snapshots =
+        localSearchAllocator.model_snapshots(localSearchIntensity);
+    const auto& featureNames = LinearUcbModel::feature_names();
+    for (const auto& snapshot : snapshots) {
+        for (std::size_t featureIndex = 0;
+             featureIndex < LinearUcbModel::FEATURE_COUNT;
+             ++featureIndex) {
+            const double featureStd =
+                snapshot.featureStandardDeviations[featureIndex];
+            modelLog
+                << setprecision(12)
+                << snapshot.action << "\t"
+                << featureNames[featureIndex] << "\t"
+                << snapshot.observations << "\t"
+                << snapshot.featureMeans[featureIndex] << "\t"
+                << featureStd << "\t"
+                << snapshot.rewardCoefficients[featureIndex] << "\t"
+                << snapshot.rewardCoefficients[featureIndex]
+                    * featureStd << "\t"
+                << snapshot.logCostCoefficients[featureIndex] << "\t"
+                << snapshot.logCostCoefficients[featureIndex]
+                    * featureStd << "\n";
+        }
+    }
+}
+
 bool MA::elite_unlimited_enabled() const {
     return localSearchPolicy == LocalSearchPolicy::OnlineIndividual
         && localSearchIntensity
@@ -539,6 +578,7 @@ void MA::close_log_for_local_search() {
     write_local_search_allocation_snapshot();
     write_elite_unlimited_snapshot();
     write_search_budget_snapshot();
+    write_intensity_model_snapshot();
     flush_local_search_log();
     logLocalSearchOperators.close();
     logLocalSearchAllocation.close();

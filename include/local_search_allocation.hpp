@@ -68,6 +68,11 @@ public:
     void update(
         const LocalSearchAllocationContext& context,
         double target);
+    [[nodiscard]] const FeatureVector& coefficient_values() const;
+    [[nodiscard]] static FeatureVector feature_values(
+        const LocalSearchAllocationContext& context);
+    [[nodiscard]] static const std::array<const char*, FEATURE_COUNT>&
+    feature_names();
 
 private:
     using Matrix =
@@ -85,6 +90,17 @@ private:
     [[nodiscard]] static double dot(
         const FeatureVector& first,
         const FeatureVector& second);
+};
+
+struct IntensityModelSnapshot {
+    using FeatureVector = LinearUcbModel::FeatureVector;
+
+    std::string action;
+    int observations{};
+    FeatureVector featureMeans{};
+    FeatureVector featureStandardDeviations{};
+    FeatureVector rewardCoefficients{};
+    FeatureVector logCostCoefficients{};
 };
 
 struct LocalSearchIntensityDecision {
@@ -121,6 +137,8 @@ public:
         LocalSearchIntensity intensity) const;
     [[nodiscard]] int observation_count(
         LocalSearchIntensity intensity) const;
+    [[nodiscard]] std::array<IntensityModelSnapshot, 3>
+    model_snapshots(LocalSearchIntensity deepestIntensity) const;
 
 private:
     struct LowerArchiveEntry {
@@ -131,6 +149,8 @@ private:
     std::array<LinearUcbModel, 3> rewardModels;
     std::array<LinearUcbModel, 3> logCostModels;
     std::array<int, 3> observationCounts{};
+    std::array<LinearUcbModel::FeatureVector, 3> featureSums{};
+    std::array<LinearUcbModel::FeatureVector, 3> featureSquaredSums{};
     std::vector<LowerArchiveEntry> lowerArchive;
     double costPenalty{DEFAULT_COST_PENALTY};
 };
